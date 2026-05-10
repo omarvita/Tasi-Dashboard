@@ -179,6 +179,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
     <span class="lu" id="lu">Not loaded</span>
     <span id="cache-info" style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Checking cache...</span>
     <button class="rbtn" id="rbtn" onclick="refreshAll(false)">↻ Load Data</button>
+    <button class="rbtn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="testSahmkKey()" title="Test if your SAHMK API key is working">🔑 Test API</button>
     <button class="rbtn" style="background:var(--rdim);border-color:var(--red);color:var(--red)" onclick="if(confirm('Force re-fetch? Takes 2-3 min.'))refreshAll(true)">⟳ Force</button>
     <button class="rbtn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showExportMenu()">⤓ Export ▾</button>
     <label class="rbtn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3);cursor:pointer">⤒ Import<input type="file" id="importFile" accept=".json" style="display:none" onchange="importCache(this)"></label>
@@ -299,29 +300,47 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 // ║  Paste your API key below (free = quotes + fundamentals)    ║
 // ║  Starter plan (149 SAR/mo) adds full financial statements   ║
 // ╚══════════════════════════════════════════════════════════════╝
-const SAHMK_API_KEY = "shmk_live_...0805"; // ← paste your key here, e.g. "shmk_live_xxxx"
+const SAHMK_API_KEY = ""; // ← paste your key here, e.g. "shmk_live_xxxx"
 const SAHMK_BASE    = "https://app.sahmk.sa/api/v1";
 const CORS_PROXY    = "https://api.allorigins.win/get?url=";
 
-// Helper: call SAHMK with CORS proxy fallback
+// Helper: call SAHMK API
+// GitHub Pages = direct fetch with header (works perfectly)
+// Local file = use allorigins proxy with key in URL param
 async function sahmkFetch(endpoint) {
+  if (!SAHMK_API_KEY) return null;
   const url = SAHMK_BASE + endpoint;
-  // Try direct first (works on GitHub Pages / hosted URLs)
+
+  // Method 1: Direct fetch with header (works on GitHub Pages https://)
   try {
     const r = await fetch(url, {
       headers: { "X-API-Key": SAHMK_API_KEY },
-      signal: AbortSignal.timeout(8000)
+      signal: AbortSignal.timeout(10000)
     });
-    if (r.ok) return await r.json();
+    if (r.ok) {
+      const data = await r.json();
+      return data;
+    }
   } catch(e) {}
-  // Fallback: CORS proxy (works for local HTML files)
+
+  // Method 2: CORS proxy — embed key as query param since proxy strips headers
+  // SAHMK supports ?api_key= as alternative to header
   try {
-    const r = await fetch(CORS_PROXY + encodeURIComponent(url + (url.includes('?')?'&':'?') + '_key=' + SAHMK_API_KEY));
+    const separator = url.includes('?') ? '&' : '?';
+    const urlWithKey = url + separator + 'api_key=' + SAHMK_API_KEY;
+    const r = await fetch(CORS_PROXY + encodeURIComponent(urlWithKey), {
+      signal: AbortSignal.timeout(10000)
+    });
     const j = await r.json();
-    // allorigins returns {contents: "..."} — parse the inner JSON
-    const inner = JSON.parse(j.contents || '{}');
-    return inner;
-  } catch(e) { return null; }
+    if (j.contents) {
+      const data = JSON.parse(j.contents);
+      // If SAHMK returned an error, log it
+      if (data.error) { console.warn('SAHMK error:', data.error); return null; }
+      return data;
+    }
+  } catch(e) {}
+
+  return null;
 }
 
 // ═══════════════════════════════════════════════════
@@ -789,7 +808,7 @@ const STOCKS=[
 {t:"1120.SR",n:"Al Rajhi Bank",s:"Banking",r:false,pe:17.4,pb:3.5,roe:0.182,npm:0.45,de:null,dy:0.032,fcf:true,cr:null,rg:0.22,eg:0.26,rev:39.1,ni:18.2,assets:1040,desc:"Saudi Arabia's largest Islamic bank. ROE target >23.5%."},
 {t:"1180.SR",n:"Saudi National Bank",s:"Banking",r:false,pe:12.8,pb:1.6,roe:0.14,npm:0.40,de:null,dy:0.038,fcf:true,cr:null,rg:0.10,eg:0.08,rev:28.5,ni:11.4,assets:1120,desc:"Saudi Arabia's largest bank by total assets."},
 {t:"1211.SR",n:"Saudi British Bank",s:"Banking",r:false,pe:11.5,pb:1.2,roe:0.12,npm:0.38,de:null,dy:0.045,fcf:true,cr:null,rg:0.08,eg:0.10,rev:11.2,ni:4.3,assets:320,desc:"HSBC-affiliated bank, strong wholesale and trade finance."},
-{t:"1210.SR",n:"Riyad Bank",s:"Banking",r:false,pe:13.1,pb:1.4,roe:0.13,npm:0.41,de:null,dy:0.040,fcf:true,cr:null,rg:0.09,eg:0.09,rev:14.8,ni:6.1,assets:420,desc:"Large Saudi bank with strong retail and corporate banking."},
+{t:"1010.SR",n:"Riyad Bank",s:"Banking",r:false,pe:13.1,pb:1.4,roe:0.13,npm:0.41,de:null,dy:0.040,fcf:true,cr:null,rg:0.09,eg:0.09,rev:14.8,ni:6.1,assets:420,desc:"Large Saudi bank with strong retail and corporate banking."},
 {t:"1050.SR",n:"Banque Saudi Fransi",s:"Banking",r:false,pe:10.8,pb:1.1,roe:0.11,npm:0.37,de:null,dy:0.048,fcf:true,cr:null,rg:0.07,eg:0.08,rev:9.2,ni:3.4,assets:280,desc:"Mid-sized bank with French heritage. Strong corporate banking."},
 {t:"1080.SR",n:"Arab National Bank",s:"Banking",r:false,pe:11.2,pb:1.0,roe:0.10,npm:0.35,de:null,dy:0.046,fcf:true,cr:null,rg:0.06,eg:0.07,rev:7.8,ni:2.7,assets:220,desc:"Balanced retail and corporate banking mix."},
 {t:"1150.SR",n:"Alinma Bank",s:"Banking",r:false,pe:14.5,pb:1.8,roe:0.14,npm:0.42,de:null,dy:0.028,fcf:true,cr:null,rg:0.15,eg:0.18,rev:8.4,ni:3.5,assets:220,desc:"Fast-growing Islamic bank with strong digital focus."},
@@ -811,13 +830,13 @@ const STOCKS=[
 {t:"4060.SR",n:"Saudi Steel Pipes",s:"Materials",r:false,pe:14.0,pb:1.6,roe:0.12,npm:0.08,de:28,dy:0.045,fcf:true,cr:1.8,rg:0.08,eg:0.10,rev:1.8,ni:0.14,assets:2.5,desc:"Steel pipe manufacturer for oil, gas and water infrastructure."},
 {t:"4007.SR",n:"National Industrialization",s:"Industrial",r:false,pe:16.0,pb:1.3,roe:0.08,npm:0.08,de:45,dy:0.040,fcf:true,cr:1.5,rg:0.05,eg:0.07,rev:6.2,ni:0.5,assets:14,desc:"Diversified industrial conglomerate. Chemicals and titanium."},
 {t:"4009.SR",n:"Sahara International",s:"Industrial",r:false,pe:18.0,pb:1.5,roe:0.08,npm:0.12,de:35,dy:0.035,fcf:true,cr:1.6,rg:0.06,eg:0.08,rev:2.8,ni:0.34,assets:7.5,desc:"Petrochemical and industrial investments."},
-{t:"4030.SR",n:"STC",s:"Telecom",r:false,pe:22.0,pb:3.5,roe:0.17,npm:0.19,de:55,dy:0.041,fcf:true,cr:0.9,rg:0.06,eg:0.08,rev:73,ni:13.8,assets:178,desc:"Saudi's dominant telecom. 5G, cloud, regional digital expansion."},
+{t:"4030.SR",n:"STC (Saudi Telecom)",s:"Telecom",r:false,pe:22.0,pb:3.5,roe:0.17,npm:0.19,de:55,dy:0.041,fcf:true,cr:0.9,rg:0.06,eg:0.08,rev:73,ni:13.8,assets:178,desc:"Saudi's dominant telecom. 5G, cloud, regional digital expansion."},
 {t:"4040.SR",n:"Mobily",s:"Telecom",r:false,pe:18.5,pb:2.0,roe:0.11,npm:0.12,de:75,dy:0.028,fcf:true,cr:0.8,rg:0.04,eg:0.12,rev:14.8,ni:1.78,assets:48,desc:"Second telecom. Recovering after restructuring with 5G rollout."},
 {t:"4050.SR",n:"Zain KSA",s:"Telecom",r:false,pe:32.0,pb:2.5,roe:0.08,npm:0.07,de:120,dy:0.018,fcf:true,cr:0.7,rg:0.05,eg:0.18,rev:8.5,ni:0.60,assets:32,desc:"Third telecom player. Growing but lower margin than peers."},
 {t:"7010.SR",n:"STC Solutions",s:"Telecom",r:false,pe:30.0,pb:4.5,roe:0.16,npm:0.15,de:20,dy:0.018,fcf:true,cr:1.8,rg:0.12,eg:0.15,rev:5.2,ni:0.78,assets:12,desc:"IT and digital services arm of STC. Government cloud focus."},
-{t:"4163.SR",n:"Dr Sulaiman Al Habib",s:"Healthcare",r:false,pe:42.0,pb:8.5,roe:0.22,npm:0.18,de:25,dy:0.010,fcf:true,cr:1.9,rg:0.18,eg:0.22,rev:9.2,ni:1.65,assets:22,desc:"Premium hospital group. Fastest-growing healthcare chain in KSA."},
+{t:"4013.SR",n:"Dr Sulaiman Al Habib Medical",s:"Healthcare",r:false,pe:42.0,pb:8.5,roe:0.22,npm:0.18,de:25,dy:0.010,fcf:true,cr:1.9,rg:0.18,eg:0.22,rev:9.2,ni:1.65,assets:22,desc:"Premium hospital group. Fastest-growing healthcare chain in KSA."},
 {t:"4161.SR",n:"Mouwasat Medical",s:"Healthcare",r:false,pe:28.0,pb:4.2,roe:0.16,npm:0.17,de:15,dy:0.018,fcf:true,cr:2.1,rg:0.12,eg:0.14,rev:3.8,ni:0.65,assets:9.5,desc:"Eastern region hospital group with strong patient volumes."},
-{t:"4100.SR",n:"Dallah Healthcare",s:"Healthcare",r:false,pe:24.0,pb:3.0,roe:0.13,npm:0.14,de:20,dy:0.022,fcf:true,cr:1.7,rg:0.10,eg:0.12,rev:3.2,ni:0.45,assets:8.0,desc:"Private hospital group Riyadh region, consistent growth."},
+{t:"4004.SR",n:"Dallah Healthcare",s:"Healthcare",r:false,pe:24.0,pb:3.0,roe:0.13,npm:0.14,de:20,dy:0.022,fcf:true,cr:1.7,rg:0.10,eg:0.12,rev:3.2,ni:0.45,assets:8.0,desc:"Private hospital group Riyadh region, consistent growth."},
 {t:"4162.SR",n:"Al Hammadi",s:"Healthcare",r:false,pe:22.0,pb:2.5,roe:0.12,npm:0.13,de:18,dy:0.025,fcf:true,cr:1.8,rg:0.09,eg:0.11,rev:1.8,ni:0.23,assets:5.0,desc:"Multi-specialty Riyadh hospital with expansion pipeline."},
 {t:"4150.SR",n:"Nahdi Medical",s:"Healthcare",r:false,pe:20.0,pb:2.8,roe:0.14,npm:0.06,de:30,dy:0.028,fcf:true,cr:1.4,rg:0.09,eg:0.10,rev:8.5,ni:0.51,assets:8.2,desc:"Saudi's largest pharmacy chain. Expanding into digital health."},
 {t:"4270.SR",n:"Almarai",s:"Consumer",r:false,pe:24.0,pb:3.2,roe:0.14,npm:0.10,de:95,dy:0.025,fcf:false,cr:0.9,rg:0.08,eg:0.10,rev:21.5,ni:2.15,assets:57,desc:"GCC's largest food & beverage. Dominant dairy and juice brands."},
@@ -828,7 +847,7 @@ const STOCKS=[
 {t:"4191.SR",n:"Leejam Sports",s:"Consumer",r:false,pe:22.0,pb:4.0,roe:0.19,npm:0.14,de:42,dy:0.028,fcf:true,cr:0.9,rg:0.15,eg:0.18,rev:1.35,ni:0.19,assets:3.2,desc:"Largest gym operator (Fitness Time). Vision 2030 health push."},
 {t:"2050.SR",n:"Savola Group",s:"Consumer",r:false,pe:20.0,pb:1.5,roe:0.08,npm:0.03,de:98,dy:0.030,fcf:false,cr:0.8,rg:0.04,eg:0.06,rev:18.5,ni:0.56,assets:28,desc:"Diversified food group (Almarai stake, oils, sugar). High leverage."},
 {t:"4210.SR",n:"BinDawood Holding",s:"Consumer",r:false,pe:22.0,pb:2.8,roe:0.13,npm:0.04,de:12,dy:0.035,fcf:true,cr:1.2,rg:0.06,eg:0.08,rev:5.4,ni:0.22,assets:4.8,desc:"BinDawood and Danube supermarkets. Strong western Saudi presence."},
-{t:"6001.SR",n:"ACWA Power",s:"Utilities",r:false,pe:35.0,pb:5.5,roe:0.16,npm:0.28,de:320,dy:0.010,fcf:false,cr:0.8,rg:0.22,eg:0.28,rev:8.2,ni:2.3,assets:168,desc:"Top renewable energy developer. Massive global project pipeline."},
+{t:"2082.SR",n:"ACWA Power",s:"Utilities",r:false,pe:35.0,pb:5.5,roe:0.16,npm:0.28,de:320,dy:0.010,fcf:false,cr:0.8,rg:0.22,eg:0.28,rev:8.2,ni:2.3,assets:168,desc:"Top renewable energy developer. Massive global project pipeline."},
 {t:"5110.SR",n:"Saudi Electricity",s:"Utilities",r:false,pe:18.0,pb:0.8,roe:0.05,npm:0.09,de:180,dy:0.052,fcf:false,cr:0.6,rg:0.04,eg:0.05,rev:68,ni:6.1,assets:485,desc:"National electricity monopoly. Government-supported stable dividend."},
 {t:"2080.SR",n:"SAFCO",s:"Utilities",r:false,pe:14.0,pb:3.5,roe:0.26,npm:0.35,de:5,dy:0.068,fcf:true,cr:3.2,rg:-0.04,eg:-0.02,rev:3.6,ni:1.26,assets:9.2,desc:"High-quality urea producer. Strong ROE, minimal debt. Buffett favorite type."},
 {t:"8100.SR",n:"BUPA Arabia",s:"Insurance",r:false,pe:22.0,pb:6.5,roe:0.32,npm:0.06,de:null,dy:0.022,fcf:true,cr:1.8,rg:0.15,eg:0.18,rev:17.5,ni:1.05,assets:9.5,desc:"Saudi's largest health insurer. Near-monopoly on corporate health."},
@@ -1289,6 +1308,27 @@ function bar(s){return`<div class="bw"><div class="bt"><div class="bfill" style=
 // ═══════════════════════════════════════════════════════════
 // DATA FETCH — SAHMK (primary) + Yahoo Finance (fallback)
 // ═══════════════════════════════════════════════════════════
+
+// ── SAHMK key test ──
+async function testSahmkKey() {
+  if (!SAHMK_API_KEY) {
+    showToast('No SAHMK API key set. Add it at the top of the HTML file.', 4000);
+    return;
+  }
+  showToast('Testing SAHMK API key...', 2000);
+  try {
+    const data = await sahmkFetch('/quote/2222/');
+    if (data && data.price) {
+      showToast('✓ SAHMK API working! Aramco price: ' + data.price + ' SAR', 5000);
+    } else if (data && data.error) {
+      showToast('✗ SAHMK error: ' + JSON.stringify(data.error), 5000);
+    } else {
+      showToast('✗ SAHMK returned no data. Check your key.', 4000);
+    }
+  } catch(e) {
+    showToast('✗ SAHMK connection failed: ' + e.message, 4000);
+  }
+}
 
 // ── SAHMK: live quote for one stock ──
 async function fetchSahmkQuote(symbol) {
@@ -2493,14 +2533,9 @@ async function fetchMarketSummary(){
   if(!bar) return;
   try {
     let data = null;
+    // Market summary via sahmkFetch (handles both direct + proxy)
     if(SAHMK_API_KEY){
       data = await sahmkFetch('/market/summary/?index=TASI');
-    }
-    if(!data){
-      // Fallback: try without key (may work for some endpoints)
-      const r = await fetch(CORS_PROXY+encodeURIComponent('https://app.sahmk.sa/api/v1/market/summary/?index=TASI'));
-      const j = await r.json();
-      data = JSON.parse(j.contents||'{}');
     }
     if(!data?.index_value) return;
     const chg = data.index_change_percent;
