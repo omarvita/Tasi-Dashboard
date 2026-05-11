@@ -142,8 +142,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 .ft-neg{color:var(--red)!important}
 .ft-head{background:var(--bg3);font-weight:600}
 .ft-total{border-top:1px solid var(--b2);font-weight:600}
-/* AI BOX */
-.aibox{background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;font-size:11px;line-height:1.7;color:var(--tx2);white-space:pre-wrap}
+
 /* SPINNER */
 .spin{display:inline-block;width:10px;height:10px;border:2px solid var(--b2);border-top-color:var(--acc);border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -173,13 +172,13 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Claude Opus 4.6 AI · Watchlist · Portfolio · Compare · Vision 2030</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
     <span id="cache-info" style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Checking cache...</span>
     <button class="rbtn" id="rbtn" onclick="refreshAll(false)">↻ Load Data</button>
-    <button class="rbtn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="testSahmkKey()" title="Test if your SAHMK API key is working">🔑 Test API</button>
+
     <button class="rbtn" style="background:var(--rdim);border-color:var(--red);color:var(--red)" onclick="if(confirm('Force re-fetch? Takes 2-3 min.'))refreshAll(true)">⟳ Force</button>
     <button class="rbtn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showExportMenu()">⤓ Export ▾</button>
     <label class="rbtn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3);cursor:pointer">⤒ Import<input type="file" id="importFile" accept=".json" style="display:none" onchange="importCache(this)"></label>
@@ -294,54 +293,11 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 </div>
 
 <script>
-// ╔══════════════════════════════════════════════════════════════╗
-// ║              SAHMK API CONFIGURATION                        ║
-// ║  Sign up FREE at: sahmk.sa/en/developers/register          ║
-// ║  Paste your API key below (free = quotes + fundamentals)    ║
-// ║  Starter plan (149 SAR/mo) adds full financial statements   ║
-// ╚══════════════════════════════════════════════════════════════╝
-const SAHMK_API_KEY = ""; // ← paste your key here, e.g. "shmk_live_xxxx"
-const SAHMK_BASE    = "https://app.sahmk.sa/api/v1";
-const CORS_PROXY    = "https://api.allorigins.win/get?url=";
+// Data source: Yahoo Finance (primary) via CORS proxy rotation
+// Financial statements fetched lazily when you click a stock
 
-// Helper: call SAHMK API
 // GitHub Pages = direct fetch with header (works perfectly)
 // Local file = use allorigins proxy with key in URL param
-async function sahmkFetch(endpoint) {
-  if (!SAHMK_API_KEY) return null;
-  const url = SAHMK_BASE + endpoint;
-
-  // Method 1: Direct fetch with header (works on GitHub Pages https://)
-  try {
-    const r = await fetch(url, {
-      headers: { "X-API-Key": SAHMK_API_KEY },
-      signal: AbortSignal.timeout(10000)
-    });
-    if (r.ok) {
-      const data = await r.json();
-      return data;
-    }
-  } catch(e) {}
-
-  // Method 2: CORS proxy — embed key as query param since proxy strips headers
-  // SAHMK supports ?api_key= as alternative to header
-  try {
-    const separator = url.includes('?') ? '&' : '?';
-    const urlWithKey = url + separator + 'api_key=' + SAHMK_API_KEY;
-    const r = await fetch(CORS_PROXY + encodeURIComponent(urlWithKey), {
-      signal: AbortSignal.timeout(10000)
-    });
-    const j = await r.json();
-    if (j.contents) {
-      const data = JSON.parse(j.contents);
-      // If SAHMK returned an error, log it
-      if (data.error) { console.warn('SAHMK error:', data.error); return null; }
-      return data;
-    }
-  } catch(e) {}
-
-  return null;
-}
 
 // ═══════════════════════════════════════════════════
 // STOCK UNIVERSE — Base fundamental data 2024/2025
@@ -1306,126 +1262,13 @@ function bar(s){return`<div class="bw"><div class="bt"><div class="bfill" style=
 // DATA FETCH
 // ═══════════════════════════════════════
 // ═══════════════════════════════════════════════════════════
-// DATA FETCH — SAHMK (primary) + Yahoo Finance (fallback)
+// DATA FETCH — Yahoo Finance (with multi-proxy rotation)
 // ═══════════════════════════════════════════════════════════
 
-// ── SAHMK key test ──
-async function testSahmkKey() {
-  if (!SAHMK_API_KEY) {
-    showToast('No SAHMK API key set. Add it at the top of the HTML file.', 4000);
-    return;
-  }
-  showToast('Testing SAHMK API key...', 2000);
-  try {
-    const data = await sahmkFetch('/quote/2222/');
-    if (data && data.price) {
-      showToast('✓ SAHMK API working! Aramco price: ' + data.price + ' SAR', 5000);
-    } else if (data && data.error) {
-      showToast('✗ SAHMK error: ' + JSON.stringify(data.error), 5000);
-    } else {
-      showToast('✗ SAHMK returned no data. Check your key.', 4000);
-    }
-  } catch(e) {
-    showToast('✗ SAHMK connection failed: ' + e.message, 4000);
-  }
-}
+// ═══════════════════════════════════════════════════
+// YAHOO FINANCE DATA FETCH — with multi-proxy rotation
+// ═══════════════════════════════════════════════════
 
-// ── SAHMK: live quote for one stock ──
-async function fetchSahmkQuote(symbol) {
-  if (!SAHMK_API_KEY) return null;
-  try {
-    const sym = symbol.replace('.SR','');
-    const data = await sahmkFetch(`/quote/${sym}/`);
-    if (!data || !data.price) return null;
-    return {
-      price:         data.price,
-      change:        data.change_percent,
-      open:          data.open,
-      high:          data.high,
-      low:           data.low,
-      prev_close:    data.previous_close,
-      volume:        data.volume,
-      bid:           data.bid,
-      ask:           data.ask,
-      net_liquidity: data.liquidity?.net_value,
-      inflow:        data.liquidity?.inflow_value,
-      outflow:       data.liquidity?.outflow_value,
-      updated_at:    data.updated_at,
-      is_delayed:    data.is_delayed
-    };
-  } catch(e) { return null; }
-}
-
-// ── SAHMK: company fundamentals ──
-async function fetchSahmkCompany(symbol) {
-  if (!SAHMK_API_KEY) return null;
-  try {
-    const sym = symbol.replace('.SR','');
-    const data = await sahmkFetch(`/company/${sym}/`);
-    if (!data || !data.symbol) return null;
-    const f = data.fundamentals || {};
-    return {
-      pe:        f.pe_ratio,
-      pb:        f.price_to_book,
-      eps:       f.eps,
-      mktCap:    f.market_cap,
-      beta:      f.beta,
-      w52high:   f.fifty_two_week_high,
-      w52low:    f.fifty_two_week_low,
-      sector:    data.sector,
-      industry:  data.industry,
-      desc:      data.description,
-      website:   data.website,
-    };
-  } catch(e) { return null; }
-}
-
-// ── SAHMK: financial statements (Starter plan) ──
-async function fetchSahmkFinancials(symbol) {
-  if (!SAHMK_API_KEY) return null;
-  try {
-    const sym = symbol.replace('.SR','');
-    const data = await sahmkFetch(`/financials/${sym}/`);
-    if (!data) return null;
-    return data; // Returns {annual: [...], quarterly: [...]}
-  } catch(e) { return null; }
-}
-
-// ── SAHMK: historical prices ──
-async function fetchSahmkHistorical(symbol, period='6mo') {
-  if (!SAHMK_API_KEY) return null;
-  try {
-    const sym = symbol.replace('.SR','');
-    // Map period to SAHMK params
-    const limitMap = {'1mo':21,'3mo':63,'6mo':126,'1y':252,'2y':504};
-    const limit = limitMap[period] || 126;
-    const data = await sahmkFetch(`/historical/${sym}/?limit=${limit}&interval=daily`);
-    if (!data || !data.data?.length) return null;
-    // SAHMK returns [{date, open, high, low, close, volume}]
-    const sorted = [...data.data].sort((a,b) => new Date(a.date)-new Date(b.date));
-    return {
-      closes:     sorted.map(d => d.close),
-      timestamps: sorted.map(d => Math.floor(new Date(d.date).getTime()/1000)),
-      opens:      sorted.map(d => d.open),
-      highs:      sorted.map(d => d.high),
-      lows:       sorted.map(d => d.low),
-      volumes:    sorted.map(d => d.volume),
-    };
-  } catch(e) { return null; }
-}
-
-// ── SAHMK: dividends ──
-async function fetchSahmkDividends(symbol) {
-  if (!SAHMK_API_KEY) return null;
-  try {
-    const sym = symbol.replace('.SR','');
-    const data = await sahmkFetch(`/dividends/${sym}/`);
-    if (!data || !data.dividends?.length) return null;
-    return data.dividends; // [{date, amount, type}]
-  } catch(e) { return null; }
-}
-
-// ── Yahoo Finance: chart + financials fallback ──
 // Multiple CORS proxies — rotate to avoid rate limits
 const PROXIES = [
   url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
@@ -1434,20 +1277,18 @@ const PROXIES = [
 ];
 let proxyIdx = 0;
 
-async function fetchWithProxy(url, parseJSON=true){
-  // Try each proxy in round-robin
+async function fetchWithProxy(url){
   for(let attempt=0; attempt<PROXIES.length; attempt++){
     const pi = (proxyIdx + attempt) % PROXIES.length;
     try{
-      const resp = await fetch(PROXIES[pi](url), {signal: AbortSignal.timeout(8000)});
+      const resp = await fetch(PROXIES[pi](url), {signal: AbortSignal.timeout(12000)});
       if(!resp.ok) continue;
       const text = await resp.text();
-      // allorigins wraps in {contents:...}, codetabs/corsproxy return raw
       let data;
       try{ const j=JSON.parse(text); data = j.contents ? JSON.parse(j.contents) : j; }
-      catch(e){ data = parseJSON?{}:text; }
+      catch(e){ data = {}; }
       if(data && Object.keys(data).length > 0){
-        proxyIdx = pi; // Remember which proxy worked
+        proxyIdx = pi;
         return data;
       }
     }catch(e){ continue; }
@@ -1455,10 +1296,10 @@ async function fetchWithProxy(url, parseJSON=true){
   return {};
 }
 
+// Full Yahoo fetch — chart + fundamentals + financial statements
 async function fetchYahoo(ticker) {
-  // Fetch chart (price history) and summary (fundamentals) in parallel
-  const chartUrl   = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1y`;
-  const summaryUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=incomeStatementHistory,incomeStatementHistoryQuarterly,balanceSheetHistory,balanceSheetHistoryQuarterly,cashflowStatementHistory,cashflowStatementHistoryQuarterly,summaryDetail,financialData,defaultKeyStatistics`;
+  const chartUrl   = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=2y`;
+  const summaryUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=incomeStatementHistory,incomeStatementHistoryQuarterly,balanceSheetHistory,balanceSheetHistoryQuarterly,cashflowStatementHistory,cashflowStatementHistoryQuarterly,summaryDetail,financialData,defaultKeyStatistics,earningsHistory`;
   try{
     const [chart, summary] = await Promise.all([
       fetchWithProxy(chartUrl),
@@ -1468,7 +1309,7 @@ async function fetchYahoo(ticker) {
   }catch(e){ return {chart:{}, summary:{}}; }
 }
 
-// Quick price-only fetch (much faster, 1 request per stock)
+// Quick price-only fetch (1 request, for main table refresh)
 async function fetchYahooPrice(ticker){
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=6mo`;
   try{
@@ -1484,53 +1325,44 @@ async function fetchYahooPrice(ticker){
   }catch(e){ return {price:null,prev:null,closes:[],timestamps:[]}; }
 }
 
-// ── MASTER FETCH: Yahoo primary, SAHMK override ──
-let sahmkRequestsUsed = 0;
-const SAHMK_FREE_LIMIT = 90;
-
-async function fetchStockData(stock) {
+// ── PRICE-ONLY FETCH: used during main refresh (fast, 1 req per stock) ──
+async function fetchStockPrice(stock) {
   const ticker = stock.ticker;
   const result = {
-    price:null,change:null,closes:[],timestamps:[],
-    pe:stock.pe,pb:stock.pb,roe:stock.roe,npm:stock.npm,
-    de:stock.de,dy:stock.dy,fcf:stock.fcf,cr:stock.cr,
-    rg:stock.rg,eg:stock.eg,
-    rawFinancials:null,rawYahoo:null,sahmkQuote:null,dividends:null,
-    dataSource:'hardcoded',dataDate:null
+    price:null, change:null, closes:[], timestamps:[],
+    dataSource:'hardcoded', dataDate:stock.dataDate||'2024-2025 est.'
   };
-
-  // ── STEP 1: Quick price + chart fetch (1 request, fast) ──
   try {
     const quick = await fetchYahooPrice(ticker);
     if(quick.price){
-      result.price  = quick.price;
+      result.price = quick.price;
       result.change = (quick.price && quick.prev) ? ((quick.price-quick.prev)/quick.prev)*100 : null;
       result.dataSource = 'yahoo';
+      result.dataDate = new Date().toISOString().slice(0,10);
     }
-    if(quick.closes.length>5){ result.closes=quick.closes; result.timestamps=quick.timestamps; }
-  }catch(e){}
+    if(quick.closes.length>5){
+      result.closes = quick.closes;
+      result.timestamps = quick.timestamps;
+    }
+  } catch(e) {}
+  return result;
+}
 
-  // ── STEP 1b: Full Yahoo fundamentals + statements ──
+// ── FULL DATA FETCH: used when user clicks a stock (lazy load) ──
+async function fetchStockFull(stock) {
+  const ticker = stock.ticker;
+  const result = {
+    pe:stock.pe, pb:stock.pb, roe:stock.roe, npm:stock.npm,
+    de:stock.de, dy:stock.dy, fcf:stock.fcf, cr:stock.cr,
+    rg:stock.rg, eg:stock.eg,
+    rawYahoo:null, dataDate:null, fullLoaded:true
+  };
   try {
     const raw = await fetchYahoo(ticker);
-    const meta = raw.chart?.chart?.result?.[0]?.meta;
-    const closes = (raw.chart?.chart?.result?.[0]?.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
-    const timestamps = raw.chart?.chart?.result?.[0]?.timestamp||[];
-    const price = meta?.regularMarketPrice??null;
-    const prev  = meta?.chartPreviousClose??price;
-    if(price){ result.price=price; result.change=(price&&prev)?((price-prev)/prev)*100:null; result.dataSource='yahoo'; }
-    if(closes.length>5){ result.closes=closes; result.timestamps=timestamps; }
     const qs = raw.summary?.quoteSummary?.result?.[0];
     if(qs){
-      const sd=qs.summaryDetail,fd=qs.financialData;
-      result.rawYahoo={
-        incomeStatementHistory:qs.incomeStatementHistory,
-        incomeStatementHistoryQuarterly:qs.incomeStatementHistoryQuarterly,
-        balanceSheetHistory:qs.balanceSheetHistory,
-        balanceSheetHistoryQuarterly:qs.balanceSheetHistoryQuarterly,
-        cashflowStatementHistory:qs.cashflowStatementHistory,
-        cashflowStatementHistoryQuarterly:qs.cashflowStatementHistoryQuarterly,
-      };
+      const sd=qs.summaryDetail, fd=qs.financialData, dk=qs.defaultKeyStatistics;
+      // Live fundamentals
       if(sd?.trailingPE?.raw||sd?.forwardPE?.raw) result.pe=sd.trailingPE?.raw??sd.forwardPE?.raw;
       if(sd?.priceToBook?.raw)      result.pb=sd.priceToBook.raw;
       if(fd?.returnOnEquity?.raw)   result.roe=fd.returnOnEquity.raw;
@@ -1541,72 +1373,39 @@ async function fetchStockData(stock) {
       if(fd?.revenueGrowth?.raw)    result.rg=fd.revenueGrowth.raw;
       if(fd?.earningsGrowth?.raw)   result.eg=fd.earningsGrowth.raw;
       if(fd?.freeCashflow?.raw!=null) result.fcf=fd.freeCashflow.raw>0;
-      // Data date from Yahoo
-      const earningsDate = qs.incomeStatementHistory?.incomeStatementHistory?.[0]?.endDate?.fmt;
-      if(earningsDate) result.dataDate = earningsDate;
+      // Beta, 52W, market cap from Yahoo
+      if(dk?.beta?.raw) result.beta=dk.beta.raw;
+      if(dk?.['52WeekChange']?.raw) result.w52change=dk['52WeekChange'].raw;
+      if(sd?.fiftyTwoWeekHigh?.raw) result.w52high=sd.fiftyTwoWeekHigh.raw;
+      if(sd?.fiftyTwoWeekLow?.raw) result.w52low=sd.fiftyTwoWeekLow.raw;
+      if(sd?.marketCap?.raw) result.mktCap=sd.marketCap.raw;
+      // EPS
+      if(dk?.trailingEps?.raw) result.eps=dk.trailingEps.raw;
+      if(dk?.forwardEps?.raw) result.fwdEps=dk.forwardEps.raw;
+      // Earnings date from latest income statement
+      const latestIS = qs.incomeStatementHistory?.incomeStatementHistory?.[0];
+      if(latestIS?.endDate?.fmt) result.dataDate = latestIS.endDate.fmt;
+      // Financial statements
+      result.rawYahoo = {
+        incomeStatementHistory:qs.incomeStatementHistory,
+        incomeStatementHistoryQuarterly:qs.incomeStatementHistoryQuarterly,
+        balanceSheetHistory:qs.balanceSheetHistory,
+        balanceSheetHistoryQuarterly:qs.balanceSheetHistoryQuarterly,
+        cashflowStatementHistory:qs.cashflowStatementHistory,
+        cashflowStatementHistoryQuarterly:qs.cashflowStatementHistoryQuarterly,
+      };
     }
-  } catch(e) { console.warn('Yahoo failed for '+ticker,e); }
-
-  // ── STEP 2: SAHMK override (if key set and requests available) ──
-  if(SAHMK_API_KEY && sahmkRequestsUsed < SAHMK_FREE_LIMIT){
-    try{
-      const q = await fetchSahmkQuote(ticker);
-      sahmkRequestsUsed++;
-      if(q?.price){
-        result.price=q.price; result.change=q.change;
-        result.sahmkQuote=q; result.dataSource='sahmk';
-        result.dataDate=result.dataDate||new Date().toISOString().slice(0,10);
-      }
-    }catch(e){}
-    // Company data if budget allows
-    if(sahmkRequestsUsed < SAHMK_FREE_LIMIT-10){
-      try{
-        const co = await fetchSahmkCompany(ticker);
-        sahmkRequestsUsed++;
-        if(co){
-          if(co.pe)  result.pe=co.pe;
-          if(co.pb)  result.pb=co.pb;
-          result.w52high=co.w52high; result.w52low=co.w52low;
-          result.mktCap=co.mktCap;  result.beta=co.beta;
-          result.website=co.website;
-          if(co.desc) result.sahmkDesc=co.desc;
-          result.dataSource='sahmk';
-        }
-      }catch(e){}
-    }
-    // Financials (Starter plan)
-    if(sahmkRequestsUsed < SAHMK_FREE_LIMIT-20){
-      try{
-        const fin = await fetchSahmkFinancials(ticker);
-        if(fin) sahmkRequestsUsed++;
-        if(fin&&(fin.annual?.length||fin.quarterly?.length)){
-          result.rawFinancials=fin;
-          const lat=fin.annual?.[0]||fin.quarterly?.[0];
-          if(lat){
-            if(lat.net_income&&lat.revenue&&lat.revenue!==0) result.npm=lat.net_income/lat.revenue;
-            if(lat.net_income&&lat.total_equity&&lat.total_equity!==0) result.roe=lat.net_income/lat.total_equity;
-            if(lat.total_debt&&lat.total_equity&&lat.total_equity!==0) result.de=(lat.total_debt/lat.total_equity)*100;
-            if(lat.free_cash_flow!=null) result.fcf=lat.free_cash_flow>0;
-            if(lat.current_ratio) result.cr=lat.current_ratio;
-            const prev=fin.annual?.[1];
-            if(prev?.revenue&&lat.revenue&&prev.revenue!==0) result.rg=(lat.revenue-prev.revenue)/Math.abs(prev.revenue);
-            if(prev?.net_income&&lat.net_income&&prev.net_income!==0) result.eg=(lat.net_income-prev.net_income)/Math.abs(prev.net_income);
-            if(lat.period) result.dataDate=lat.period;
-          }
-          result.dataSource='sahmk-full';
-        }
-      }catch(e){}
-    }
-  }
-
-  if(!result.dataDate) result.dataDate = new Date().toISOString().slice(0,10);
+    // Also get longer chart data for 2-year history
+    const meta = raw.chart?.chart?.result?.[0]?.meta;
+    const closes = (raw.chart?.chart?.result?.[0]?.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
+    const timestamps = raw.chart?.chart?.result?.[0]?.timestamp||[];
+    if(closes.length>0){ result.closes=closes; result.timestamps=timestamps; }
+  } catch(e) { console.warn('Full fetch failed for '+ticker, e); }
   return result;
 }
 
 
-// ── Format SAHMK financial statements for display ──
-function formatSahmkFinancials(fin) {
-  // SAHMK returns {annual:[...], quarterly:[...]}
+function formatLegacyFinancials(fin) {
   // Each entry: {period, revenue, gross_profit, operating_income, net_income,
   //              total_assets, total_equity, total_debt, current_ratio,
   //              operating_cash_flow, free_cash_flow, capex, dividends_paid}
@@ -1731,9 +1530,51 @@ function setSector(sec){
 // ═══════════════════════════════════════
 // MODAL WITH TABS
 // ═══════════════════════════════════════
-function openModal(idx){
+async function openModal(idx){
   window._curIdx=idx;
   const d=window._fd?.[idx];if(!d)return;
+  // Lazy-load full Yahoo Finance data (fundamentals + statements) on first open
+  if(!d.fullLoaded){
+    try{
+      const full = await fetchStockFull(d);
+      const realD = allData.find(a=>a.ticker===d.ticker);
+      if(realD && full){
+        // Update with live fundamentals
+        if(full.pe) realD.pe=full.pe;
+        if(full.pb) realD.pb=full.pb;
+        if(full.roe!=null) realD.roe=full.roe;
+        if(full.npm!=null) realD.npm=full.npm;
+        if(full.de!=null) realD.de=full.de;
+        if(full.dy!=null) realD.dy=full.dy;
+        if(full.cr!=null) realD.cr=full.cr;
+        if(full.rg!=null) realD.rg=full.rg;
+        if(full.eg!=null) realD.eg=full.eg;
+        if(full.fcf!=null) realD.fcf=full.fcf;
+        if(full.w52high) realD.w52high=full.w52high;
+        if(full.w52low) realD.w52low=full.w52low;
+        if(full.mktCap) realD.mktCap=full.mktCap;
+        if(full.beta) realD.beta=full.beta;
+        if(full.eps) realD.eps=full.eps;
+        if(full.dataDate) realD.dataDate=full.dataDate;
+        if(full.closes?.length>realD.closes.length){ realD.closes=full.closes; realD.timestamps=full.timestamps; }
+        realD.rawData = full.rawYahoo || realD.rawData;
+        realD.fullLoaded = true;
+        // Rescore with fresh fundamentals
+        const fRes = scoreFundamental(realD);
+        const bRes = scoreBuffett(realD);
+        const pegRes = scorePEG(realD.pe, realD.eg);
+        const tRes = scoreTechnicalWithSteps(realD.closes);
+        realD.fundamental=fRes.score; realD.fundSteps=fRes.steps;
+        realD.buffett=bRes.buffett; realD.criteria=bRes.criteria; realD.buffSteps=bRes.steps;
+        realD.peg=pegRes.peg; realD.pegScore=pegRes.score; realD.pegSteps=pegRes.steps;
+        realD.technical=tRes.score; realD.techSteps=tRes.steps;
+        realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
+        realD.combined=Math.round(fRes.score*0.30+tRes.score*0.20+bRes.buffett*0.35+pegRes.score*0.15);
+        // Also update filtered data reference
+        if(window._fd?.[idx]) Object.assign(window._fd[idx], realD);
+      }
+    }catch(e){ console.warn('Full data fetch failed:', e); }
+  }
   const sig=getSig(d.combined,d.buffett);
   const moat=d.criteria?.hasMoat?`<span class="badge b-moat">Moat</span>`:"";
   const reit=d.isReit?`<span class="badge b-reit">REIT</span>`:"";
@@ -1766,11 +1607,11 @@ function switchTab(tab){
   const el=document.getElementById("tab-"+tab);if(el)el.classList.add("active");
   const d=window._fd?.[window._curIdx];if(!d)return;
   const body=document.getElementById("panel-content");if(!body)return;
-  if(tab==="overview"){body.innerHTML=buildOverview(d);fetchAIOverview(d);}
+  if(tab==="overview")body.innerHTML=buildOverview(d);
   else if(tab==="breakdown")body.innerHTML=buildBreakdown(d);
   else if(tab==="quarterly")body.innerHTML=buildQuarterly(d);
   else if(tab==="annual")body.innerHTML=buildAnnual(d);
-  else if(tab==="buffett"){body.innerHTML=buildBuffett(d);fetchAI(d);}
+  else if(tab==="buffett")body.innerHTML=buildBuffett(d);
   else if(tab==="chart"){chartRangeIdx=3;chartShowRSI=false;chartShowSMA20=true;chartShowSMA50=false;chartShowBollinger=false;body.innerHTML=buildChartPanel(d);drawChart(d);}
   else if(tab==="extra")body.innerHTML=buildExtraPanel(d);
 }
@@ -1811,20 +1652,16 @@ function buildOverview(d){
   </div>
   <div class="secl">About</div>
   <div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:9px 11px;font-size:11px;color:var(--tx2);line-height:1.7;margin-bottom:8px">
-    ${d.sahmkDesc||d.desc}
+    ${d.desc}
     ${d.website?`<br><a href="${d.website}" target="_blank" style="color:var(--acc);font-family:var(--mono);font-size:9px">${d.website}</a>`:''}
   </div>
   <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
     <span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Data source:</span>
     ${d.dataDate?`<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Period: ${d.dataDate}</span>`:''}
-    ${(d.dataSource==='sahmk-full')?
-      '<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:var(--adm);color:var(--acc);border:1px solid var(--acc)">✓ SAHMK full data</span>':
-      (d.dataSource==='sahmk')?
-      '<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:var(--adm);color:var(--acc);border:1px solid var(--acc)">✓ SAHMK price</span>':
-      (d.dataSource==='yahoo')?
-      '<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:#1a1a2e;color:var(--blue);border:1px solid var(--blue)">Yahoo Finance</span>':
+    ${d.priceLoaded?
+      '<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:#1a1a2e;color:var(--blue);border:1px solid var(--blue)">✓ Yahoo Finance Live</span>':
       '<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:var(--bg3);color:var(--tx3);border:1px solid var(--b1)">Hardcoded estimates</span>'}
-    ${!SAHMK_API_KEY?'<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">— <a href="https://sahmk.sa/en/developers/register" target="_blank" style="color:var(--acc)">Add SAHMK key</a> for live data</span>':''}
+    ${d.fullLoaded?'<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:var(--gdim);color:var(--green);border:1px solid #166534">✓ Full data loaded</span>':'<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Full fundamentals load when you click a stock</span>'}
     ${d.beta!=null?`<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Beta: ${d.beta.toFixed(2)}</span>`:''}
     ${d.mktCap!=null?`<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Market cap: ${(d.mktCap/1e9).toFixed(1)}B SAR</span>`:''}
   </div>
@@ -1834,7 +1671,7 @@ function buildOverview(d){
     <div class="mi"><div class="mil">52W Range</div><div class="miv" style="font-size:10px">${d.w52low?.toFixed(2)||'?'} – ${d.w52high?.toFixed(2)||'?'}</div></div>
   </div>`:''}
   ${d.dividends?.length?`
-  <div class="secl">Recent Dividends (from SAHMK)</div>
+  <div class="secl">Recent Dividends</div>
   <div style="overflow-x:auto"><table class="ft" style="margin-bottom:8px">
     <thead><tr><th>Date</th><th>Amount (SAR)</th><th>Type</th></tr></thead>
     <tbody>${d.dividends.slice(0,5).map(div=>`<tr>
@@ -1850,12 +1687,8 @@ function buildOverview(d){
     <button onclick="toggleWatch('${d.ticker}')" id="star-modal-${d.ticker}" style="font-family:var(--mono);font-size:10px;padding:5px 11px;background:${watchlist.has(d.ticker)?'var(--adim)':'var(--bg3)'};color:${watchlist.has(d.ticker)?'var(--amb)':'var(--tx2)'};border:1px solid ${watchlist.has(d.ticker)?'var(--amb)':'var(--b2)'};border-radius:4px;cursor:pointer">${watchlist.has(d.ticker)?'★ Watchlisted':'☆ Add to Watchlist'}</button>
     <button onclick="toggleCompare('${d.ticker}')" style="font-family:var(--mono);font-size:10px;padding:5px 11px;background:${compareList.includes(d.ticker)?'var(--adm)':'var(--bg3)'};color:${compareList.includes(d.ticker)?'var(--acc)':'var(--tx2)'};border:1px solid ${compareList.includes(d.ticker)?'var(--acc)':'var(--b2)'};border-radius:4px;cursor:pointer">${compareList.includes(d.ticker)?'✓ In Compare':'⊕ Add to Compare'}</button>
     <button onclick="printReport('${d.ticker}')" style="font-family:var(--mono);font-size:10px;padding:5px 11px;background:var(--bg3);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">🖨 Print Report</button>
-    <button onclick="fetchDeepAnalysis('${d.ticker}')" style="font-family:var(--mono);font-size:10px;padding:5px 11px;background:var(--pdim);color:var(--pur);border:1px solid var(--pur);border-radius:4px;cursor:pointer">✨ Deep Analysis</button>
-    <button onclick="askAIQuestion('${d.ticker}')" style="font-family:var(--mono);font-size:10px;padding:5px 11px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">💬 Ask AI</button>
   </div>
-  <div class="secl">AI Analysis <span style="font-size:8px;color:var(--tx3);font-weight:normal;text-transform:none;letter-spacing:0">by Claude Opus 4.6</span> <span class="spin" id="ai-sp-ov" style="margin-left:6px"></span></div>
-  <div class="aibox" id="ai-box-ov">Generating analysis...</div>
-  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:6px">Not financial advice · Educational purposes only</div>`;
+`;
 }
 
 function buildBreakdown(d){
@@ -1907,14 +1740,7 @@ function buildBreakdown(d){
 }
 
 function buildQuarterly(d){
-  // ── Try SAHMK format first ──
-  if(d.rawFinancials?.quarterly?.length){
-    return buildSahmkStatements(d.rawFinancials.quarterly,'Quarterly Financial Statements');
-  }
-  // ── Try rawData.sahmk ──
-  if(d.rawData?.sahmk?.quarterly?.length){
-    return buildSahmkStatements(d.rawData.sahmk.quarterly,'Quarterly Financial Statements');
-  }
+  // Financial statements from Yahoo Finance
   // ── Yahoo fallback ──
   const raw=d.rawData;
   if(!raw){return`<div class="tab-loading"><span class="spin"></span> No financial data. Click "Load Data" or "Force Refresh" to fetch financials.</div>`;}
@@ -1923,8 +1749,8 @@ function buildQuarterly(d){
   const qCF=raw.cashflowStatementHistoryQuarterly?.cashflowStatements||[];
   if(!qIS.length)return`<div style="padding:14px;font-family:var(--mono);font-size:11px;color:var(--tx3)">
     <div style="margin-bottom:8px;color:var(--amb)">⚠ No quarterly data from Yahoo Finance for this stock.</div>
-    ${SAHMK_API_KEY?'SAHMK key is set — this stock may not have quarterly data on the Starter plan.':
-    '<strong>Tip:</strong> Add a SAHMK API key at the top of this file to access financial statements for all 350+ TASI stocks.<br>Sign up free at <a href="https://sahmk.sa/en/developers/register" target="_blank" style="color:var(--acc)">sahmk.sa/en/developers/register</a> — Starter plan (149 SAR/mo) unlocks full statements.'}
+    ${''?'Yahoo Finance may not have quarterly data for this stock.':
+    '<strong>Tip:</strong> Click Load Data then click any stock to fetch its full financial statements from Yahoo Finance.'}
   </div>`;
   function fmtB(v){if(v==null||v?.raw==null)return"—";const n=v.raw/1e9;return(n>=0?"":"")+n.toFixed(2)+"B";}
   function fmtDate(v){if(!v)return"—";try{return new Date(v*1000).toLocaleDateString("en-SA",{year:"2-digit",month:"short"});}catch{return"—";}}
@@ -1964,8 +1790,7 @@ function buildQuarterly(d){
        +`<div style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Source: Yahoo Finance · SAR unless noted · B = Billions</div>`;
 }
 
-// ── SAHMK financial statement renderer ──
-function buildSahmkStatements(periods,title){
+function buildFinancialTable(periods,title){
   if(!periods?.length) return '<div class="tab-loading" style="color:var(--tx3)">No data available.</div>';
   const cols=['period','revenue','gross_profit','operating_income','net_income',
               'total_assets','total_equity','total_debt',
@@ -1988,7 +1813,7 @@ function buildSahmkStatements(periods,title){
                   ['total_assets','total_equity','total_debt'],
                   ['operating_cash_flow','free_cash_flow','capex','dividends_paid']];
   const groupTitles=['Income Statement','Balance Sheet','Cash Flow'];
-  let html=`<div style="font-family:var(--mono);font-size:9px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--b1)">${title} — via SAHMK API ✓</div>`;
+  let html=`<div style="font-family:var(--mono);font-size:9px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--b1)">${title} — via LEGACY API ✓</div>`;
   isGroups.forEach((grp,gi)=>{
     html+=`<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin:10px 0 5px;text-transform:uppercase">${groupTitles[gi]}</div>`;
     html+=`<div style="overflow-x:auto;margin-bottom:10px"><table class="ft"><thead><tr><th>Item</th>`;
@@ -2005,19 +1830,13 @@ function buildSahmkStatements(periods,title){
     });
     html+=`</tbody></table></div>`;
   });
-  html+=`<div style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Source: SAHMK API (Tadawul-licensed) · All figures in SAR · B = Billions</div>`;
+  html+=`<div style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Source: Financial data · All figures in SAR · B = Billions</div>`;
   return html;
 }
 
 
 function buildAnnual(d){
-  // ── Try SAHMK format first ──
-  if(d.rawFinancials?.annual?.length){
-    return buildSahmkStatements(d.rawFinancials.annual,'5-Year Annual Financial Statements');
-  }
-  if(d.rawData?.sahmk?.annual?.length){
-    return buildSahmkStatements(d.rawData.sahmk.annual,'5-Year Annual Financial Statements');
-  }
+  // Financial statements from Yahoo Finance
   // ── Yahoo fallback ──
   const raw=d.rawData;
   if(!raw)return`<div class="tab-loading"><span class="spin"></span> No financial data. Load data first.</div>`;
@@ -2026,9 +1845,9 @@ function buildAnnual(d){
   const aCF=raw.cashflowStatementHistory?.cashflowStatements||[];
   if(!aIS.length)return`<div style="padding:14px;font-family:var(--mono);font-size:11px;color:var(--tx3)">
     <div style="margin-bottom:8px;color:var(--amb)">⚠ No annual data from Yahoo Finance for this stock.</div>
-    ${SAHMK_API_KEY
-      ? 'SAHMK key detected — this stock may need a Starter plan subscription for full financials.'
-      : '<strong>Solution:</strong> Add your SAHMK API key to get annual statements for all TASI stocks.<br>Sign up free: <a href="https://sahmk.sa/en/developers/register" target="_blank" style="color:var(--acc)">sahmk.sa/en/developers/register</a><br>Starter plan (149 SAR/mo) unlocks 3+ years of financial history for all 350+ TASI stocks.'}
+    ${''
+      ? 'Yahoo Finance may not have annual data for this stock.'
+      : '<strong>Tip:</strong> Close this modal and click the stock again — financial statements load on the second click after prices are loaded.'}
   </div>`;
   function fmtB(v){if(v==null||v?.raw==null)return"—";const n=v.raw/1e9;return n.toFixed(2)+"B";}
   function fmtPct(a,b){
@@ -2130,9 +1949,7 @@ function buildBuffett(d){
       </div>`;
     }).join("")}
   </div>
-  <div class="secl" style="margin-top:10px">AI Analysis · Buffett Perspective <span class="spin" id="ai-sp" style="margin-left:6px"></span></div>
-  <div class="aibox" id="ai-box-buf">Generating Buffett analysis...</div>
-  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:7px">Based on "Warren Buffett and the Interpretation of Financial Statements" by Mary Buffett & David Clark · Not financial advice.</div>`;
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:7px;border-top:1px solid var(--b1);padding-top:7px">Scoring based on "Warren Buffett and the Interpretation of Financial Statements" by Mary Buffett & David Clark · Not financial advice.</div>`;
 }
 
 // Chart state
@@ -2356,378 +2173,6 @@ function buildExtraPanel(d){
 
 
 
-// ── AI CHAT — Ask any question about a stock ──
-async function askAIQuestion(ticker){
-  const d = allData.find(s => s.ticker === ticker);
-  if(!d) return;
-  const existing = document.getElementById('chat-modal');
-  if(existing) existing.remove();
-  const html = `
-  <div class="mo" id="chat-modal" onclick="if(event.target===this)document.getElementById('chat-modal').remove()">
-  <div class="modal" style="width:680px;max-height:90vh">
-    <div class="mhead">
-      <div class="mhtop">
-        <div>
-          <div class="mtitle">💬 Ask AI about ${d.name}</div>
-          <div class="msub">${d.ticker} · Claude Opus 4.6 · Type any question</div>
-        </div>
-        <div class="mclose" onclick="document.getElementById('chat-modal').remove()">×</div>
-      </div>
-    </div>
-    <div class="mbody">
-      <div id="chat-history" style="max-height:340px;overflow-y:auto;margin-bottom:12px"></div>
-      <div style="display:flex;gap:6px;align-items:flex-start">
-        <textarea id="chat-input" placeholder="e.g., Compare to Al Rajhi Bank · What\'s the bear case? · Is this overvalued?" 
-          style="flex:1;min-height:60px;background:var(--bg3);border:1px solid var(--b2);border-radius:5px;color:var(--tx);font-family:var(--sans);font-size:11px;padding:8px;outline:none;resize:vertical"></textarea>
-        <button id="chat-send" onclick="sendChatMessage('${ticker}')" style="font-family:var(--mono);font-size:10px;padding:8px 14px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">Send</button>
-      </div>
-      <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:8px">Try: "What is the bear case?" · "Compare to sector peers" · "Should I worry about debt?"</div>
-    </div>
-  </div></div>`;
-  document.body.insertAdjacentHTML('beforeend', html);
-  window._chatHistory = [];
-  setTimeout(() => document.getElementById('chat-input')?.focus(), 100);
-}
-
-async function sendChatMessage(ticker){
-  const d = allData.find(s => s.ticker === ticker);
-  if(!d) return;
-  const input = document.getElementById('chat-input');
-  const sendBtn = document.getElementById('chat-send');
-  const history = document.getElementById('chat-history');
-  if(!input || !history) return;
-  const userMsg = input.value.trim();
-  if(!userMsg) return;
-
-  // Add user message to UI
-  history.insertAdjacentHTML('beforeend', `
-    <div style="margin-bottom:10px">
-      <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-bottom:3px">YOU</div>
-      <div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:8px 11px;font-size:11px;color:var(--tx);line-height:1.6">${userMsg}</div>
-    </div>`);
-
-  input.value = '';
-  if(sendBtn) sendBtn.disabled = true;
-
-  // Add loading indicator
-  const loadingId = 'ai-loading-' + Date.now();
-  history.insertAdjacentHTML('beforeend', `
-    <div id="${loadingId}" style="margin-bottom:10px">
-      <div style="font-family:var(--mono);font-size:9px;color:var(--acc);margin-bottom:3px">AI · OPUS 4.7</div>
-      <div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:8px 11px;font-size:11px;color:var(--tx3)">
-        <span class="spin"></span> Thinking...
-      </div>
-    </div>`);
-  history.scrollTop = history.scrollHeight;
-
-  // Build context
-  window._chatHistory = window._chatHistory || [];
-  const sig = getSig(d.combined, d.buffett);
-  const systemContext = `You are an expert Saudi equity analyst helping a retail investor analyze ${d.name} (${d.ticker}).
-
-Stock data:
-- Sector: ${d.sector}${d.isReit?' [REIT]':''}
-- Description: ${d.desc||'N/A'}
-- Combined Score: ${d.combined}/100 (${sig.label})
-- Fundamental: ${d.fundamental}/100, Technical: ${d.technical}/100, Buffett: ${d.buffett}/100
-- P/E: ${d.pe?.toFixed(1)??'N/A'}, P/B: ${d.pb?.toFixed(2)??'N/A'}, PEG: ${d.peg?.toFixed(2)??'N/A'}
-- ROE: ${d.roe!=null?(d.roe*100).toFixed(1)+'%':'N/A'}, Net Margin: ${d.npm!=null?(d.npm*100).toFixed(1)+'%':'N/A'}
-- D/E: ${d.de??'N/A'}%, Dividend: ${d.dy!=null?(d.dy*100).toFixed(2)+'%':'N/A'}, FCF: ${d.fcf?'Positive':'Negative'}
-- Revenue Growth: ${d.rg!=null?(d.rg*100).toFixed(1)+'%':'N/A'}, EPS Growth: ${d.eg!=null?(d.eg*100).toFixed(1)+'%':'N/A'}
-- Has Moat: ${d.criteria?.hasMoat?'Yes':'No'}
-- Price: ${d.price?.toFixed(2)||'N/A'} SAR, RSI: ${d.rsi?.toFixed(1)||'N/A'}
-
-Answer the user's question directly and specifically. Use the data above. Be concise but substantive. No markdown formatting.`;
-
-  window._chatHistory.push({role:'user', content: userMsg});
-
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-opus-4-6',
-        max_tokens:1500,
-        system: systemContext,
-        messages: window._chatHistory
-      })
-    });
-    if(!res.ok) throw new Error('HTTP '+res.status);
-    const data = await res.json();
-    if(data.error) throw new Error(data.error.message||'API error');
-    const txt = data.content?.map(c=>c.text||'').join('')||'No response.';
-
-    // Save AI response to history
-    window._chatHistory.push({role:'assistant', content: txt});
-
-    // Replace loading with answer
-    const loading = document.getElementById(loadingId);
-    if(loading){
-      loading.querySelector('div:last-child').innerHTML = 
-        '<div style="white-space:pre-wrap;line-height:1.7">'+txt.replace(/</g,'&lt;')+'</div>';
-    }
-    history.scrollTop = history.scrollHeight;
-  } catch(e) {
-    const loading = document.getElementById(loadingId);
-    if(loading){
-      loading.querySelector('div:last-child').innerHTML = 
-        '<div style="color:var(--red)">Error: '+e.message+'</div>';
-    }
-  }
-
-  if(sendBtn) sendBtn.disabled = false;
-  input.focus();
-}
-
-// ── DEEP ANALYSIS — Comprehensive AI report ──
-async function fetchDeepAnalysis(ticker){
-  const d = allData.find(s => s.ticker === ticker);
-  if(!d) return;
-  // Create a popup modal for the deep analysis
-  const existing = document.getElementById('deep-modal');
-  if(existing) existing.remove();
-  const html = `
-  <div class="mo" id="deep-modal" onclick="if(event.target===this)document.getElementById('deep-modal').remove()">
-  <div class="modal" style="width:760px;max-height:92vh">
-    <div class="mhead">
-      <div class="mhtop">
-        <div>
-          <div class="mtitle">✨ Deep AI Analysis — ${d.name}</div>
-          <div class="msub">${d.ticker} · ${d.sector} · Claude Opus 4.6 · ~30 sec generation time</div>
-        </div>
-        <div class="mclose" onclick="document.getElementById('deep-modal').remove()">×</div>
-      </div>
-    </div>
-    <div class="mbody">
-      <div style="text-align:center;padding:30px;color:var(--tx3);font-family:var(--mono);font-size:11px" id="deep-status">
-        <div class="spin" style="width:14px;height:14px;margin-bottom:10px"></div>
-        <div>Running deep analysis on ${d.name}...</div>
-        <div style="font-size:9px;margin-top:8px">Analyzing fundamentals, technicals, Buffett criteria, sector context, and risks</div>
-      </div>
-      <div id="deep-content" style="display:none;font-size:11px;line-height:1.7;color:var(--tx2);white-space:pre-wrap"></div>
-    </div>
-  </div></div>`;
-  document.body.insertAdjacentHTML('beforeend', html);
-
-  const sig = getSig(d.combined, d.buffett);
-  const mc = Object.values(d.criteria||{}).filter(v=>v===true&&typeof v==="boolean").length;
-  const v2030 = getVision2030(d.ticker);
-  const div_c = getDivConsistency(d.ticker);
-  const stats = getSectorStats(d.sector);
-
-  const prompt = `You are a senior Saudi equity research analyst. Produce a comprehensive investment analysis for ${d.name} (${d.ticker}).
-
-COMPANY SNAPSHOT
-- Sector: ${d.sector}${d.isReit?' (REIT)':''}
-- Description: ${d.desc||'N/A'}
-- Vision 2030 Exposure: ${v2030}/100
-- Period: ${d.dataDate||'2024-2025'}
-
-SCORES
-- Combined: ${d.combined}/100 (${sig.label})
-- Fundamental: ${d.fundamental}/100
-- Technical: ${d.technical}/100
-- Buffett: ${d.buffett}/100 (${mc}/10 criteria passed)
-- PEG Score: ${d.pegScore||50}/100
-- Durable Moat: ${d.criteria?.hasMoat?'YES':'NO'}
-
-VALUATION
-- P/E: ${d.pe?.toFixed(1)??'N/A'}${stats?' (sector avg: '+stats.avgPE.toFixed(1)+')':''}
-- P/B: ${d.pb?.toFixed(2)??'N/A'}
-- PEG: ${d.peg?.toFixed(2)??'N/A'}
-- Dividend Yield: ${d.dy!=null?(d.dy*100).toFixed(2)+'%':'N/A'}
-
-QUALITY
-- ROE: ${d.roe!=null?(d.roe*100).toFixed(1)+'%':'N/A'}${stats?' (sector avg: '+(stats.avgROE*100).toFixed(1)+'%)':''}
-- Net Margin: ${d.npm!=null?(d.npm*100).toFixed(1)+'%':'N/A'}
-- Debt/Equity: ${d.de!=null?d.de.toFixed(0)+'%':'N/A'}
-- Free Cash Flow: ${d.fcf?'Positive':'Negative'}
-- Current Ratio: ${d.cr?.toFixed(2)||'N/A (financial co.)'}
-
-GROWTH
-- Revenue Growth: ${d.rg!=null?(d.rg>=0?'+':'')+(d.rg*100).toFixed(1)+'%':'N/A'}
-- Earnings Growth: ${d.eg!=null?(d.eg>=0?'+':'')+(d.eg*100).toFixed(1)+'%':'N/A'}
-
-CAPITAL RETURN
-- Dividend History: ${div_c.years>0?div_c.years+' years'+(div_c.growing?', growing':' stable'):'No history'}
-
-TECHNICAL
-- Current Price: ${d.price?.toFixed(2)||'N/A'} SAR
-- RSI (14d): ${d.rsi?.toFixed(1)||'N/A'}
-- SMA-20: ${d.sma20?.toFixed(2)||'N/A'}
-- SMA-50: ${d.sma50?.toFixed(2)||'N/A'}
-- 1M Momentum: ${d.momentum!=null?(d.momentum>=0?'+':'')+(d.momentum*100).toFixed(1)+'%':'N/A'}
-
-Write a deep analysis with these sections (use clear section headers in CAPS, no markdown symbols):
-
-EXECUTIVE SUMMARY
-Single paragraph with your overall view and signal recommendation.
-
-BUSINESS QUALITY
-What kind of business is this? Strengths and weaknesses of the franchise. Competitive position in Saudi Arabia.
-
-FINANCIAL HEALTH
-Balance sheet quality, cash generation, leverage assessment. Is this a financial fortress or vulnerable?
-
-VALUATION ASSESSMENT
-Is the current price attractive? Compare to sector peers and historical context. Margin of safety analysis.
-
-GROWTH OUTLOOK
-Realistic 3-5 year revenue and earnings growth expectations. Vision 2030 tailwinds or headwinds specific to this company.
-
-KEY RISKS
-Top 3 risks ranked by severity. Be specific to this company, not generic.
-
-INVESTMENT VERDICT
-Final recommendation: BUY / HOLD / WATCH / AVOID with brief justification. Include a target price range if possible.
-
-Be direct, specific, and useful. Cite actual numbers from the data. Avoid generic platitudes. Length: 600-1000 words.`;
-
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-opus-4-6',
-        max_tokens:3000,
-        messages:[{role:'user',content:prompt}]
-      })
-    });
-    if(!res.ok) throw new Error('HTTP '+res.status);
-    const data = await res.json();
-    if(data.error) throw new Error(data.error.message||'API error');
-    const txt = data.content?.map(c=>c.text||'').join('')||'No response.';
-    const statusEl = document.getElementById('deep-status');
-    const contentEl = document.getElementById('deep-content');
-    if(statusEl) statusEl.style.display = 'none';
-    if(contentEl){
-      contentEl.style.display = 'block';
-      // Format section headers (ALL CAPS lines) in accent color
-      const formatted = txt
-        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-        .replace(/^([A-Z][A-Z\s&]+[A-Z])$/gm, 
-          '<div style="color:var(--acc);font-family:var(--mono);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;margin:14px 0 6px;padding-bottom:4px;border-bottom:1px solid var(--b1)">$1</div>');
-      contentEl.innerHTML = formatted;
-    }
-  } catch(e) {
-    const statusEl = document.getElementById('deep-status');
-    if(statusEl){
-      statusEl.innerHTML = '<div style="color:var(--red)">Failed to generate analysis</div>'
-        +'<div style="font-size:9px;color:var(--tx3);margin-top:6px">'+e.message+'</div>';
-    }
-  }
-}
-
-async function fetchAIOverview(d){
-  const elId='ai-box-ov', spId='ai-sp-ov';
-  const el=document.getElementById(elId);
-  const sp=document.getElementById(spId);
-  if(!el) return;
-  const sig=getSig(d.combined,d.buffett);
-  const prompt=`You are an expert Saudi equity analyst. Analyze this TASI stock for a retail investor in exactly 4 concise sentences. No markdown, no bullet points.
-
-Company: ${d.name} (${d.ticker})
-Sector: ${d.sector}${d.isReit?' [REIT]':''}
-Period: ${d.dataDate||'2024-2025'}
-
-Scores (higher is better):
-- Combined: ${d.combined}/100
-- Fundamental: ${d.fundamental}/100
-- Technical: ${d.technical}/100
-- Buffett: ${d.buffett}/100
-- Signal: ${sig.label}
-
-Key metrics:
-- P/E: ${d.pe?.toFixed(1)||'N/A'}
-- P/B: ${d.pb?.toFixed(2)||'N/A'}
-- ROE: ${d.roe!=null?(d.roe*100).toFixed(1)+'%':'N/A'}
-- Net Margin: ${d.npm!=null?(d.npm*100).toFixed(1)+'%':'N/A'}
-- D/E: ${d.de!=null?d.de.toFixed(0)+'%':'N/A'}
-- Dividend Yield: ${d.dy!=null?(d.dy*100).toFixed(2)+'%':'N/A'}
-- Free Cash Flow: ${d.fcf?'Positive':'Negative'}
-- Has Moat: ${d.criteria?.hasMoat?'Yes':'No'}
-
-Write 4 sentences:
-1. What does this company do (one line)?
-2. Investment thesis based on the scores and metrics.
-3. Current valuation (cheap/fair/expensive) and why.
-4. Single biggest risk to watch.
-
-Saudi context matters: consider Vision 2030 impact, oil price sensitivity, SAMA regulation for banks, and regional competition. Be direct and specific.`;
-  try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-opus-4-6',
-        max_tokens:600,
-        messages:[{role:'user',content:prompt}]
-      })
-    });
-    if(!res.ok){throw new Error('HTTP '+res.status);}
-    const data=await res.json();
-    if(data.error){throw new Error(data.error.message||'API error');}
-    const txt=data.content?.map(c=>c.text||'').join('')||'Analysis unavailable.';
-    if(el)el.textContent=txt;
-    if(sp)sp.style.display='none';
-  }catch(e){
-    console.warn('AI overview error:',e.message);
-    if(el)el.innerHTML='<span style="color:var(--amb)">AI analysis unavailable.</span> '
-      +'<span style="color:var(--tx3);font-size:10px">Refresh the page or check connection. Error: '+e.message+'</span>';
-    if(sp)sp.style.display='none';
-  }
-}
-
-async function fetchAI(d){
-  const mc=Object.values(d.criteria||{}).filter(v=>v===true&&typeof v==="boolean").length;
-  const prompt=`You are an expert applying Warren Buffett's investment philosophy (from "Warren Buffett and the Interpretation of Financial Statements" by Mary Buffett & David Clark) to this Saudi stock.
-
-${d.isReit?'IMPORTANT: This is a Saudi REIT — REITs must distribute ≥90% of net income, operate with higher leverage by design, and are best valued on yield and NAV. Apply Buffett principles with REIT-appropriate thresholds.':''}
-
-Company: ${d.name} (${d.ticker}) — ${d.sector}
-Period: ${d.dataDate||'2024-2025'}
-
-Buffett scorecard: ${d.buffett}/100 (passed ${mc}/10 criteria)
-Has Durable Moat: ${d.criteria?.hasMoat?'YES — passes 3+ of 4 moat signals':'NO'}
-
-Financial fingerprint:
-- P/E: ${d.pe?.toFixed(1)??"N/A"} (Buffett prefers <22)
-- PEG: ${d.peg?.toFixed(2)??"N/A"} (Buffett sweet spot <1)
-- ROE: ${d.roe!=null?(d.roe*100).toFixed(1)+"%":"N/A"} (Buffett wants >15%)
-- Net Margin: ${d.npm!=null?(d.npm*100).toFixed(1)+"%":"N/A"} (pricing power test)
-- D/E: ${d.de??"N/A"}% (Buffett avoids >80%)
-- Dividend: ${d.dy!=null?(d.dy*100).toFixed(2)+"%":"N/A"}
-- Free Cash Flow: ${d.fcf?'Positive (passes test)':'Negative (FAILS Buffett test)'}
-- Earnings Growth: ${d.eg!=null?(d.eg*100).toFixed(1)+"%":"N/A"}
-
-Write 4 plain-English paragraphs answering as Buffett would:
-1. Does this company have a durable competitive moat? Cite specific numbers as evidence.
-2. Is management a skilled capital allocator? Look at ROE, dividends, debt usage.
-3. Is the current price reasonable given the quality? Apply margin of safety thinking.
-4. What is the single biggest risk a Buffett-style investor must monitor?
-
-Be direct and decisive — Buffett doesn't hedge. No markdown formatting.`;
-  try{
-    const res=await fetch("https://api.anthropic.com/v1/messages",{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({
-        model:"claude-opus-4-6",
-        max_tokens:1500,
-        messages:[{role:"user",content:prompt}]
-      })
-    });
-    if(!res.ok){throw new Error("HTTP "+res.status);}
-    const data=await res.json();
-    if(data.error){throw new Error(data.error.message||"API error");}
-    const txt=data.content?.map(c=>c.text||"").join("")||"Analysis unavailable.";
-    const el=document.getElementById("ai-box")||document.getElementById("ai-box-buf"),sp=document.getElementById("ai-sp");
-    if(el)el.textContent=txt;if(sp)sp.style.display="none";
-  }catch(e){
-    const el=document.getElementById("ai-box")||document.getElementById("ai-box-buf"),sp=document.getElementById("ai-sp");
-    if(el)el.textContent="AI unavailable.";if(sp)sp.style.display="none";
-  }
-}
 
 function closeModal(){
   document.getElementById("modal").style.display="none";
@@ -2767,7 +2212,7 @@ function init(){
 }
 
 async function refreshAll(forceRefresh=false){
-  sahmkRequestsUsed = 0; // Reset API counter each refresh
+  // Yahoo Finance primary data source
   const btn=document.getElementById("rbtn");
   if(btn){btn.disabled=true;btn.textContent="Loading...";}
   const pw=document.getElementById("pw");if(pw)pw.style.display="block";
@@ -2797,52 +2242,27 @@ async function refreshAll(forceRefresh=false){
   for(let i=0;i<allData.length;i+=B){
     const pct=Math.round((i/allData.length)*100);
     document.getElementById("pf").style.width=pct+"%";
-    document.getElementById("pl").textContent=`Fetching ${i+1}–${Math.min(i+B,allData.length)} of ${allData.length} stocks... (${sahmkRequestsUsed} API requests used)`;
+    document.getElementById("pl").textContent=`Fetching prices: ${i+1}–${Math.min(i+B,allData.length)} of ${allData.length}`;
     const slice=allData.slice(i,i+B);
     await Promise.all(slice.map(async(d,j)=>{
       const idx=i+j;
       try{
-        const raw=await fetchYahoo(d.ticker);
-        const meta=raw.chart?.chart?.result?.[0]?.meta;
-        const closes=(raw.chart?.chart?.result?.[0]?.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
-        const timestamps=raw.chart?.chart?.result?.[0]?.timestamp||[];
-        const price=meta?.regularMarketPrice??null;
-        const prev=meta?.chartPreviousClose??price;
-        const change=price&&prev?((price-prev)/prev)*100:null;
-        const tRes=scoreTechnicalWithSteps(closes);
-        const qs=raw.summary?.quoteSummary?.result?.[0];
-        const sd=qs?.summaryDetail,fd=qs?.financialData;
-        const livePE=sd?.trailingPE?.raw??sd?.forwardPE?.raw??d.pe;
-        const liveEG=fd?.earningsGrowth?.raw??d.eg;
-        const liveRG=fd?.revenueGrowth?.raw??d.rg;
-        const liveROE=fd?.returnOnEquity?.raw??d.roe;
-        const liveNPM=fd?.profitMargins?.raw??d.npm;
-        const liveDY=sd?.dividendYield?.raw??d.dy;
-        const liveDE=fd?.debtToEquity?.raw??d.de;
-        const liveCR=fd?.currentRatio?.raw??d.cr;
-        const liveStock={...allData[idx],pe:livePE,eg:liveEG,rg:liveRG,roe:liveROE,npm:liveNPM,dy:liveDY,de:liveDE,cr:liveCR};
-        const fRes2=scoreFundamental(liveStock);
-        const bRes2=scoreBuffett(liveStock);
-        const pegRes2=scorePEG(livePE,liveEG);
-        const combined2=Math.round(fRes2.score*0.30+tRes.score*0.20+bRes2.buffett*0.35+pegRes2.score*0.15);
-        allData[idx]={
+        // ── Price-only fetch (1 request per stock, fast) ──
+        const fetched = await fetchStockPrice(allData[idx]);
+        const tRes = scoreTechnicalWithSteps(fetched.closes.length>5 ? fetched.closes : allData[idx].closes);
+        const price = fetched.price;
+        const change = fetched.change!=null ? parseFloat(fetched.change.toFixed(2)) : null;
+        allData[idx] = {
           ...allData[idx],
-          pe:livePE,eg:liveEG,rg:liveRG,roe:liveROE,npm:liveNPM,dy:liveDY,de:liveDE,cr:liveCR,
-          price,change:change!=null?parseFloat(change.toFixed(2)):null,
-          closes,timestamps,priceLoaded:price!=null,
-          technical:tRes.score,techSteps:tRes.steps,rsi:tRes.rsi,sma20:tRes.sma20,sma50:tRes.sma50,momentum:tRes.momentum,
-          fundamental:fRes2.score,fundSteps:fRes2.steps,
-          buffett:bRes2.buffett,criteria:bRes2.criteria,buffSteps:bRes2.steps,
-          peg:pegRes2.peg,pegScore:pegRes2.score,pegSteps:pegRes2.steps,
-          combined:combined2,
-          rawData:{
-            incomeStatementHistory:qs?.incomeStatementHistory,
-            incomeStatementHistoryQuarterly:qs?.incomeStatementHistoryQuarterly,
-            balanceSheetHistory:qs?.balanceSheetHistory,
-            balanceSheetHistoryQuarterly:qs?.balanceSheetHistoryQuarterly,
-            cashflowStatementHistory:qs?.cashflowStatementHistory,
-            cashflowStatementHistoryQuarterly:qs?.cashflowStatementHistoryQuarterly,
-          }
+          price, change,
+          closes: fetched.closes.length>5 ? fetched.closes : allData[idx].closes,
+          timestamps: fetched.timestamps.length>5 ? fetched.timestamps : allData[idx].timestamps,
+          priceLoaded: price!=null,
+          dataSource: fetched.dataSource,
+          dataDate: fetched.dataDate || allData[idx].dataDate,
+          technical:tRes.score, techSteps:tRes.steps,
+          rsi:tRes.rsi, sma20:tRes.sma20, sma50:tRes.sma50, momentum:tRes.momentum,
+          combined: Math.round(allData[idx].fundamental*0.30+tRes.score*0.20+allData[idx].buffett*0.35+(allData[idx].pegScore||50)*0.15),
         };
       }catch(e){allData[idx].priceLoaded=false;}
     }));
@@ -2857,8 +2277,7 @@ async function refreshAll(forceRefresh=false){
   document.getElementById("pl").textContent=`✓ ${loaded}/${allData.length} stocks saved to cache`;
   setTimeout(()=>{pw.style.display="none";},3000);
   btn.disabled=false;btn.textContent="↻ Reload Data";
-  const apiInfo = SAHMK_API_KEY ? ` · SAHMK: ${sahmkRequestsUsed} req used` : '';
-  document.getElementById("lu").textContent=`${loaded}/${allData.length} loaded · ${new Date().toLocaleTimeString("en-SA",{hour:"2-digit",minute:"2-digit"})}${apiInfo}`;
+  document.getElementById("lu").textContent=`${loaded}/${allData.length} prices · ${new Date().toLocaleTimeString("en-SA",{hour:"2-digit",minute:"2-digit"})}`;
   doFilter();updateMetrics();
   checkAlerts();
 }
@@ -3019,10 +2438,6 @@ async function fetchMarketSummary(){
   if(!bar) return;
   try {
     let data = null;
-    // Market summary via sahmkFetch (handles both direct + proxy)
-    if(SAHMK_API_KEY){
-      data = await sahmkFetch('/market/summary/?index=TASI');
-    }
     if(!data?.index_value) return;
     const chg = data.index_change_percent;
     const chgColor = chg>=0?'var(--green)':'var(--red)';
@@ -3056,18 +2471,9 @@ async function fetchMarketSummary(){
 
   // Step 2: Open DB async in background, then check cache, then fetch prices
   restoreUIState();
-  // Fetch market summary (free tier SAHMK or skip if no key)
+  // Fetch TASI market summary
   fetchMarketSummary();
-  // Show "Opus 4.7" badge for first-time visitors
-  try {
-    const seen = localStorage.getItem('TASI_seen_v8');
-    if(!seen) {
-      setTimeout(() => {
-        showToast('🚀 New: Claude Opus 4.6 AI · Deep Analysis · Ask AI Chat · Try them in any stock\'s Overview tab', 8000);
-        localStorage.setItem('TASI_seen_v8', '1');
-      }, 2000);
-    }
-  } catch(e) {}
+
   openDB().then(()=>{
     return dbGet(META_KEY);
   }).then(meta=>{
