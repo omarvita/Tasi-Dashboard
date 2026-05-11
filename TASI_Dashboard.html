@@ -173,7 +173,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Claude Opus 4.7 AI · Watchlist · Portfolio · Compare · Vision 2030</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Claude Opus 4.6 AI · Watchlist · Portfolio · Compare · Vision 2030</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1853,7 +1853,7 @@ function buildOverview(d){
     <button onclick="fetchDeepAnalysis('${d.ticker}')" style="font-family:var(--mono);font-size:10px;padding:5px 11px;background:var(--pdim);color:var(--pur);border:1px solid var(--pur);border-radius:4px;cursor:pointer">✨ Deep Analysis</button>
     <button onclick="askAIQuestion('${d.ticker}')" style="font-family:var(--mono);font-size:10px;padding:5px 11px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">💬 Ask AI</button>
   </div>
-  <div class="secl">AI Analysis <span style="font-size:8px;color:var(--tx3);font-weight:normal;text-transform:none;letter-spacing:0">by Claude Opus 4.7</span> <span class="spin" id="ai-sp-ov" style="margin-left:6px"></span></div>
+  <div class="secl">AI Analysis <span style="font-size:8px;color:var(--tx3);font-weight:normal;text-transform:none;letter-spacing:0">by Claude Opus 4.6</span> <span class="spin" id="ai-sp-ov" style="margin-left:6px"></span></div>
   <div class="aibox" id="ai-box-ov">Generating analysis...</div>
   <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:6px">Not financial advice · Educational purposes only</div>`;
 }
@@ -2369,7 +2369,7 @@ async function askAIQuestion(ticker){
       <div class="mhtop">
         <div>
           <div class="mtitle">💬 Ask AI about ${d.name}</div>
-          <div class="msub">${d.ticker} · Claude Opus 4.7 · Type any question</div>
+          <div class="msub">${d.ticker} · Claude Opus 4.6 · Type any question</div>
         </div>
         <div class="mclose" onclick="document.getElementById('chat-modal').remove()">×</div>
       </div>
@@ -2446,7 +2446,7 @@ Answer the user's question directly and specifically. Use the data above. Be con
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        model:'claude-opus-4-7',
+        model:'claude-opus-4-6',
         max_tokens:1500,
         system: systemContext,
         messages: window._chatHistory
@@ -2493,7 +2493,7 @@ async function fetchDeepAnalysis(ticker){
       <div class="mhtop">
         <div>
           <div class="mtitle">✨ Deep AI Analysis — ${d.name}</div>
-          <div class="msub">${d.ticker} · ${d.sector} · Claude Opus 4.7 · ~30 sec generation time</div>
+          <div class="msub">${d.ticker} · ${d.sector} · Claude Opus 4.6 · ~30 sec generation time</div>
         </div>
         <div class="mclose" onclick="document.getElementById('deep-modal').remove()">×</div>
       </div>
@@ -2588,7 +2588,7 @@ Be direct, specific, and useful. Cite actual numbers from the data. Avoid generi
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        model:'claude-opus-4-7',
+        model:'claude-opus-4-6',
         max_tokens:3000,
         messages:[{role:'user',content:prompt}]
       })
@@ -2659,7 +2659,7 @@ Saudi context matters: consider Vision 2030 impact, oil price sensitivity, SAMA 
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        model:'claude-opus-4-7',
+        model:'claude-opus-4-6',
         max_tokens:600,
         messages:[{role:'user',content:prompt}]
       })
@@ -2712,7 +2712,7 @@ Be direct and decisive — Buffett doesn't hedge. No markdown formatting.`;
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
-        model:"claude-opus-4-7",
+        model:"claude-opus-4-6",
         max_tokens:1500,
         messages:[{role:"user",content:prompt}]
       })
@@ -3063,7 +3063,7 @@ async function fetchMarketSummary(){
     const seen = localStorage.getItem('TASI_seen_v8');
     if(!seen) {
       setTimeout(() => {
-        showToast('🚀 New: Claude Opus 4.7 AI · Deep Analysis · Ask AI Chat · Try them in any stock\'s Overview tab', 8000);
+        showToast('🚀 New: Claude Opus 4.6 AI · Deep Analysis · Ask AI Chat · Try them in any stock\'s Overview tab', 8000);
         localStorage.setItem('TASI_seen_v8', '1');
       }, 2000);
     }
