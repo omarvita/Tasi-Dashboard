@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
-<title>TASI Stock Screener — Tadawul Full Market Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TASI Dashboard v4</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -34,6 +34,1132 @@ body{background:var(--bg);color:var(--tx);font-family:var(--sans);min-height:100
 .si{position:absolute;left:7px;top:50%;transform:translateY(-50%);color:var(--tx3);font-size:11px;pointer-events:none}
 input[type=text]{width:100%;background:var(--bg2);border:1px solid var(--b2);border-radius:5px;color:var(--tx);font-family:var(--mono);font-size:11px;padding:5px 8px 5px 22px;outline:none;transition:border-color .15s}
 input[type=text]:focus{border-color:var(--acc)}
+input[type=text]::placeholder{color:var(--tx3)}
+select{background:var(--bg2);border:1px solid var(--b2);border-radius:5px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none;cursor:pointer}
+/* SECTORS */
+.secw{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}
+.sb{font-family:var(--mono);font-size:9px;padding:3px 7px;border:1px solid var(--b2);border-radius:14px;background:transparent;color:var(--tx2);cursor:pointer;transition:all .12s;white-space:nowrap}
+.sb:hover{border-color:var(--tx2);color:var(--tx)}
+.sb.active{background:var(--adm);border-color:var(--acc);color:var(--acc)}
+.sb.reit-btn{border-color:#a855f750;color:var(--pur)}
+.sb.reit-btn.active{background:var(--pdim);border-color:var(--pur)}
+/* PROGRESS */
+.pw{background:var(--bg2);border:1px solid var(--b1);border-radius:7px;padding:9px 13px;margin-bottom:8px}
+.pl{font-family:var(--mono);font-size:10px;color:var(--tx2);margin-bottom:5px}
+.pt{height:3px;background:var(--b2);border-radius:2px;overflow:hidden}
+.pf{height:3px;background:var(--acc);border-radius:2px;transition:width .3s;width:0%}
+/* TABLE */
+.tw{background:var(--bg2);border:1px solid var(--b1);border-radius:9px;overflow:hidden}
+table{width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed}
+thead{background:var(--bg3)}
+th{font-family:var(--mono);font-size:9px;font-weight:500;color:var(--tx3);text-align:left;padding:7px 8px;border-bottom:1px solid var(--b1);text-transform:uppercase;letter-spacing:.04em;cursor:pointer;white-space:nowrap;user-select:none}
+th:hover{color:var(--tx2)}
+td{padding:6px 8px;border-bottom:1px solid var(--b1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
+.tk{font-family:var(--mono);font-weight:600;color:var(--blue);font-size:10px}
+.rk{font-family:var(--mono);font-size:9px;color:var(--tx3)}
+.pv{font-family:var(--mono);font-size:11px}
+.pos{color:var(--green);font-family:var(--mono);font-size:10px}
+.neg{color:var(--red);font-family:var(--mono);font-size:10px}
+.nav{color:var(--tx3);font-family:var(--mono);font-size:10px}
+/* SCORE BAR */
+.bw{display:flex;align-items:center;gap:4px}
+.bt{flex:1;height:4px;background:var(--b2);border-radius:2px;min-width:28px}
+.bfill{height:4px;border-radius:2px}
+.bn{font-family:var(--mono);font-size:10px;font-weight:500;min-width:20px;text-align:right}
+/* BADGES */
+.badge{display:inline-block;font-family:var(--mono);font-size:8px;font-weight:600;padding:1px 4px;border-radius:3px;letter-spacing:.03em;text-transform:uppercase}
+.b-buy{background:var(--gdim);color:var(--green);border:1px solid #166534}
+.b-hold{background:var(--adim);color:var(--amb);border:1px solid #92400e}
+.b-watch{background:var(--rdim);color:var(--red);border:1px solid #991b1b}
+.b-moat{background:var(--pdim);color:var(--pur);border:1px solid #6b21a8;font-size:7px;margin-left:2px}
+.b-reit{background:#1e1b4b;color:#818cf8;border:1px solid #3730a3;font-size:7px;margin-left:2px}
+.b-live{background:var(--adm);color:var(--acc);border:1px solid var(--acc);font-size:7px}
+.b-est{background:#1a1a2e;color:var(--tx3);border:1px solid var(--b2);font-size:7px}
+/* BUTTONS */
+.dbtn{font-family:var(--mono);font-size:9px;padding:2px 6px;background:var(--bg3);border:1px solid var(--b2);border-radius:3px;color:var(--tx2);cursor:pointer;transition:all .12s}
+.dbtn:hover{border-color:var(--acc);color:var(--acc)}
+/* PAGER */
+.pager{display:flex;align-items:center;justify-content:space-between;padding:7px 11px;border-top:1px solid var(--b1);background:var(--bg3);font-family:var(--mono);font-size:10px;color:var(--tx2)}
+.pbtns{display:flex;gap:5px}
+.pbtn{padding:3px 8px;background:var(--bg2);border:1px solid var(--b2);border-radius:4px;color:var(--tx2);font-family:var(--mono);font-size:10px;cursor:pointer;transition:all .12s}
+.pbtn:hover:not(:disabled){border-color:var(--acc);color:var(--acc)}
+.pbtn:disabled{opacity:.3;cursor:not-allowed}
+/* MODAL */
+.mo{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:200;padding:12px;backdrop-filter:blur(4px)}
+.modal{background:var(--bg2);border:1px solid var(--b2);border-radius:11px;width:780px;max-width:100%;max-height:92vh;overflow:hidden;display:flex;flex-direction:column}
+.mhead{padding:14px 16px 0;flex-shrink:0}
+.mhtop{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
+.mtitle{font-size:14px;font-weight:600}
+.msub{font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:2px}
+.mclose{width:22px;height:22px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;cursor:pointer;color:var(--tx2);font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-left:8px;transition:all .12s}
+.mclose:hover{border-color:var(--red);color:var(--red)}
+/* TABS */
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--b1);overflow-x:auto}
+.tab{font-family:var(--mono);font-size:10px;padding:7px 12px;cursor:pointer;color:var(--tx3);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .12s;white-space:nowrap;flex-shrink:0}
+.tab:hover{color:var(--tx2)}
+.tab.active{color:var(--acc);border-bottom-color:var(--acc)}
+.mbody{overflow-y:auto;flex:1;padding:12px 16px}
+/* SCORE TRIO */
+.strio{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:10px}
+.scard{background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:8px 10px;text-align:center}
+.scard.hl{border-color:var(--acc)}
+.slbl{font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
+.sval{font-family:var(--mono);font-size:20px;font-weight:600}
+/* SECTION LABELS */
+.secl{font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;margin:11px 0 6px;display:flex;align-items:center;gap:6px}
+.secl::after{content:'';flex:1;height:1px;background:var(--b1)}
+/* METRIC GRIDS */
+.mgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+.mgrid4{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
+.mi{background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:7px 9px}
+.mil{font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:2px}
+.miv{font-size:12px;font-weight:500;font-family:var(--mono)}
+/* CRITERIA */
+.cgrid{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.ci{display:flex;align-items:flex-start;gap:6px;font-size:10px;color:var(--tx2);padding:4px 6px;background:var(--bg3);border-radius:5px;border:1px solid var(--b1)}
+.cd{width:6px;height:6px;border-radius:50%;flex-shrink:0;margin-top:3px}
+.ci-detail{font-size:9px;color:var(--tx3);margin-top:1px}
+/* CHART */
+.cbox{width:100%;height:200px;position:relative;margin:4px 0 6px}
+/* FORMULA BOX */
+.formula-box{background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:9px 11px;font-family:var(--mono);font-size:10px;color:var(--tx2);line-height:1.8;margin-bottom:8px}
+.formula-box .var{color:var(--acc)}
+.formula-box .val{color:var(--tx);font-weight:600}
+.formula-box .good{color:var(--green)}
+.formula-box .bad{color:var(--red)}
+.formula-box .neu{color:var(--amb)}
+/* FINANCIAL TABLES */
+.ft{width:100%;border-collapse:collapse;font-size:10px;margin-bottom:10px}
+.ft th{font-family:var(--mono);font-size:9px;color:var(--tx3);text-align:right;padding:5px 7px;border-bottom:1px solid var(--b1);font-weight:500;white-space:nowrap}
+.ft th:first-child{text-align:left}
+.ft td{font-family:var(--mono);padding:5px 7px;border-bottom:1px solid var(--b1);color:var(--tx2);text-align:right;white-space:nowrap}
+.ft td:first-child{text-align:left;color:var(--tx);font-size:10px}
+.ft tr:last-child td{border-bottom:none}
+.ft tr:hover td{background:rgba(255,255,255,.02)}
+.ft-pos{color:var(--green)!important}
+.ft-neg{color:var(--red)!important}
+.ft-head{background:var(--bg3);font-weight:600}
+.ft-total{border-top:1px solid var(--b2);font-weight:600}
+/* AI BOX */
+.aibox{background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;font-size:11px;line-height:1.7;color:var(--tx2);white-space:pre-wrap}
+/* SPINNER */
+.spin{display:inline-block;width:10px;height:10px;border:2px solid var(--b2);border-top-color:var(--acc);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ls{text-align:center;padding:28px;color:var(--tx3);font-family:var(--mono);font-size:11px}
+.fnote{font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:9px;line-height:1.65;border-top:1px solid var(--b1);padding-top:7px}
+/* SCORE BREAKDOWN */
+.sb-row{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--b1);font-size:10px}
+.sb-row:last-child{border-bottom:none}
+.sb-label{flex:1;color:var(--tx2)}
+.sb-raw{font-family:var(--mono);font-size:9px;color:var(--tx3);min-width:60px}
+.sb-pts{font-family:var(--mono);font-size:10px;font-weight:600;min-width:40px;text-align:right}
+.sb-pts.good{color:var(--green)}
+.sb-pts.bad{color:var(--red)}
+.sb-pts.neu{color:var(--amb)}
+.score-total-row{background:var(--bg3);border-radius:5px;padding:6px 8px;display:flex;align-items:center;justify-content:space-between;margin-top:6px;font-family:var(--mono);font-size:11px}
+/* TAB LOADING */
+.tab-loading{text-align:center;padding:20px;color:var(--tx3);font-family:var(--mono);font-size:11px}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--b2);border-radius:3px}
+.pill{display:inline-block;font-family:var(--mono);font-size:8px;padding:1px 5px;border-radius:3px;vertical-align:middle;margin-left:3px}
+.pill-live{background:var(--adm);color:var(--acc);border:1px solid var(--acc)}
+.pill-est{background:#1a1a2e;color:var(--tx3);border:1px solid var(--b2)}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="logo">
+    <div class="logo-icon">TA</div>
+    <div><div class="logo-text">TASI SCREENER v4</div><div class="logo-sub">130+ Stocks · Live Financials · Score Breakdowns · Buffett · PEG</div></div>
+  </div>
+  <div class="tr">
+    <span class="lu" id="lu">Not loaded</span>
+    <button class="rbtn" id="rbtn" onclick="refreshAll()">↻ Load All Data</button>
+  </div>
+</header>
+
+<main class="main">
+  <div class="metrics">
+    <div class="mc"><div class="mc-l">Total</div><div class="mc-v" id="m-t">—</div></div>
+    <div class="mc"><div class="mc-l">Equities</div><div class="mc-v" id="m-e">—</div></div>
+    <div class="mc"><div class="mc-l">REITs</div><div class="mc-v" id="m-r">—</div></div>
+    <div class="mc"><div class="mc-l">Avg Score</div><div class="mc-v" id="m-a">—</div></div>
+    <div class="mc"><div class="mc-l">Buy Signals</div><div class="mc-v" id="m-b" style="color:var(--green)">—</div></div>
+    <div class="mc"><div class="mc-l">Moat Stocks</div><div class="mc-v" id="m-m" style="color:var(--pur)">—</div></div>
+    <div class="mc"><div class="mc-l">Top Buffett</div><div class="mc-v" id="m-tb" style="font-size:10px">—</div></div>
+    <div class="mc"><div class="mc-l">Prices Loaded</div><div class="mc-v" id="m-pl">0%</div></div>
+  </div>
+
+  <div class="pw" id="pw" style="display:none">
+    <div class="pl" id="pl">Initialising...</div>
+    <div class="pt"><div class="pf" id="pf"></div></div>
+  </div>
+
+  <div class="ctrl">
+    <div class="sw"><span class="si">⌕</span><input type="text" id="search" placeholder="Search ticker or name..." oninput="doFilter()"></div>
+    <select id="ss" onchange="doSort()">
+      <option value="combined">Sort: Combined Score</option>
+      <option value="buffett">Sort: Buffett</option>
+      <option value="fundamental">Sort: Fundamental</option>
+      <option value="technical">Sort: Technical</option>
+      <option value="pe">Sort: P/E (low→high)</option>
+      <option value="peg">Sort: PEG (low→high)</option>
+      <option value="change">Sort: Daily Chg%</option>
+    </select>
+    <select id="vs" onchange="doFilter()">
+      <option value="all">All securities</option>
+      <option value="equity">Equities only</option>
+      <option value="reit">REITs only</option>
+    </select>
+    <select id="sigs" onchange="doFilter()">
+      <option value="all">All signals</option>
+      <option value="Buy">Buy</option>
+      <option value="Hold">Hold</option>
+      <option value="Watch">Watch</option>
+    </select>
+  </div>
+
+  <div class="secw" id="secw"></div>
+
+  <div class="tw">
+    <table>
+      <thead><tr>
+        <th style="width:26px">#</th>
+        <th style="width:58px">Ticker</th>
+        <th style="width:145px">Company</th>
+        <th style="width:60px">SAR <span style="font-size:8px;opacity:.5">▼price</span></th>
+        <th style="width:50px">Chg%</th>
+        <th style="width:46px" onclick="sk('pe')" title="P/E Ratio">P/E↕</th>
+        <th style="width:52px" onclick="sk('eg')" title="Earnings Growth">EG%↕</th>
+        <th style="width:46px" onclick="sk('peg')" title="PEG Ratio — P/E÷EarningsGrowth">PEG↕</th>
+        <th style="width:82px" onclick="sk('fundamental')">Fund.↕</th>
+        <th style="width:82px" onclick="sk('technical')">Tech.↕</th>
+        <th style="width:82px" onclick="sk('buffett')">Buffett↕</th>
+        <th style="width:82px" onclick="sk('combined')">Combined↕</th>
+        <th style="width:48px">Signal</th>
+        <th style="width:40px">Info</th>
+      </tr></thead>
+      <tbody id="tbody"><tr><td colspan="14" class="ls"><span class="spin"></span> Loading scores...</td></tr></tbody>
+    </table>
+    <div class="pager">
+      <span id="pi">—</span>
+      <div class="pbtns">
+        <button class="pbtn" id="prevb" onclick="prevPage()" disabled>← Prev</button>
+        <button class="pbtn" id="nextb" onclick="nextPage()">Next →</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="fnote">
+    ⚠ Fundamental data: hardcoded from 2024–2025 public filings. Live financials (quarterly/annual) fetched from Yahoo Finance. Technical scores from 6-month price history.
+    Combined = 30% Fundamental + 20% Technical + 35% Buffett + 15% PEG score. NOT financial advice.
+    Buffett scoring based on "Warren Buffett and the Interpretation of Financial Statements" (Mary Buffett & David Clark).
+  </div>
+</main>
+
+<div class="mo" id="modal" style="display:none" onclick="if(event.target===this)closeModal()">
+  <div class="modal" id="mc2"></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════
+// STOCK UNIVERSE — Base fundamental data 2024/2025
+// ═══════════════════════════════════════════════════
+const STOCKS=[
+{t:"2222.SR",n:"Saudi Aramco",s:"Energy",r:false,pe:13.2,pb:3.8,roe:0.27,npm:0.24,de:48,dy:0.074,fcf:true,cr:1.2,rg:-0.03,eg:0.02,rev:1622,ni:328,assets:2695,desc:"World's largest oil company. Unmatched reserve base, massive dividend payer."},
+{t:"2382.SR",n:"Petro Rabigh",s:"Energy",r:false,pe:null,pb:0.6,roe:-0.04,npm:-0.02,de:195,dy:0,fcf:false,cr:0.8,rg:-0.08,eg:null,rev:42,ni:-1.2,assets:55,desc:"Integrated refining & petrochemicals. Facing margin pressure."},
+{t:"2250.SR",n:"Saudi Drilling",s:"Energy",r:false,pe:14,pb:1.1,roe:0.08,npm:0.12,de:35,dy:0.04,fcf:true,cr:1.6,rg:0.06,eg:0.10,rev:4.2,ni:0.5,assets:8.1,desc:"National drilling company supporting Aramco's upstream operations."},
+{t:"1120.SR",n:"Al Rajhi Bank",s:"Banking",r:false,pe:17.4,pb:3.5,roe:0.182,npm:0.45,de:null,dy:0.032,fcf:true,cr:null,rg:0.22,eg:0.26,rev:39.1,ni:18.2,assets:1040,desc:"Saudi Arabia's largest Islamic bank. ROE target >23.5%."},
+{t:"1180.SR",n:"Saudi National Bank",s:"Banking",r:false,pe:12.8,pb:1.6,roe:0.14,npm:0.40,de:null,dy:0.038,fcf:true,cr:null,rg:0.10,eg:0.08,rev:28.5,ni:11.4,assets:1120,desc:"Saudi Arabia's largest bank by total assets."},
+{t:"1211.SR",n:"Saudi British Bank",s:"Banking",r:false,pe:11.5,pb:1.2,roe:0.12,npm:0.38,de:null,dy:0.045,fcf:true,cr:null,rg:0.08,eg:0.10,rev:11.2,ni:4.3,assets:320,desc:"HSBC-affiliated bank, strong wholesale and trade finance."},
+{t:"1210.SR",n:"Riyad Bank",s:"Banking",r:false,pe:13.1,pb:1.4,roe:0.13,npm:0.41,de:null,dy:0.040,fcf:true,cr:null,rg:0.09,eg:0.09,rev:14.8,ni:6.1,assets:420,desc:"Large Saudi bank with strong retail and corporate banking."},
+{t:"1050.SR",n:"Banque Saudi Fransi",s:"Banking",r:false,pe:10.8,pb:1.1,roe:0.11,npm:0.37,de:null,dy:0.048,fcf:true,cr:null,rg:0.07,eg:0.08,rev:9.2,ni:3.4,assets:280,desc:"Mid-sized bank with French heritage. Strong corporate banking."},
+{t:"1080.SR",n:"Arab National Bank",s:"Banking",r:false,pe:11.2,pb:1.0,roe:0.10,npm:0.35,de:null,dy:0.046,fcf:true,cr:null,rg:0.06,eg:0.07,rev:7.8,ni:2.7,assets:220,desc:"Balanced retail and corporate banking mix."},
+{t:"1150.SR",n:"Alinma Bank",s:"Banking",r:false,pe:14.5,pb:1.8,roe:0.14,npm:0.42,de:null,dy:0.028,fcf:true,cr:null,rg:0.15,eg:0.18,rev:8.4,ni:3.5,assets:220,desc:"Fast-growing Islamic bank with strong digital focus."},
+{t:"1210.SR",n:"Riyad Bank",s:"Banking",r:false,pe:13.1,pb:1.4,roe:0.13,npm:0.41,de:null,dy:0.04,fcf:true,cr:null,rg:0.09,eg:0.09,rev:14.8,ni:6.1,assets:420,desc:"One of Saudi's largest banks."},
+{t:"1060.SR",n:"Saudi Awwal Bank",s:"Banking",r:false,pe:11.8,pb:1.2,roe:0.11,npm:0.36,de:null,dy:0.042,fcf:true,cr:null,rg:0.08,eg:0.09,rev:10.5,ni:3.8,assets:295,desc:"Merged bank with balanced retail/corporate franchise."},
+{t:"1111.SR",n:"Saudi Tadawul Group",s:"Banking",r:false,pe:28.0,pb:3.2,roe:0.12,npm:0.28,de:5,dy:0.022,fcf:true,cr:2.5,rg:0.14,eg:0.16,rev:1.85,ni:0.52,assets:11.2,desc:"Owner of Saudi Exchange. Benefits from capital market growth."},
+{t:"2010.SR",n:"SABIC",s:"Petrochemicals",r:false,pe:38.0,pb:1.4,roe:0.04,npm:0.04,de:52,dy:0.045,fcf:false,cr:1.1,rg:-0.05,eg:-0.45,rev:149,ni:5.8,assets:310,desc:"Global chemicals giant. Aramco subsidiary. Diversified chemical products."},
+{t:"4001.SR",n:"SABIC Agri-Nutrients",s:"Petrochemicals",r:false,pe:15.5,pb:2.4,roe:0.16,npm:0.28,de:12,dy:0.053,fcf:true,cr:2.0,rg:-0.02,eg:0.05,rev:8.2,ni:2.3,assets:16.5,desc:"Leading fertilizer producer. Lower feedstock cost advantage."},
+{t:"2350.SR",n:"Saudi Kayan",s:"Petrochemicals",r:false,pe:null,pb:0.55,roe:-0.04,npm:-0.05,de:88,dy:0,fcf:false,cr:0.9,rg:-0.06,eg:null,rev:8.8,ni:-0.5,assets:28,desc:"Petrochemicals complex sensitive to global chemical prices."},
+{t:"2330.SR",n:"Advanced Petrochem",s:"Petrochemicals",r:false,pe:22.0,pb:1.8,roe:0.08,npm:0.10,de:30,dy:0.038,fcf:true,cr:1.5,rg:0.02,eg:0.08,rev:4.1,ni:0.42,assets:7.8,desc:"Polypropylene producer with Aramco feedstock."},
+{t:"2300.SR",n:"Saudi Cement",s:"Building Materials",r:false,pe:13.5,pb:2.2,roe:0.17,npm:0.28,de:8,dy:0.062,fcf:true,cr:2.8,rg:0.05,eg:0.06,rev:2.4,ni:0.67,assets:5.2,desc:"Leading cement producer. Vision 2030 infrastructure beneficiary."},
+{t:"2310.SR",n:"Yamama Cement",s:"Building Materials",r:false,pe:12.8,pb:1.8,roe:0.14,npm:0.25,de:6,dy:0.058,fcf:true,cr:3.1,rg:0.04,eg:0.05,rev:1.8,ni:0.45,assets:4.0,desc:"Central region cement with strong cash generation."},
+{t:"2320.SR",n:"Arabian Cement",s:"Building Materials",r:false,pe:14.2,pb:2.0,roe:0.15,npm:0.26,de:10,dy:0.055,fcf:true,cr:2.5,rg:0.05,eg:0.06,rev:1.5,ni:0.39,assets:3.5,desc:"Eastern region cement producer."},
+{t:"3004.SR",n:"Qassim Cement",s:"Building Materials",r:false,pe:11.5,pb:2.1,roe:0.19,npm:0.30,de:5,dy:0.068,fcf:true,cr:3.5,rg:0.06,eg:0.07,rev:1.3,ni:0.39,assets:2.6,desc:"Best-in-class Saudi cement: highest ROE, lowest debt."},
+{t:"3005.SR",n:"Southern Province Cement",s:"Building Materials",r:false,pe:12.0,pb:1.9,roe:0.16,npm:0.27,de:7,dy:0.060,fcf:true,cr:2.9,rg:0.05,eg:0.06,rev:1.0,ni:0.27,assets:2.2,desc:"Southwestern region cement with solid dividends."},
+{t:"3003.SR",n:"Eastern Province Cement",s:"Building Materials",r:false,pe:13.0,pb:1.7,roe:0.13,npm:0.22,de:12,dy:0.050,fcf:true,cr:2.3,rg:0.04,eg:0.05,rev:1.1,ni:0.24,assets:2.8,desc:"Eastern region cement supply."},
+{t:"3002.SR",n:"Al Jouf Cement",s:"Building Materials",r:false,pe:16.0,pb:1.5,roe:0.10,npm:0.20,de:15,dy:0.040,fcf:true,cr:2.0,rg:0.04,eg:0.05,rev:0.7,ni:0.14,assets:2.1,desc:"Northern region cement producer."},
+{t:"3030.SR",n:"Saudi Ceramic",s:"Building Materials",r:false,pe:15.0,pb:1.4,roe:0.09,npm:0.10,de:30,dy:0.040,fcf:true,cr:1.5,rg:0.06,eg:0.08,rev:1.1,ni:0.11,assets:2.0,desc:"Ceramic tile and sanitary ware benefiting from construction."},
+{t:"4002.SR",n:"Maaden",s:"Materials",r:false,pe:32.0,pb:2.8,roe:0.09,npm:0.14,de:110,dy:0.028,fcf:false,cr:1.1,rg:0.12,eg:0.25,rev:19.5,ni:2.7,assets:145,desc:"National mining: gold, phosphate, aluminium. Vision 2030 play."},
+{t:"4060.SR",n:"Saudi Steel Pipes",s:"Materials",r:false,pe:14.0,pb:1.6,roe:0.12,npm:0.08,de:28,dy:0.045,fcf:true,cr:1.8,rg:0.08,eg:0.10,rev:1.8,ni:0.14,assets:2.5,desc:"Steel pipe manufacturer for oil, gas and water infrastructure."},
+{t:"4007.SR",n:"National Industrialization",s:"Industrial",r:false,pe:16.0,pb:1.3,roe:0.08,npm:0.08,de:45,dy:0.040,fcf:true,cr:1.5,rg:0.05,eg:0.07,rev:6.2,ni:0.5,assets:14,desc:"Diversified industrial conglomerate. Chemicals and titanium."},
+{t:"4009.SR",n:"Sahara International",s:"Industrial",r:false,pe:18.0,pb:1.5,roe:0.08,npm:0.12,de:35,dy:0.035,fcf:true,cr:1.6,rg:0.06,eg:0.08,rev:2.8,ni:0.34,assets:7.5,desc:"Petrochemical and industrial investments."},
+{t:"4030.SR",n:"STC",s:"Telecom",r:false,pe:22.0,pb:3.5,roe:0.17,npm:0.19,de:55,dy:0.041,fcf:true,cr:0.9,rg:0.06,eg:0.08,rev:73,ni:13.8,assets:178,desc:"Saudi's dominant telecom. 5G, cloud, regional digital expansion."},
+{t:"4040.SR",n:"Mobily",s:"Telecom",r:false,pe:18.5,pb:2.0,roe:0.11,npm:0.12,de:75,dy:0.028,fcf:true,cr:0.8,rg:0.04,eg:0.12,rev:14.8,ni:1.78,assets:48,desc:"Second telecom. Recovering after restructuring with 5G rollout."},
+{t:"4050.SR",n:"Zain KSA",s:"Telecom",r:false,pe:32.0,pb:2.5,roe:0.08,npm:0.07,de:120,dy:0.018,fcf:true,cr:0.7,rg:0.05,eg:0.18,rev:8.5,ni:0.60,assets:32,desc:"Third telecom player. Growing but lower margin than peers."},
+{t:"7010.SR",n:"STC Solutions",s:"Telecom",r:false,pe:30.0,pb:4.5,roe:0.16,npm:0.15,de:20,dy:0.018,fcf:true,cr:1.8,rg:0.12,eg:0.15,rev:5.2,ni:0.78,assets:12,desc:"IT and digital services arm of STC. Government cloud focus."},
+{t:"4163.SR",n:"Dr Sulaiman Al Habib",s:"Healthcare",r:false,pe:42.0,pb:8.5,roe:0.22,npm:0.18,de:25,dy:0.010,fcf:true,cr:1.9,rg:0.18,eg:0.22,rev:9.2,ni:1.65,assets:22,desc:"Premium hospital group. Fastest-growing healthcare chain in KSA."},
+{t:"4161.SR",n:"Mouwasat Medical",s:"Healthcare",r:false,pe:28.0,pb:4.2,roe:0.16,npm:0.17,de:15,dy:0.018,fcf:true,cr:2.1,rg:0.12,eg:0.14,rev:3.8,ni:0.65,assets:9.5,desc:"Eastern region hospital group with strong patient volumes."},
+{t:"4100.SR",n:"Dallah Healthcare",s:"Healthcare",r:false,pe:24.0,pb:3.0,roe:0.13,npm:0.14,de:20,dy:0.022,fcf:true,cr:1.7,rg:0.10,eg:0.12,rev:3.2,ni:0.45,assets:8.0,desc:"Private hospital group Riyadh region, consistent growth."},
+{t:"4162.SR",n:"Al Hammadi",s:"Healthcare",r:false,pe:22.0,pb:2.5,roe:0.12,npm:0.13,de:18,dy:0.025,fcf:true,cr:1.8,rg:0.09,eg:0.11,rev:1.8,ni:0.23,assets:5.0,desc:"Multi-specialty Riyadh hospital with expansion pipeline."},
+{t:"4150.SR",n:"Nahdi Medical",s:"Healthcare",r:false,pe:20.0,pb:2.8,roe:0.14,npm:0.06,de:30,dy:0.028,fcf:true,cr:1.4,rg:0.09,eg:0.10,rev:8.5,ni:0.51,assets:8.2,desc:"Saudi's largest pharmacy chain. Expanding into digital health."},
+{t:"4270.SR",n:"Almarai",s:"Consumer",r:false,pe:24.0,pb:3.2,roe:0.14,npm:0.10,de:95,dy:0.025,fcf:false,cr:0.9,rg:0.08,eg:0.10,rev:21.5,ni:2.15,assets:57,desc:"GCC's largest food & beverage. Dominant dairy and juice brands."},
+{t:"4290.SR",n:"Jarir Marketing",s:"Consumer",r:false,pe:19.0,pb:7.8,roe:0.48,npm:0.08,de:15,dy:0.048,fcf:true,cr:1.3,rg:0.08,eg:0.09,rev:10.2,ni:0.82,assets:4.5,desc:"Leading bookstore/electronics retailer. Extraordinary 48% ROE."},
+{t:"4240.SR",n:"Al Othaim Markets",s:"Consumer",r:false,pe:17.0,pb:2.8,roe:0.17,npm:0.04,de:28,dy:0.040,fcf:true,cr:1.0,rg:0.07,eg:0.08,rev:9.8,ni:0.39,assets:7.2,desc:"Leading supermarket chain. Benefits from food retail demand."},
+{t:"4230.SR",n:"Extra Electronics",s:"Consumer",r:false,pe:18.5,pb:3.5,roe:0.20,npm:0.06,de:8,dy:0.055,fcf:true,cr:1.4,rg:0.15,eg:0.18,rev:8.8,ni:0.53,assets:4.8,desc:"Consumer electronics retailer. 35% of sales now online."},
+{t:"4280.SR",n:"Americana Restaurants",s:"Consumer",r:false,pe:26.0,pb:3.8,roe:0.15,npm:0.07,de:65,dy:0.022,fcf:true,cr:0.9,rg:0.10,eg:0.14,rev:8.4,ni:0.59,assets:18,desc:"KFC, Pizza Hut franchises across MENA."},
+{t:"4191.SR",n:"Leejam Sports",s:"Consumer",r:false,pe:22.0,pb:4.0,roe:0.19,npm:0.14,de:42,dy:0.028,fcf:true,cr:0.9,rg:0.15,eg:0.18,rev:1.35,ni:0.19,assets:3.2,desc:"Largest gym operator (Fitness Time). Vision 2030 health push."},
+{t:"2050.SR",n:"Savola Group",s:"Consumer",r:false,pe:20.0,pb:1.5,roe:0.08,npm:0.03,de:98,dy:0.030,fcf:false,cr:0.8,rg:0.04,eg:0.06,rev:18.5,ni:0.56,assets:28,desc:"Diversified food group (Almarai stake, oils, sugar). High leverage."},
+{t:"4210.SR",n:"BinDawood Holding",s:"Consumer",r:false,pe:22.0,pb:2.8,roe:0.13,npm:0.04,de:12,dy:0.035,fcf:true,cr:1.2,rg:0.06,eg:0.08,rev:5.4,ni:0.22,assets:4.8,desc:"BinDawood and Danube supermarkets. Strong western Saudi presence."},
+{t:"6001.SR",n:"ACWA Power",s:"Utilities",r:false,pe:35.0,pb:5.5,roe:0.16,npm:0.28,de:320,dy:0.010,fcf:false,cr:0.8,rg:0.22,eg:0.28,rev:8.2,ni:2.3,assets:168,desc:"Top renewable energy developer. Massive global project pipeline."},
+{t:"5110.SR",n:"Saudi Electricity",s:"Utilities",r:false,pe:18.0,pb:0.8,roe:0.05,npm:0.09,de:180,dy:0.052,fcf:false,cr:0.6,rg:0.04,eg:0.05,rev:68,ni:6.1,assets:485,desc:"National electricity monopoly. Government-supported stable dividend."},
+{t:"2080.SR",n:"SAFCO",s:"Utilities",r:false,pe:14.0,pb:3.5,roe:0.26,npm:0.35,de:5,dy:0.068,fcf:true,cr:3.2,rg:-0.04,eg:-0.02,rev:3.6,ni:1.26,assets:9.2,desc:"High-quality urea producer. Strong ROE, minimal debt. Buffett favorite type."},
+{t:"8100.SR",n:"BUPA Arabia",s:"Insurance",r:false,pe:22.0,pb:6.5,roe:0.32,npm:0.06,de:null,dy:0.022,fcf:true,cr:1.8,rg:0.15,eg:0.18,rev:17.5,ni:1.05,assets:9.5,desc:"Saudi's largest health insurer. Near-monopoly on corporate health."},
+{t:"8200.SR",n:"Tawuniya",s:"Insurance",r:false,pe:18.0,pb:3.2,roe:0.19,npm:0.04,de:null,dy:0.035,fcf:true,cr:1.6,rg:0.12,eg:0.15,rev:12.5,ni:0.50,assets:7.2,desc:"Comprehensive insurance across health, motor and general lines."},
+{t:"8010.SR",n:"Saudi Re",s:"Insurance",r:false,pe:14.0,pb:1.5,roe:0.11,npm:0.08,de:null,dy:0.040,fcf:true,cr:1.9,rg:0.10,eg:0.12,rev:2.8,ni:0.22,assets:6.5,desc:"Saudi's only domestic reinsurer. Growing international book."},
+{t:"8250.SR",n:"Al Rajhi Takaful",s:"Insurance",r:false,pe:24.0,pb:3.8,roe:0.16,npm:0.06,de:null,dy:0.025,fcf:true,cr:1.7,rg:0.14,eg:0.16,rev:2.2,ni:0.13,assets:3.2,desc:"Islamic insurance arm of Al Rajhi. Fast-growing takaful."},
+{t:"4250.SR",n:"Jabal Omar",s:"Real Estate",r:false,pe:null,pb:2.2,roe:-0.02,npm:-0.05,de:68,dy:0,fcf:false,cr:0.7,rg:0.15,eg:null,rev:2.1,ni:-0.1,assets:42,desc:"Massive Makkah development. Long-term Vision 2030 play."},
+{t:"4300.SR",n:"Dar Al Arkan",s:"Real Estate",r:false,pe:12.0,pb:0.8,roe:0.07,npm:0.20,de:72,dy:0.030,fcf:false,cr:0.9,rg:0.12,eg:0.15,rev:5.2,ni:1.04,assets:45,desc:"Largest Saudi real estate developer. High revenue but leveraged."},
+{t:"4321.SR",n:"Cenomi Centers",s:"Real Estate",r:false,pe:20.0,pb:1.8,roe:0.09,npm:0.28,de:85,dy:0.030,fcf:true,cr:0.8,rg:0.10,eg:0.12,rev:2.1,ni:0.59,assets:18.5,desc:"Saudi's largest mall operator. Growing footfall."},
+{t:"4322.SR",n:"Retal Urban Dev",s:"Real Estate",r:false,pe:13.5,pb:1.5,roe:0.11,npm:0.20,de:35,dy:0.042,fcf:true,cr:1.4,rg:0.14,eg:0.16,rev:1.8,ni:0.36,assets:6.8,desc:"Residential developer focused on affordable housing."},
+{t:"7203.SR",n:"ELM",s:"Technology",r:false,pe:38.0,pb:7.2,roe:0.20,npm:0.22,de:8,dy:0.015,fcf:true,cr:2.5,rg:0.18,eg:0.22,rev:4.5,ni:0.99,assets:12,desc:"Saudi's leading government IT. Quasi-monopoly on digital services."},
+{t:"7202.SR",n:"SOLUTIONS",s:"Technology",r:false,pe:32.0,pb:5.5,roe:0.18,npm:0.12,de:12,dy:0.018,fcf:true,cr:2.2,rg:0.15,eg:0.18,rev:3.8,ni:0.46,assets:9.5,desc:"IT solutions for enterprises and government. Cloud beneficiary."},
+{t:"7200.SR",n:"MIS",s:"Technology",r:false,pe:28.0,pb:4.0,roe:0.15,npm:0.14,de:10,dy:0.020,fcf:true,cr:2.0,rg:0.12,eg:0.14,rev:0.95,ni:0.13,assets:2.8,desc:"Managed IT and infrastructure services. Government contracts."},
+// REITs
+{t:"4330.SR",n:"Riyad REIT",s:"REITs",r:true,pe:18.0,pb:1.1,roe:0.07,npm:0.55,de:42,dy:0.062,fcf:true,cr:1.2,rg:0.05,eg:0.05,rev:0.38,ni:0.21,assets:4.2,desc:"Diversified REIT with commercial, retail and hospitality assets."},
+{t:"4331.SR",n:"AlJazira REIT",s:"REITs",r:true,pe:17.0,pb:1.0,roe:0.06,npm:0.50,de:38,dy:0.058,fcf:true,cr:1.3,rg:0.04,eg:0.04,rev:0.22,ni:0.11,assets:2.5,desc:"Office and commercial REIT. Stable income assets."},
+{t:"4332.SR",n:"Jadwa REIT Alharamain",s:"REITs",r:true,pe:16.0,pb:1.1,roe:0.07,npm:0.52,de:35,dy:0.065,fcf:true,cr:1.4,rg:0.04,eg:0.05,rev:0.18,ni:0.09,assets:2.2,desc:"Holy cities assets REIT. Hajj/Umrah demand."},
+{t:"4333.SR",n:"Taleem REIT",s:"REITs",r:true,pe:20.0,pb:1.2,roe:0.06,npm:0.55,de:30,dy:0.055,fcf:true,cr:1.5,rg:0.06,eg:0.06,rev:0.15,ni:0.08,assets:1.9,desc:"Education-focused REIT. Schools leased to operators. Defensive."},
+{t:"4334.SR",n:"Al Maather REIT",s:"REITs",r:true,pe:15.0,pb:0.9,roe:0.06,npm:0.48,de:40,dy:0.068,fcf:true,cr:1.2,rg:0.03,eg:0.03,rev:0.14,ni:0.07,assets:1.8,desc:"Small diversified REIT. Commercial and residential assets."},
+{t:"4335.SR",n:"Musharaka REIT",s:"REITs",r:true,pe:16.0,pb:1.0,roe:0.06,npm:0.50,de:35,dy:0.063,fcf:true,cr:1.3,rg:0.04,eg:0.04,rev:0.12,ni:0.06,assets:1.6,desc:"Office and retail REIT in Riyadh and Jeddah."},
+{t:"4336.SR",n:"Mulkia REIT",s:"REITs",r:true,pe:17.0,pb:1.0,roe:0.06,npm:0.52,de:38,dy:0.060,fcf:true,cr:1.3,rg:0.04,eg:0.04,rev:0.16,ni:0.08,assets:2.0,desc:"Diversified REIT with commercial buildings."},
+{t:"4337.SR",n:"Al Aziziah REIT",s:"REITs",r:true,pe:18.0,pb:1.1,roe:0.06,npm:0.54,de:32,dy:0.058,fcf:true,cr:1.4,rg:0.04,eg:0.05,rev:0.10,ni:0.05,assets:1.5,desc:"Small REIT with commercial retail assets. Consistent dividend."},
+{t:"4338.SR",n:"AlAhli REIT 1",s:"REITs",r:true,pe:16.5,pb:1.0,roe:0.06,npm:0.50,de:36,dy:0.062,fcf:true,cr:1.3,rg:0.04,eg:0.05,rev:0.20,ni:0.10,assets:2.3,desc:"NCB Capital-managed diversified commercial REIT."},
+{t:"4339.SR",n:"Derayah REIT",s:"REITs",r:true,pe:15.5,pb:0.9,roe:0.06,npm:0.48,de:38,dy:0.067,fcf:true,cr:1.2,rg:0.04,eg:0.04,rev:0.17,ni:0.08,assets:2.0,desc:"Diversified REIT. Among higher-yielding REITs."},
+{t:"4340.SR",n:"Al Rajhi REIT",s:"REITs",r:true,pe:19.0,pb:1.2,roe:0.07,npm:0.55,de:28,dy:0.058,fcf:true,cr:1.6,rg:0.06,eg:0.06,rev:0.35,ni:0.19,assets:4.0,desc:"Al Rajhi Capital-managed. High-quality diversified assets."},
+{t:"4342.SR",n:"Jadwa REIT Saudi",s:"REITs",r:true,pe:17.0,pb:1.1,roe:0.07,npm:0.52,de:24,dy:0.062,fcf:true,cr:1.5,rg:0.05,eg:0.05,rev:0.28,ni:0.15,assets:3.5,desc:"Pioneer Saudi REIT with diversified quality assets."},
+{t:"4344.SR",n:"Sedco Capital REIT",s:"REITs",r:true,pe:16.0,pb:1.0,roe:0.06,npm:0.50,de:35,dy:0.064,fcf:true,cr:1.4,rg:0.04,eg:0.04,rev:0.22,ni:0.11,assets:2.6,desc:"Sharia-compliant commercial assets REIT."},
+{t:"4345.SR",n:"Alinma Retail REIT",s:"REITs",r:true,pe:17.5,pb:1.1,roe:0.06,npm:0.52,de:30,dy:0.060,fcf:true,cr:1.4,rg:0.05,eg:0.05,rev:0.19,ni:0.10,assets:2.4,desc:"Retail properties and shopping centres REIT."},
+{t:"4346.SR",n:"MEFIC REIT",s:"REITs",r:true,pe:16.0,pb:1.0,roe:0.06,npm:0.50,de:38,dy:0.062,fcf:true,cr:1.3,rg:0.04,eg:0.04,rev:0.15,ni:0.08,assets:1.8,desc:"Diversified commercial and logistics assets REIT."},
+{t:"4347.SR",n:"Bonyan REIT",s:"REITs",r:true,pe:18.0,pb:1.2,roe:0.07,npm:0.54,de:26,dy:0.058,fcf:true,cr:1.5,rg:0.05,eg:0.05,rev:0.13,ni:0.07,assets:1.7,desc:"Office and commercial REIT in prime Riyadh locations."},
+{t:"4348.SR",n:"Alkhabeer REIT",s:"REITs",r:true,pe:15.0,pb:0.9,roe:0.06,npm:0.48,de:40,dy:0.068,fcf:true,cr:1.2,rg:0.04,eg:0.04,rev:0.18,ni:0.09,assets:2.1,desc:"Diversified REIT with hospitality, office and retail assets."},
+{t:"4349.SR",n:"Alinma Hospitality REIT",s:"REITs",r:true,pe:20.0,pb:1.3,roe:0.07,npm:0.50,de:32,dy:0.055,fcf:true,cr:1.3,rg:0.08,eg:0.10,rev:0.22,ni:0.11,assets:2.8,desc:"Hospitality REIT with Makkah/Madinah hotels. Hajj upside."},
+{t:"4350.SR",n:"Alistithmar REIT",s:"REITs",r:true,pe:16.5,pb:1.0,roe:0.06,npm:0.50,de:36,dy:0.063,fcf:true,cr:1.3,rg:0.04,eg:0.05,rev:0.14,ni:0.07,assets:1.7,desc:"Saudi Fransi Capital-managed commercial property REIT."},
+{t:"4326.SR",n:"Almajdiah Dev REIT",s:"REITs",r:true,pe:17.0,pb:1.1,roe:0.06,npm:0.52,de:34,dy:0.060,fcf:true,cr:1.4,rg:0.05,eg:0.05,rev:0.12,ni:0.06,assets:1.6,desc:"Retail and commercial REIT, western Saudi Arabia."},
+];
+
+// ═══════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════
+let allData=[],filtData=[],activeSector="All",sortKey="combined",curPage=1;
+const PG=30;
+let chartInst=null;
+
+// ═══════════════════════════════════════
+// SCORING WITH FULL BREAKDOWN
+// ═══════════════════════════════════════
+function scoreFundamental(d){
+  const steps=[];
+  let p=50;
+  function add(label,raw,delta,why){p+=delta;steps.push({label,raw,delta,why});}
+
+  const pe=d.pe,pb=d.pb,roe=d.roe,npm=d.npm,de=d.de,dy=d.dy,fcf=d.fcf,rg=d.rg,eg=d.eg;
+
+  if(pe!=null){
+    if(pe<10)add("P/E Ratio",pe.toFixed(1),+22,"Very cheap (P/E < 10)");
+    else if(pe<15)add("P/E Ratio",pe.toFixed(1),+14,"Below market avg (P/E 10–15)");
+    else if(pe<20)add("P/E Ratio",pe.toFixed(1),+8,"Fair value (P/E 15–20)");
+    else if(pe<28)add("P/E Ratio",pe.toFixed(1),+3,"Slightly premium (P/E 20–28)");
+    else if(pe<=40)add("P/E Ratio",pe.toFixed(1),-5,"Premium valuation (P/E 28–40)");
+    else add("P/E Ratio",pe.toFixed(1),-18,"Very expensive (P/E > 40)");
+  } else add("P/E Ratio","N/A",-5,"No P/E data (possible loss-making)");
+
+  if(pb!=null){
+    if(pb<1)add("P/B Ratio",pb.toFixed(2),+16,"Trading below book value");
+    else if(pb<1.5)add("P/B Ratio",pb.toFixed(2),+10,"Modest premium to book");
+    else if(pb<3)add("P/B Ratio",pb.toFixed(2),+5,"Reasonable book premium");
+    else if(pb<=6)add("P/B Ratio",pb.toFixed(2),-5,"High premium to book");
+    else add("P/B Ratio",pb.toFixed(2),-12,"Very high P/B > 6");
+  }
+
+  if(roe!=null){
+    if(roe>0.25)add("ROE",(roe*100).toFixed(1)+"%",+20,"Outstanding ROE > 25%");
+    else if(roe>0.18)add("ROE",(roe*100).toFixed(1)+"%",+14,"Excellent ROE 18–25%");
+    else if(roe>0.12)add("ROE",(roe*100).toFixed(1)+"%",+9,"Good ROE 12–18%");
+    else if(roe>0.06)add("ROE",(roe*100).toFixed(1)+"%",+3,"Average ROE 6–12%");
+    else if(roe>0)add("ROE",(roe*100).toFixed(1)+"%",-5,"Low ROE < 6%");
+    else add("ROE",(roe*100).toFixed(1)+"%",-18,"Negative ROE");
+  }
+
+  if(npm!=null){
+    if(npm>0.25)add("Net Margin",(npm*100).toFixed(1)+"%",+14,"Very high margins > 25%");
+    else if(npm>0.15)add("Net Margin",(npm*100).toFixed(1)+"%",+9,"Healthy margins 15–25%");
+    else if(npm>0.08)add("Net Margin",(npm*100).toFixed(1)+"%",+5,"Adequate margins 8–15%");
+    else if(npm>0)add("Net Margin",(npm*100).toFixed(1)+"%",-3,"Thin margins < 8%");
+    else add("Net Margin",(npm*100).toFixed(1)+"%",-14,"Negative margins");
+  }
+
+  if(de!=null){
+    if(de<20)add("Debt/Equity",de.toFixed(0)+"%",+12,"Very conservative debt");
+    else if(de<50)add("Debt/Equity",de.toFixed(0)+"%",+7,"Moderate debt");
+    else if(de<100)add("Debt/Equity",de.toFixed(0)+"%",+2,"Elevated debt");
+    else if(de<200)add("Debt/Equity",de.toFixed(0)+"%",-8,"High debt");
+    else add("Debt/Equity",de.toFixed(0)+"%",-14,"Very high debt > 200%");
+  } else add("Debt/Equity","N/A (bank)",+3,"Banks assessed on capital ratios");
+
+  if(dy!=null){
+    if(dy>0.06)add("Dividend Yield",(dy*100).toFixed(2)+"%",+10,"High yield > 6%");
+    else if(dy>0.04)add("Dividend Yield",(dy*100).toFixed(2)+"%",+7,"Good yield 4–6%");
+    else if(dy>0.02)add("Dividend Yield",(dy*100).toFixed(2)+"%",+4,"Modest yield 2–4%");
+    else if(dy>0)add("Dividend Yield",(dy*100).toFixed(2)+"%",+1,"Low yield < 2%");
+    else add("Dividend Yield","0%",-2,"No dividend paid");
+  }
+
+  if(fcf!=null){
+    if(fcf)add("Free Cashflow","Positive",+8,"Generating real cash");
+    else add("Free Cashflow","Negative",-6,"Cash outflow (investing phase?)");
+  }
+
+  if(rg!=null){
+    if(rg>0.15)add("Revenue Growth",(rg*100).toFixed(1)+"%",+10,"Strong revenue growth > 15%");
+    else if(rg>0.08)add("Revenue Growth",(rg*100).toFixed(1)+"%",+6,"Good growth 8–15%");
+    else if(rg>0.03)add("Revenue Growth",(rg*100).toFixed(1)+"%",+3,"Modest growth 3–8%");
+    else if(rg>=0)add("Revenue Growth",(rg*100).toFixed(1)+"%",0,"Flat revenue growth");
+    else if(rg>-0.05)add("Revenue Growth",(rg*100).toFixed(1)+"%",-5,"Slight revenue decline");
+    else add("Revenue Growth",(rg*100).toFixed(1)+"%",-10,"Significant revenue decline");
+  }
+
+  return{score:Math.min(100,Math.max(0,Math.round(p))),steps};
+}
+
+function scoreBuffett(d){
+  const steps=[];let p=50;const crit={};
+  function add(label,raw,delta,why,key){p+=delta;if(key)crit[key]=(delta>0);steps.push({label,raw,delta,why});}
+  const{pe,pb,roe,npm,de,dy,fcf,cr,rg,eg,r:isReit}=d;
+  const roeT=isReit?0.05:0.15,npmT=isReit?0.40:0.10,deT=isReit?150:80,dyT=isReit?0.04:0.02,pbT=isReit?1.5:3;
+
+  // ROE
+  crit.highROE=roe!=null&&roe>roeT;
+  if(roe>roeT)add("ROE",(roe!=null?(roe*100).toFixed(1)+"%":"—"),+18,`ROE > ${roeT*100}% — durable advantage signal`,"highROE");
+  else if(roe!=null&&roe>roeT*0.6)add("ROE",(roe*100).toFixed(1)+"%",+8,`Adequate ROE but below ${roeT*100}% target`);
+  else if(roe!=null&&roe<0)add("ROE",(roe*100).toFixed(1)+"%",-22,"Negative ROE — destroying value","highROE");
+  else add("ROE",roe!=null?(roe*100).toFixed(1)+"%":"—",-3,"ROE below Buffett threshold");
+
+  // Net Margin
+  crit.goodMargins=npm!=null&&npm>npmT;
+  if(npm!=null&&npm>npmT)add("Net Margin",(npm*100).toFixed(1)+"%",+15,`Margin > ${npmT*100}% — pricing power`,"goodMargins");
+  else if(npm!=null&&npm>npmT*0.5)add("Net Margin",(npm*100).toFixed(1)+"%",+6,"Adequate margins");
+  else if(npm!=null&&npm<0)add("Net Margin",(npm*100).toFixed(1)+"%",-15,"Negative margins","goodMargins");
+  else add("Net Margin",npm!=null?(npm*100).toFixed(1)+"%":"—",-4,"Below Buffett margin threshold");
+
+  // Debt
+  crit.lowDebt=de!=null&&de<deT||de==null;
+  if(de==null)add("Debt/Equity","N/A (bank)",+5,"Banks use capital ratios — adjusted");
+  else if(de<30)add("Debt/Equity",de.toFixed(0)+"%",+14,"Very low debt — strong fortress balance sheet","lowDebt");
+  else if(de<deT)add("Debt/Equity",de.toFixed(0)+"%",+8,`Debt below ${deT}% threshold`,"lowDebt");
+  else if(de<deT*2)add("Debt/Equity",de.toFixed(0)+"%",-6,`Elevated debt above ${deT}%`);
+  else add("Debt/Equity",de.toFixed(0)+"%",-16,"Very high leverage — Buffett avoidance zone");
+
+  // PE
+  crit.reasonablePE=pe!=null&&pe>0&&pe<25;
+  if(pe!=null&&pe>0&&pe<12)add("P/E Ratio",pe.toFixed(1),+14,"Very cheap — margin of safety");
+  else if(pe!=null&&pe<18)add("P/E Ratio",pe.toFixed(1),+9,"Reasonable price","reasonablePE");
+  else if(pe!=null&&pe<25)add("P/E Ratio",pe.toFixed(1),+4,"Fair price","reasonablePE");
+  else if(pe!=null&&pe<=40)add("P/E Ratio",pe.toFixed(1),-6,"Premium — needs high growth to justify");
+  else if(pe!=null&&pe>40)add("P/E Ratio",pe.toFixed(1),-14,"Very expensive — Buffett says avoid","reasonablePE");
+  else add("P/E Ratio","N/A",-8,"No earnings — not Buffett territory","reasonablePE");
+
+  // PB
+  crit.belowBook=pb!=null&&pb<pbT;
+  if(pb!=null&&pb<1)add("P/B Ratio",pb.toFixed(2),+12,"Below book value — great value","belowBook");
+  else if(pb!=null&&pb<pbT)add("P/B Ratio",pb.toFixed(2),+6,`P/B < ${pbT} — reasonable`,"belowBook");
+  else if(pb!=null&&pb>6)add("P/B Ratio",pb.toFixed(2),-10,"High P/B — needs exceptional returns to justify");
+  else if(pb!=null)add("P/B Ratio",pb.toFixed(2),-2,"Moderate premium to book");
+
+  // Dividend
+  crit.paysDividend=dy!=null&&dy>dyT;
+  if(dy!=null&&dy>0.06)add("Dividend Yield",(dy*100).toFixed(2)+"%",+12,"High yield — strong shareholder return","paysDividend");
+  else if(dy!=null&&dy>dyT)add("Dividend Yield",(dy*100).toFixed(2)+"%",+8,`Yield > ${dyT*100}% — good income`,"paysDividend");
+  else if(dy==0||dy==null)add("Dividend Yield","0%",-3,"No dividend — Buffett prefers cash returns","paysDividend");
+  else add("Dividend Yield",(dy*100).toFixed(2)+"%",+2,"Some dividend yield");
+
+  // FCF
+  crit.positiveFCF=!!fcf;
+  if(fcf)add("Free Cashflow","Positive",+10,"Real cash generation — Buffett's #1 signal","positiveFCF");
+  else add("Free Cashflow","Negative",-10,"Cash outflow — Buffett: 'avoid cash burners'","positiveFCF");
+
+  // Current Ratio
+  crit.goodLiquidity=cr!=null&&cr>1.5;
+  if(cr!=null&&cr>2)add("Current Ratio",cr.toFixed(2),+6,"Strong short-term liquidity","goodLiquidity");
+  else if(cr!=null&&cr>1.5)add("Current Ratio",cr.toFixed(2),+3,"Adequate liquidity","goodLiquidity");
+  else if(cr!=null&&cr<1)add("Current Ratio",cr.toFixed(2),-8,"Below 1 — short-term risk");
+  else if(cr==null)add("Current Ratio","N/A",0,"Banks: not applicable");
+
+  // Revenue Growth
+  crit.revenueGrowth=rg!=null&&rg>0.05;
+  if(rg!=null&&rg>0.12)add("Revenue Growth",(rg*100).toFixed(1)+"%",+10,"Strong revenue growth — expanding moat","revenueGrowth");
+  else if(rg!=null&&rg>0.05)add("Revenue Growth",(rg*100).toFixed(1)+"%",+5,"Healthy growth","revenueGrowth");
+  else if(rg!=null&&rg>0)add("Revenue Growth",(rg*100).toFixed(1)+"%",+2,"Slow growth");
+  else if(rg!=null)add("Revenue Growth",(rg*100).toFixed(1)+"%",-10,"Declining revenue — Buffett warns");
+
+  // Earnings Growth
+  crit.earningsGrowth=eg!=null&&eg>0.05;
+  if(eg!=null&&eg>0.12)add("Earnings Growth",(eg*100).toFixed(1)+"%",+8,"Strong EPS growth — compounding","earningsGrowth");
+  else if(eg!=null&&eg>0.05)add("Earnings Growth",(eg*100).toFixed(1)+"%",+4,"Solid earnings growth","earningsGrowth");
+  else if(eg!=null&&eg>0)add("Earnings Growth",(eg*100).toFixed(1)+"%",+1,"Modest growth");
+  else if(eg!=null)add("Earnings Growth",(eg*100).toFixed(1)+"%",-10,"Declining earnings");
+
+  crit.hasMoat=[crit.highROE,crit.goodMargins,crit.lowDebt,crit.positiveFCF].filter(Boolean).length>=3;
+  return{buffett:Math.min(100,Math.max(0,Math.round(p))),criteria:crit,steps};
+}
+
+function scoreTechnicalWithSteps(closes){
+  const steps=[];let p=50;
+  if(!closes||closes.length<20)return{score:50,steps:[{label:"Insufficient data",raw:"<20 days",delta:0,why:"Need at least 20 trading days"}]};
+  function add(label,raw,delta,why){p+=delta;steps.push({label,raw,delta,why});}
+  const c=closes,n=c.length;
+  const sma20=c.slice(-20).reduce((a,b)=>a+b,0)/20;
+  const sma50len=Math.min(50,n);
+  const sma50=c.slice(-sma50len).reduce((a,b)=>a+b,0)/sma50len;
+  const cur=c[n-1],prev=c[Math.max(0,n-21)];
+  const tr=(cur-prev)/prev;
+  // RSI
+  let g=0,l=0;for(let i=n-14;i<n;i++){const d=c[i]-c[i-1];if(d>0)g+=d;else l-=d;}
+  const ag=g/14,al=l/14;
+  const rsiV=al===0?100:100-(100/(1+ag/al));
+
+  if(rsiV<30)add("RSI (14-day)",rsiV.toFixed(1),+22,"Oversold (RSI < 30) — potential reversal upward");
+  else if(rsiV<40)add("RSI (14-day)",rsiV.toFixed(1),+12,"Near oversold (RSI 30–40)");
+  else if(rsiV<50)add("RSI (14-day)",rsiV.toFixed(1),+5,"Neutral-bearish (RSI 40–50)");
+  else if(rsiV<60)add("RSI (14-day)",rsiV.toFixed(1),-2,"Neutral-bullish (RSI 50–60)");
+  else if(rsiV<70)add("RSI (14-day)",rsiV.toFixed(1),-8,"Near overbought (RSI 60–70)");
+  else add("RSI (14-day)",rsiV.toFixed(1),-18,"Overbought (RSI > 70) — pullback risk");
+
+  if(cur>sma20)add("Price vs SMA-20",`${cur.toFixed(2)} > ${sma20.toFixed(2)}`,+10,"Price above 20-day MA — short-term uptrend");
+  else add("Price vs SMA-20",`${cur.toFixed(2)} < ${sma20.toFixed(2)}`,-10,"Price below 20-day MA — short-term downtrend");
+
+  if(sma20>sma50)add("SMA-20 vs SMA-50",`${sma20.toFixed(2)} > ${sma50.toFixed(2)}`,+10,"Golden cross zone — medium-term bullish");
+  else add("SMA-20 vs SMA-50",`${sma20.toFixed(2)} < ${sma50.toFixed(2)}`,-6,"Death cross zone — medium-term bearish");
+
+  if(tr>0.10)add("1-Month Momentum",(tr*100).toFixed(1)+"%",+14,"Strong positive momentum > 10%");
+  else if(tr>0.05)add("1-Month Momentum",(tr*100).toFixed(1)+"%",+8,"Positive momentum 5–10%");
+  else if(tr>0)add("1-Month Momentum",(tr*100).toFixed(1)+"%",+3,"Slight positive momentum");
+  else if(tr>-0.05)add("1-Month Momentum",(tr*100).toFixed(1)+"%",-5,"Slight negative momentum");
+  else if(tr>-0.15)add("1-Month Momentum",(tr*100).toFixed(1)+"%",-10,"Negative momentum -5% to -15%");
+  else add("1-Month Momentum",(tr*100).toFixed(1)+"%",-14,"Sharp decline > 15% in 1 month");
+
+  return{score:Math.min(100,Math.max(0,Math.round(p))),steps,rsi:rsiV,sma20,sma50,momentum:tr};
+}
+
+function scorePEG(pe,eg){
+  if(!pe||!eg||eg<=0)return{score:50,peg:null,steps:[{label:"PEG Ratio",raw:"N/A",delta:0,why:"Cannot calculate — need positive P/E and EG"}]};
+  const peg=pe/(eg*100);
+  let p=50,delta=0,why="";
+  if(peg<0.5){delta=+25;why="Exceptional: PEG < 0.5 — very undervalued vs growth";}
+  else if(peg<1.0){delta=+18;why="Undervalued: PEG 0.5–1.0 — Buffett sweet spot";}
+  else if(peg<1.5){delta=+8;why="Fair: PEG 1.0–1.5 — reasonably priced for growth";}
+  else if(peg<2.0){delta=-5;why="Slightly expensive: PEG 1.5–2.0";}
+  else if(peg<3.0){delta=-15;why="Expensive: PEG 2.0–3.0 — growth priced in";}
+  else{delta=-25;why="Very expensive: PEG > 3.0 — significant growth premium";}
+  p+=delta;
+  return{score:Math.min(100,Math.max(0,Math.round(p))),peg:parseFloat(peg.toFixed(2)),steps:[{label:"PEG Ratio",raw:peg.toFixed(2),delta,why}]};
+}
+
+function getSig(combined,buffett){
+  const avg=(combined+buffett)/2;
+  if(avg>=65)return{label:"Buy",cls:"b-buy"};
+  if(avg>=45)return{label:"Hold",cls:"b-hold"};
+  return{label:"Watch",cls:"b-watch"};
+}
+function sc(s){return s>=65?"#22c55e":s>=45?"#f59e0b":"#ef4444";}
+function bar(s){return`<div class="bw"><div class="bt"><div class="bfill" style="width:${s}%;background:${sc(s)}"></div></div><span class="bn" style="color:${sc(s)}">${s}</span></div>`;}
+
+// ═══════════════════════════════════════
+// DATA FETCH
+// ═══════════════════════════════════════
+async function fetchYahoo(ticker){
+  const proxy="https://api.allorigins.win/get?url=";
+  const chartUrl=`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=6mo`;
+  // Comprehensive modules
+  const summaryUrl=`https://query2.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=incomeStatementHistory,incomeStatementHistoryQuarterly,balanceSheetHistory,balanceSheetHistoryQuarterly,cashflowStatementHistory,cashflowStatementHistoryQuarterly,defaultKeyStatistics,summaryDetail,financialData,price`;
+  try{
+    const[cr,sr]=await Promise.all([
+      fetch(proxy+encodeURIComponent(chartUrl)).then(r=>r.json()),
+      fetch(proxy+encodeURIComponent(summaryUrl)).then(r=>r.json())
+    ]);
+    return{
+      chart:JSON.parse(cr.contents||"{}"),
+      summary:JSON.parse(sr.contents||"{}")
+    };
+  }catch(e){return{chart:{},summary:{}};}
+}
+
+// ═══════════════════════════════════════
+// FILTER / SORT / RENDER
+// ═══════════════════════════════════════
+function doFilter(){
+  const q=document.getElementById("search").value.toLowerCase();
+  const view=document.getElementById("vs").value;
+  const sf=document.getElementById("sigs").value;
+  let base=activeSector==="All"?[...allData]:allData.filter(d=>d.sector===activeSector);
+  if(view==="reit")base=base.filter(d=>d.isReit);
+  else if(view==="equity")base=base.filter(d=>!d.isReit);
+  if(sf!=="all")base=base.filter(d=>getSig(d.combined,d.buffett).label===sf);
+  filtData=base.filter(d=>d.name.toLowerCase().includes(q)||d.ticker.toLowerCase().includes(q));
+  applySort();curPage=1;renderTable();updateMetrics();
+}
+function sk(k){sortKey=k;document.getElementById("ss").value=k;applySort();curPage=1;renderTable();}
+function doSort(){sortKey=document.getElementById("ss").value;applySort();curPage=1;renderTable();}
+function applySort(){
+  filtData.sort((a,b)=>{
+    if(sortKey==="pe"||sortKey==="peg"){
+      const va=a[sortKey]??Infinity,vb=b[sortKey]??Infinity;
+      return va-vb;
+    }
+    return(b[sortKey]??-Infinity)-(a[sortKey]??-Infinity);
+  });
+}
+function prevPage(){if(curPage>1){curPage--;renderTable();}}
+function nextPage(){if(curPage*PG<filtData.length){curPage++;renderTable();}}
+
+function renderTable(){
+  const start=(curPage-1)*PG;
+  const page=filtData.slice(start,start+PG);
+  const tb=document.getElementById("tbody");
+  if(!page.length){tb.innerHTML=`<tr><td colspan="14" class="ls">No results.</td></tr>`;updatePager();return;}
+  tb.innerHTML=page.map((d,i)=>{
+    const sig=getSig(d.combined,d.buffett);
+    const hasPx=d.price!=null;
+    const cc=hasPx?(d.change>=0?"pos":"neg"):"nav";
+    const cs=hasPx?((d.change>=0?"+":"")+d.change.toFixed(2)+"%"):"—";
+    const moat=d.criteria?.hasMoat?`<span class="badge b-moat">Moat</span>`:"";
+    const reit=d.isReit?`<span class="badge b-reit">REIT</span>`:"";
+    const lv=d.priceLoaded?`<span class="badge b-live" style="margin-left:2px">LIVE</span>`:`<span class="badge b-est" style="margin-left:2px">EST</span>`;
+    const pegStr=d.peg!=null?`<span style="font-family:var(--mono);font-size:10px;color:${d.peg<1?"var(--green)":d.peg<2?"var(--amb)":"var(--red)"}">${d.peg.toFixed(2)}</span>`:`<span class="nav">—</span>`;
+    const egStr=d.eg!=null?`<span class="${d.eg>=0?'pos':'neg'}">${d.eg>=0?"+":""}${(d.eg*100).toFixed(0)}%</span>`:`<span class="nav">—</span>`;
+    return`<tr class="data-row" onclick="openModal(${start+i})">
+      <td class="rk">${start+i+1}</td>
+      <td class="tk">${d.ticker.replace(".SR","")}</td>
+      <td title="${d.name}" style="color:var(--tx)">${d.name}${moat}${reit}</td>
+      <td><span class="pv">${hasPx?d.price.toFixed(2):'—'}</span>${lv}</td>
+      <td class="${cc}">${cs}</td>
+      <td><span style="font-family:var(--mono);font-size:10px;color:var(--tx)">${d.pe!=null?d.pe.toFixed(1):'<span class="nav">—</span>'}</span></td>
+      <td>${egStr}</td>
+      <td>${pegStr}</td>
+      <td>${bar(d.fundamental)}</td>
+      <td>${bar(d.technical)}</td>
+      <td>${bar(d.buffett)}</td>
+      <td>${bar(d.combined)}</td>
+      <td><span class="badge ${sig.cls}">${sig.label}</span></td>
+      <td><button class="dbtn" onclick="event.stopPropagation();openModal(${start+i})">View</button></td>
+    </tr>`;
+  }).join("");
+  window._fd=filtData;
+  updatePager();
+}
+
+function updatePager(){
+  const total=filtData.length,pages=Math.max(1,Math.ceil(total/PG));
+  document.getElementById("pi").textContent=`Page ${curPage}/${pages} · ${total} results`;
+  document.getElementById("prevb").disabled=curPage<=1;
+  document.getElementById("nextb").disabled=curPage>=pages;
+}
+
+function updateMetrics(){
+  const loaded=allData.filter(d=>d.priceLoaded).length;
+  document.getElementById("m-t").textContent=allData.length;
+  document.getElementById("m-e").textContent=allData.filter(d=>!d.isReit).length;
+  document.getElementById("m-r").textContent=allData.filter(d=>d.isReit).length;
+  if(!filtData.length)return;
+  document.getElementById("m-a").textContent=Math.round(filtData.reduce((s,d)=>s+d.combined,0)/filtData.length);
+  document.getElementById("m-b").textContent=filtData.filter(d=>getSig(d.combined,d.buffett).label==="Buy").length;
+  document.getElementById("m-m").textContent=filtData.filter(d=>d.criteria?.hasMoat).length;
+  const tb=[...filtData].sort((a,b)=>b.buffett-a.buffett)[0];
+  document.getElementById("m-tb").textContent=tb?.name?.split(" ").slice(0,2).join(" ")??"—";
+  const pct=Math.round((loaded/allData.length)*100);
+  document.getElementById("m-pl").textContent=pct+"%";
+  document.getElementById("m-pl").style.color=pct===100?"var(--green)":pct>50?"var(--amb)":"var(--tx)";
+  document.getElementById("lu").textContent=`${loaded}/${allData.length} prices loaded`;
+}
+
+function buildSectors(){
+  const secs=["All",...new Set(STOCKS.map(s=>s.s))];
+  document.getElementById("secw").innerHTML=secs.map(s=>{
+    const isR=s==="REITs";
+    return`<button class="sb${s===activeSector?" active":""}${isR?" reit-btn":""}" data-s="${s}" onclick="setSector('${s}')">${s}</button>`;
+  }).join("");
+}
+function setSector(sec){
+  activeSector=sec;
+  document.querySelectorAll(".sb").forEach(b=>b.classList.toggle("active",b.dataset.s===sec));
+  doFilter();
+}
+
+// ═══════════════════════════════════════
+// MODAL WITH TABS
+// ═══════════════════════════════════════
+function openModal(idx){
+  window._curIdx=idx;
+  const d=window._fd?.[idx];if(!d)return;
+  const sig=getSig(d.combined,d.buffett);
+  const moat=d.criteria?.hasMoat?`<span class="badge b-moat">Moat</span>`:"";
+  const reit=d.isReit?`<span class="badge b-reit">REIT</span>`:"";
+  document.getElementById("mc2").innerHTML=`
+  <div class="mhead">
+    <div class="mhtop">
+      <div>
+        <div class="mtitle">${d.name} ${moat}${reit}</div>
+        <div class="msub">${d.ticker} · ${d.sector} · Signal: <span class="badge ${sig.cls}">${sig.label}</span> · ${d.priceLoaded?'<span style="color:var(--acc)">● Live data</span>':'<span style="color:var(--tx3)">○ Prices loading</span>'}</div>
+      </div>
+      <div class="mclose" onclick="closeModal()">×</div>
+    </div>
+    <div class="tabs">
+      <div class="tab active" id="tab-overview" onclick="switchTab('overview')">Overview</div>
+      <div class="tab" id="tab-breakdown" onclick="switchTab('breakdown')">Score Breakdown</div>
+      <div class="tab" id="tab-quarterly" onclick="switchTab('quarterly')">Quarterly Stmts</div>
+      <div class="tab" id="tab-annual" onclick="switchTab('annual')">5-Year Annual</div>
+      <div class="tab" id="tab-buffett" onclick="switchTab('buffett')">Buffett Analysis</div>
+      <div class="tab" id="tab-chart" onclick="switchTab('chart')">Price Chart</div>
+    </div>
+  </div>
+  <div class="mbody" id="mbody"><div id="panel-content"></div></div>`;
+  document.getElementById("modal").style.display="flex";
+  switchTab("overview");
+}
+
+function switchTab(tab){
+  document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
+  const el=document.getElementById("tab-"+tab);if(el)el.classList.add("active");
+  const d=window._fd?.[window._curIdx];if(!d)return;
+  const body=document.getElementById("panel-content");if(!body)return;
+  if(tab==="overview")body.innerHTML=buildOverview(d);
+  else if(tab==="breakdown")body.innerHTML=buildBreakdown(d);
+  else if(tab==="quarterly")body.innerHTML=buildQuarterly(d);
+  else if(tab==="annual")body.innerHTML=buildAnnual(d);
+  else if(tab==="buffett"){body.innerHTML=buildBuffett(d);fetchAI(d);}
+  else if(tab==="chart"){body.innerHTML=buildChartPanel(d);drawChart(d);}
+}
+
+function buildOverview(d){
+  const peg=d.peg;
+  return`
+  <div class="strio">
+    <div class="scard"><div class="slbl">Fundamental</div><div class="sval" style="color:${sc(d.fundamental)}">${d.fundamental}</div></div>
+    <div class="scard"><div class="slbl">Technical</div><div class="sval" style="color:${sc(d.technical)}">${d.technical}</div></div>
+    <div class="scard"><div class="slbl">Buffett</div><div class="sval" style="color:${sc(d.buffett)}">${d.buffett}</div></div>
+    <div class="scard hl"><div class="slbl">Combined</div><div class="sval" style="color:${sc(d.combined)}">${d.combined}</div></div>
+  </div>
+  <div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:8px 10px;font-family:var(--mono);font-size:9px;color:var(--tx3);margin-bottom:8px">
+    Combined = (Fundamental × 30%) + (Technical × 20%) + (Buffett × 35%) + (PEG Score × 15%)
+    = (${d.fundamental}×0.30) + (${d.technical}×0.20) + (${d.buffett}×0.35) + (${d.pegScore}×0.15) = <span style="color:var(--acc);font-weight:600">${d.combined}</span>
+  </div>
+  <div class="secl">Market & Valuation</div>
+  <div class="mgrid4">
+    <div class="mi"><div class="mil">Price SAR</div><div class="miv">${d.price!=null?d.price.toFixed(2):"—"}</div></div>
+    <div class="mi"><div class="mil">Daily Chg</div><div class="miv ${d.change!=null?(d.change>=0?'pos':'neg'):''}">${d.change!=null?(d.change>=0?"+":"")+d.change.toFixed(2)+"%":"—"}</div></div>
+    <div class="mi"><div class="mil">P/E Ratio</div><div class="miv">${d.pe!=null?d.pe.toFixed(1):"—"}</div></div>
+    <div class="mi"><div class="mil">P/B Ratio</div><div class="miv">${d.pb!=null?d.pb.toFixed(2):"—"}</div></div>
+    <div class="mi"><div class="mil">PEG Ratio</div><div class="miv" style="color:${peg!=null?(peg<1?"var(--green)":peg<2?"var(--amb)":"var(--red)"):"var(--tx3)"}">${peg!=null?peg.toFixed(2):"—"}</div></div>
+    <div class="mi"><div class="mil">Earnings Growth</div><div class="miv ${d.eg!=null?(d.eg>=0?'pos':'neg'):''}">${d.eg!=null?(d.eg>=0?"+":"")+(d.eg*100).toFixed(1)+"%":"—"}</div></div>
+    <div class="mi"><div class="mil">Div. Yield</div><div class="miv">${d.dy!=null?(d.dy*100).toFixed(2)+"%":"—"}</div></div>
+    <div class="mi"><div class="mil">ROE</div><div class="miv ${d.roe!=null?(d.roe>0.12?"pos":d.roe<0?"neg":""):''}">${d.roe!=null?(d.roe*100).toFixed(1)+"%":"—"}</div></div>
+  </div>
+  <div class="secl">Key Financials (SAR B, FY2024)</div>
+  <div class="mgrid">
+    <div class="mi"><div class="mil">Revenue</div><div class="miv">${d.rev!=null?d.rev.toFixed(2)+"B":"—"}</div></div>
+    <div class="mi"><div class="mil">Net Income</div><div class="miv ${d.ni!=null?(d.ni>=0?'pos':'neg'):''}">${d.ni!=null?d.ni.toFixed(2)+"B":"—"}</div></div>
+    <div class="mi"><div class="mil">Total Assets</div><div class="miv">${d.assets!=null?d.assets.toFixed(1)+"B":"—"}</div></div>
+    <div class="mi"><div class="mil">Net Margin</div><div class="miv">${d.npm!=null?(d.npm*100).toFixed(1)+"%":"—"}</div></div>
+    <div class="mi"><div class="mil">Debt/Equity</div><div class="miv">${d.de!=null?d.de.toFixed(0)+"%":"N/A"}</div></div>
+    <div class="mi"><div class="mil">Free Cashflow</div><div class="miv ${d.fcf?"pos":"neg"}">${d.fcf?"Positive":"Negative"}</div></div>
+  </div>
+  <div class="secl">About</div>
+  <div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:9px 11px;font-size:11px;color:var(--tx2);line-height:1.7">${d.desc}</div>`;
+}
+
+function buildBreakdown(d){
+  function renderSteps(steps,totalScore,label,color){
+    return`
+    <div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <span style="font-family:var(--mono);font-size:10px;font-weight:600;color:${color}">${label}</span>
+        <span style="font-family:var(--mono);font-size:16px;font-weight:600;color:${color}">${totalScore}/100</span>
+      </div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-bottom:8px">Starting base: 50 points. Each factor adds or subtracts.</div>
+      ${steps.map(st=>{
+        const pts=st.delta>0?`<span class="sb-pts good">+${st.delta}</span>`:st.delta<0?`<span class="sb-pts bad">${st.delta}</span>`:`<span class="sb-pts neu">0</span>`;
+        return`<div class="sb-row">
+          <div style="flex:0 0 130px;font-family:var(--mono);font-size:9px;color:var(--tx2)">${st.label}</div>
+          <div style="flex:0 0 70px;font-family:var(--mono);font-size:9px;color:var(--tx3)">${st.raw}</div>
+          <div style="flex:1;font-size:10px;color:var(--tx3)">${st.why}</div>
+          ${pts}
+        </div>`;
+      }).join("")}
+      <div class="score-total-row" style="margin-top:8px">
+        <span style="color:var(--tx3);font-size:10px">Base (50) + adjustments</span>
+        <span style="color:${color};font-size:13px;font-weight:600">${totalScore} / 100</span>
+      </div>
+    </div>`;
+  }
+
+  const pegSteps=d.pegSteps||[];
+  const pegScore=d.pegScore||50;
+  return`
+  <div class="formula-box" style="margin-bottom:10px">
+    <span style="color:var(--tx)">Combined Score Formula:</span><br>
+    = (<span class="var">Fundamental</span> <span class="val">${d.fundamental}</span> × 30%) + (<span class="var">Technical</span> <span class="val">${d.technical}</span> × 20%) + (<span class="var">Buffett</span> <span class="val">${d.buffett}</span> × 35%) + (<span class="var">PEG Score</span> <span class="val">${pegScore}</span> × 15%)<br>
+    = ${(d.fundamental*0.30).toFixed(1)} + ${(d.technical*0.20).toFixed(1)} + ${(d.buffett*0.35).toFixed(1)} + ${(pegScore*0.15).toFixed(1)} = <span class="val" style="color:${sc(d.combined)}">${d.combined}</span>
+  </div>
+  ${renderSteps(d.fundSteps||[],d.fundamental,"Fundamental Score","#60a5fa")}
+  ${renderSteps(d.techSteps||[],d.technical,"Technical Score","#a855f7")}
+  ${renderSteps(d.buffSteps||[],d.buffett,"Buffett Score","#f59e0b")}
+  ${renderSteps(pegSteps,pegScore,"PEG Score","#22c55e")}`;
+}
+
+function buildQuarterly(d){
+  const raw=d.rawData;
+  if(!raw){return`<div class="tab-loading"><span class="spin"></span> Quarterly data not loaded yet. Click "Load All Data" first.</div>`;}
+  const qIS=raw.incomeStatementHistoryQuarterly?.incomeStatementHistory||[];
+  const qBS=raw.balanceSheetHistoryQuarterly?.balanceSheetHistory||[];
+  const qCF=raw.cashflowStatementHistoryQuarterly?.cashflowStatements||[];
+  if(!qIS.length)return`<div class="tab-loading" style="color:var(--tx3)">No quarterly data available for this stock on Yahoo Finance.</div>`;
+
+  function fmtB(v){if(v==null||v?.raw==null)return"—";const n=v.raw/1e9;return(n>=0?"+":"")+n.toFixed(2)+"B";}
+  function fmtM(v){if(v==null||v?.raw==null)return"—";const n=v.raw/1e6;return(n>=0?"+":"")+n.toFixed(0)+"M";}
+  function fmtDate(v){if(!v)return"—";try{return new Date(v*1000).toLocaleDateString("en-SA",{year:"2-digit",month:"short"});}catch{return"—";}}
+
+  const qDates=qIS.map(q=>fmtDate(q.endDate?.raw));
+  const rows_is=[
+    {label:"Total Revenue", vals:qIS.map(q=>fmtB(q.totalRevenue))},
+    {label:"Gross Profit", vals:qIS.map(q=>fmtB(q.grossProfit))},
+    {label:"Operating Income", vals:qIS.map(q=>fmtB(q.operatingIncome))},
+    {label:"Net Income", vals:qIS.map(q=>fmtB(q.netIncome))},
+    {label:"EPS", vals:qIS.map(q=>q.earningsPerShare?.raw!=null?(q.earningsPerShare.raw.toFixed(2)+" SAR"):"—")},
+  ];
+  const rows_bs=[
+    {label:"Total Assets", vals:qBS.map(q=>fmtB(q.totalAssets))},
+    {label:"Total Liabilities", vals:qBS.map(q=>fmtB(q.totalLiab))},
+    {label:"Total Equity", vals:qBS.map(q=>fmtB(q.totalStockholderEquity))},
+    {label:"Cash & Equivalents", vals:qBS.map(q=>fmtB(q.cash))},
+    {label:"Short-term Debt", vals:qBS.map(q=>fmtB(q.shortLongTermDebt))},
+  ];
+  const rows_cf=[
+    {label:"Operating Cashflow", vals:qCF.map(q=>fmtB(q.totalCashFromOperatingActivities))},
+    {label:"Capital Expenditure", vals:qCF.map(q=>fmtB(q.capitalExpenditures))},
+    {label:"Free Cashflow (est.)", vals:qCF.map((q,i)=>{
+      const op=q.totalCashFromOperatingActivities?.raw,cap=q.capitalExpenditures?.raw;
+      if(op==null)return"—";const fcfV=(op+(cap||0))/1e9;return(fcfV>=0?"+":"")+fcfV.toFixed(2)+"B";
+    })},
+  ];
+  function makeTable(title,rows,dates){
+    return`<div class="fs-section" style="margin-bottom:14px">
+      <div style="font-family:var(--mono);font-size:9px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;padding-bottom:4px;border-bottom:1px solid var(--b1)">${title}</div>
+      <div style="overflow-x:auto"><table class="ft">
+        <thead><tr><th>Item</th>${dates.map(d=>`<th>${d}</th>`).join("")}</tr></thead>
+        <tbody>${rows.map(row=>`<tr><td>${row.label}</td>${row.vals.map(v=>`<td class="${v&&v.startsWith("-")?"ft-neg":v&&v!=="—"&&!v.startsWith("0")?"ft-pos":""}">${v||"—"}</td>`).join("")}</tr>`).join("")}</tbody>
+      </table></div></div>`;
+  }
+  return makeTable("Quarterly Income Statement",rows_is,qDates)
+       +makeTable("Quarterly Balance Sheet",rows_bs,qBS.map(q=>fmtDate(q.endDate?.raw)))
+       +makeTable("Quarterly Cash Flow",rows_cf,qCF.map(q=>fmtDate(q.endDate?.raw)))
+       +`<div style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Source: Yahoo Finance · All figures in SAR unless noted · B = Billions, M = Millions</div>`;
+}
+
+function buildAnnual(d){
+  const raw=d.rawData;
+  if(!raw){return`<div class="tab-loading"><span class="spin"></span> Annual data not loaded. Click "Load All Data" first.</div>`;}
+  const aIS=raw.incomeStatementHistory?.incomeStatementHistory||[];
+  const aBS=raw.balanceSheetHistory?.balanceSheetHistory||[];
+  const aCF=raw.cashflowStatementHistory?.cashflowStatements||[];
+  if(!aIS.length)return`<div class="tab-loading" style="color:var(--tx3)">No annual data available for this stock on Yahoo Finance.</div>`;
+
+  function fmtB(v){if(v==null||v?.raw==null)return"—";const n=v.raw/1e9;return(n>=0?"":"")+n.toFixed(2)+"B";}
+  function fmtPct(a,b){
+    if(a?.raw==null||b?.raw==null||b.raw===0)return"";
+    const chg=((a.raw-b.raw)/Math.abs(b.raw))*100;
+    return`<span style="font-size:8px;color:${chg>=0?"var(--green)":"var(--red)"}">${chg>=0?"+":""}${chg.toFixed(0)}%</span>`;
+  }
+  function fmtDate(v){try{return new Date(v*1000).getFullYear().toString();}catch{return"—";}}
+
+  const years=aIS.map(q=>fmtDate(q.endDate?.raw));
+  const rows_is=[
+    {label:"Revenue", vals:aIS.map((q,i)=>fmtB(q.totalRevenue)+(i<aIS.length-1?fmtPct(q.totalRevenue,aIS[i+1]?.totalRevenue):""))},
+    {label:"Gross Profit", vals:aIS.map(q=>fmtB(q.grossProfit))},
+    {label:"Operating Income", vals:aIS.map(q=>fmtB(q.operatingIncome))},
+    {label:"Net Income", vals:aIS.map((q,i)=>fmtB(q.netIncome)+(i<aIS.length-1?fmtPct(q.netIncome,aIS[i+1]?.netIncome):""))},
+    {label:"EPS (SAR)", vals:aIS.map(q=>q.earningsPerShare?.raw!=null?q.earningsPerShare.raw.toFixed(2):"—")},
+    {label:"R&D / Opex", vals:aIS.map(q=>fmtB(q.totalOperatingExpenses))},
+  ];
+  const rows_bs=[
+    {label:"Total Assets", vals:aBS.map(q=>fmtB(q.totalAssets))},
+    {label:"Total Liabilities", vals:aBS.map(q=>fmtB(q.totalLiab))},
+    {label:"Total Equity", vals:aBS.map(q=>fmtB(q.totalStockholderEquity))},
+    {label:"Cash", vals:aBS.map(q=>fmtB(q.cash))},
+    {label:"Total Debt", vals:aBS.map(q=>fmtB(q.longTermDebt))},
+    {label:"Debt/Equity %", vals:aBS.map(q=>{const e=q.totalStockholderEquity?.raw,debt=q.longTermDebt?.raw;return e&&debt?(((debt/e)*100).toFixed(0)+"%"):"—";})},
+  ];
+  const rows_cf=[
+    {label:"Operating CF", vals:aCF.map(q=>fmtB(q.totalCashFromOperatingActivities))},
+    {label:"Investing CF", vals:aCF.map(q=>fmtB(q.totalCashFromInvestingActivities))},
+    {label:"Financing CF", vals:aCF.map(q=>fmtB(q.totalCashFromFinancingActivities))},
+    {label:"CapEx", vals:aCF.map(q=>fmtB(q.capitalExpenditures))},
+    {label:"Free Cashflow", vals:aCF.map(q=>{const op=q.totalCashFromOperatingActivities?.raw,cap=q.capitalExpenditures?.raw;if(op==null)return"—";return((op+(cap||0))/1e9).toFixed(2)+"B";})},
+    {label:"Dividends Paid", vals:aCF.map(q=>fmtB(q.dividendsPaid))},
+  ];
+
+  function makeTable(title,rows,dates){
+    return`<div style="margin-bottom:14px">
+      <div style="font-family:var(--mono);font-size:9px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;padding-bottom:4px;border-bottom:1px solid var(--b1)">${title}</div>
+      <div style="overflow-x:auto"><table class="ft">
+        <thead><tr><th>Item</th>${dates.map(d=>`<th>FY${d}</th>`).join("")}</tr></thead>
+        <tbody>${rows.map(row=>`<tr><td>${row.label}</td>${row.vals.map(v=>`<td>${v||"—"}</td>`).join("")}</tr>`).join("")}</tbody>
+      </table></div></div>`;
+  }
+
+  // Compute some ratios for last year
+  const ly=aIS[0]||{},lyBS=aBS[0]||{},lyCF=aCF[0]||{};
+  const rev=ly.totalRevenue?.raw,ni=ly.netIncome?.raw,eq=lyBS.totalStockholderEquity?.raw;
+  const roeCalc=ni&&eq&&eq!==0?(ni/eq*100).toFixed(1)+"%":"—";
+  const npmCalc=ni&&rev&&rev!==0?(ni/rev*100).toFixed(1)+"%":"—";
+  const opCF=lyCF.totalCashFromOperatingActivities?.raw,cap=lyCF.capitalExpenditures?.raw;
+  const fcfCalc=opCF!=null?((opCF+(cap||0))/1e9).toFixed(2)+"B":"—";
+
+  return makeTable("5-Year Income Statement",rows_is,years)
+       +makeTable("5-Year Balance Sheet",rows_bs,aBS.map(q=>{try{return new Date(q.endDate?.raw*1000).getFullYear();}catch{return"—";}}))
+       +makeTable("5-Year Cash Flow Statement",rows_cf,aCF.map(q=>{try{return new Date(q.endDate?.raw*1000).getFullYear();}catch{return"—";}}))
+       +`<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:9px 11px;font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">
+         Latest Year Computed Ratios — ROE: <span style="color:var(--tx)">${roeCalc}</span> · Net Margin: <span style="color:var(--tx)">${npmCalc}</span> · Free Cashflow: <span style="color:var(--tx)">${fcfCalc}</span>
+         &nbsp;|&nbsp; Source: Yahoo Finance · SAR unless stated · Growth % shown vs prior year
+       </div>`;
+}
+
+function buildBuffett(d){
+  const crit=d.criteria||{};
+  const passed=Object.values(crit).filter(v=>v===true&&typeof v==="boolean").length;
+  const critItems=[
+    {key:"highROE",label:d.isReit?"ROE > 5% (REIT-adj.)":"ROE > 15% — durable return on capital"},
+    {key:"goodMargins",label:d.isReit?"Net margin > 40%":"Net margin > 10% — pricing power"},
+    {key:"lowDebt",label:d.isReit?"D/E < 150%":"D/E < 80% — fortress balance sheet"},
+    {key:"reasonablePE",label:"P/E < 25 — margin of safety in price"},
+    {key:"belowBook",label:d.isReit?"P/B < 1.5":"P/B < 3 — fair asset value"},
+    {key:"paysDividend",label:d.isReit?"Dividend > 4%":"Dividend > 2% — returning cash"},
+    {key:"positiveFCF",label:"Positive free cashflow — real earnings"},
+    {key:"goodLiquidity",label:"Current ratio > 1.5 — short-term safety"},
+    {key:"revenueGrowth",label:"Revenue growth > 5% — expanding moat"},
+    {key:"earningsGrowth",label:"Earnings growth > 5% — compounding"},
+  ];
+  return`
+  <div class="strio">
+    <div class="scard hl" style="grid-column:1/3"><div class="slbl">Buffett Score</div><div class="sval" style="color:${sc(d.buffett)}">${d.buffett}/100</div></div>
+    <div class="scard" style="grid-column:3/5"><div class="slbl">Criteria Passed</div><div class="sval" style="color:${passed>=7?"var(--green)":passed>=5?"var(--amb)":"var(--red)"}">${passed}/10</div></div>
+  </div>
+  ${crit.hasMoat?`<div style="background:var(--pdim);border:1px solid var(--pur);border-radius:6px;padding:7px 10px;font-size:10px;color:var(--pur);margin-bottom:8px">✓ DURABLE MOAT CANDIDATE — Passes 3+ of 4 core moat signals (high ROE, strong margins, low debt, positive FCF)</div>`:`<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:7px 10px;font-size:10px;color:var(--tx3);margin-bottom:8px">Not yet a moat candidate. Needs 3+ of: ROE>${d.isReit?5:15}%, margin>${d.isReit?40:10}%, low debt, positive FCF.</div>`}
+  <div class="secl">Buffett Criteria Checklist</div>
+  <div class="cgrid">
+    ${critItems.map(c=>`<div class="ci"><div class="cd" style="background:${crit[c.key]?"var(--green)":"var(--red)"}"></div><div><div>${c.label}</div></div></div>`).join("")}
+  </div>
+  <div class="secl" style="margin-top:10px">AI Analysis · Buffett Perspective <span class="spin" id="ai-sp" style="margin-left:6px"></span></div>
+  <div class="aibox" id="ai-box">Generating analysis...</div>
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:7px">Based on "Warren Buffett and the Interpretation of Financial Statements" by Mary Buffett & David Clark · Not financial advice.</div>`;
+}
+
+function buildChartPanel(d){
+  return`
+  <div class="secl">6-Month Price History with Cursor Labels</div>
+  <div class="cbox"><canvas id="price-chart" role="img" aria-label="Price chart for ${d.name}"></canvas></div>
+  <div class="mgrid" style="margin-top:6px">
+    <div class="mi"><div class="mil">Technical Score</div><div class="miv" style="color:${sc(d.technical)}">${d.technical}/100</div></div>
+    <div class="mi"><div class="mil">RSI (14-day)</div><div class="miv" style="color:${d.rsi!=null?(d.rsi<30?"var(--green)":d.rsi>70?"var(--red)":"var(--tx)"):"var(--tx3)"}">${d.rsi!=null?d.rsi.toFixed(1):"—"}</div></div>
+    <div class="mi"><div class="mil">6M Price Change</div><div class="miv">${d.closes?.length>1?((d.closes[d.closes.length-1]-d.closes[0])/d.closes[0]*100).toFixed(2)+"%":"—"}</div></div>
+    <div class="mi"><div class="mil">SMA-20</div><div class="miv">${d.sma20!=null?d.sma20.toFixed(2)+" SAR":"—"}</div></div>
+    <div class="mi"><div class="mil">SMA-50</div><div class="miv">${d.sma50!=null?d.sma50.toFixed(2)+" SAR":"—"}</div></div>
+    <div class="mi"><div class="mil">1M Momentum</div><div class="miv ${d.momentum!=null?(d.momentum>=0?'pos':'neg'):''}">${d.momentum!=null?(d.momentum>=0?"+":"")+(d.momentum*100).toFixed(1)+"%":"—"}</div></div>
+  </div>`;
+}
+
+function drawChart(d){
+  if(chartInst){try{chartInst.destroy();}catch(e){}}
+  const closes=d.closes||[];const timestamps=d.timestamps||[];
+  if(closes.length<2)return;
+  setTimeout(()=>{
+    try{
+      const ctx=document.getElementById("price-chart");if(!ctx)return;
+      const labels=timestamps.map(t=>new Date(t*1000).toLocaleDateString("en-SA",{month:"short",day:"numeric"}));
+      // Compute SMA-20 for chart overlay
+      const sma20arr=closes.map((_,i)=>{
+        if(i<19)return null;
+        return closes.slice(i-19,i+1).reduce((a,b)=>a+b,0)/20;
+      });
+      chartInst=new Chart(ctx,{
+        type:"line",
+        data:{
+          labels,
+          datasets:[
+            {label:"Price (SAR)",data:closes,borderColor:sc(d.combined),backgroundColor:"transparent",pointRadius:0,borderWidth:1.5,tension:0.3,yAxisID:"y"},
+            {label:"SMA-20",data:sma20arr,borderColor:"rgba(250,159,11,0.5)",backgroundColor:"transparent",pointRadius:0,borderWidth:1,borderDash:[4,4],tension:0.3,yAxisID:"y"},
+          ]
+        },
+        options:{
+          responsive:true,maintainAspectRatio:false,
+          interaction:{mode:"index",intersect:false},
+          plugins:{
+            legend:{display:true,labels:{color:"#8a9ab5",font:{size:9,family:"'IBM Plex Mono'"},boxWidth:12}},
+            tooltip:{
+              backgroundColor:"rgba(24,28,34,0.95)",
+              borderColor:"#2d3440",borderWidth:1,
+              titleColor:"#e8eaed",bodyColor:"#8a9ab5",
+              titleFont:{family:"'IBM Plex Mono'",size:10},
+              bodyFont:{family:"'IBM Plex Mono'",size:10},
+              callbacks:{
+                title:items=>`Date: ${items[0].label}`,
+                label:item=>`${item.dataset.label}: ${item.raw!=null?item.raw.toFixed(2)+" SAR":"—"}`
+              }
+            }
+          },
+          scales:{
+            x:{ticks:{font:{size:8,family:"'IBM Plex Mono'"},color:"#4a5568",maxTicksLimit:8},grid:{display:false},border:{color:"#232830"}},
+            y:{ticks:{font:{size:8,family:"'IBM Plex Mono'"},color:"#4a5568"},grid:{color:"rgba(255,255,255,0.03)"},border:{color:"#232830"}}
+          }
+        }
+      });
+    }catch(e){}
+  },50);
+}
+
+async function fetchAI(d){
+  const mc=Object.values(d.criteria||{}).filter(v=>v===true&&typeof v==="boolean").length;
+  const prompt=`Saudi equity analyst. Apply Warren Buffett's framework ("Warren Buffett and the Interpretation of Financial Statements") to analyze this TASI ${d.isReit?"REIT":"stock"}.${d.isReit?" Note: Saudi REITs must distribute ≥90% net income, higher leverage norms, valued on yield and NAV.":""}
+${d.name} (${d.ticker}) — ${d.sector}
+P/E: ${d.pe?.toFixed(1)??"N/A"} | PEG: ${d.peg?.toFixed(2)??"N/A"} | ROE: ${d.roe!=null?(d.roe*100).toFixed(1)+"%":"N/A"} | Margin: ${d.npm!=null?(d.npm*100).toFixed(1)+"%":"N/A"} | D/E: ${d.de??"N/A"} | Yield: ${d.dy!=null?(d.dy*100).toFixed(2)+"%":"N/A"} | FCF: ${d.fcf?"Yes":"No"} | EG: ${d.eg!=null?(d.eg*100).toFixed(1)+"%":"N/A"}
+Buffett: ${d.buffett}/100 | Criteria: ${mc}/10 | Moat: ${d.criteria?.hasMoat?"Yes":"No"}
+Write 4 concise plain-English sentences: 1) Economic moat? 2) Management quality from numbers? 3) Valuation attractive? 4) Biggest risk. No markdown.`;
+  try{
+    const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,messages:[{role:"user",content:prompt}]})});
+    const data=await res.json();
+    const txt=data.content?.map(c=>c.text||"").join("")||"Analysis unavailable.";
+    const el=document.getElementById("ai-box"),sp=document.getElementById("ai-sp");
+    if(el)el.textContent=txt;if(sp)sp.style.display="none";
+  }catch(e){
+    const el=document.getElementById("ai-box"),sp=document.getElementById("ai-sp");
+    if(el)el.textContent="AI unavailable.";if(sp)sp.style.display="none";
+  }
+}
+
+function closeModal(){
+  document.getElementById("modal").style.display="none";
+  if(chartInst){try{chartInst.destroy();}catch(e){}chartInst=null;}
+}
+
+// ═══════════════════════════════════════
+// MAIN INIT & REFRESH
+// ═══════════════════════════════════════
+function init(){
+  allData=STOCKS.map(s=>{
+    const fRes=scoreFundamental(s);
+    const bRes=scoreBuffett(s);
+    const pegRes=scorePEG(s.pe,s.eg);
+    const combined=Math.round(fRes.score*0.30+50*0.20+bRes.buffett*0.35+pegRes.score*0.15);
+    return{
+      ticker:s.t,name:s.n,sector:s.s,isReit:s.r,
+      pe:s.pe,pb:s.pb,roe:s.roe,npm:s.npm,de:s.de,dy:s.dy,
+      fcf:s.fcf,cr:s.cr,rg:s.rg,eg:s.eg,rev:s.rev,ni:s.ni,assets:s.assets,desc:s.desc,
+      peg:pegRes.peg,pegScore:pegRes.score,
+      fundamental:fRes.score,fundSteps:fRes.steps,
+      technical:50,techSteps:[],rsi:null,sma20:null,sma50:null,momentum:null,
+      buffett:bRes.buffett,criteria:bRes.criteria,buffSteps:bRes.steps,
+      pegSteps:pegRes.steps,
+      combined,
+      price:null,change:null,closes:[],timestamps:[],priceLoaded:false,rawData:null
+    };
+  });
+  buildSectors();setSector("All");
+}
+
+async function refreshAll(){
+  const btn=document.getElementById("rbtn");
+  btn.disabled=true;btn.textContent="Loading...";
+  const pw=document.getElementById("pw");pw.style.display="block";
+  const B=4;
+  for(let i=0;i<allData.length;i+=B){
+    const pct=Math.round((i/allData.length)*100);
+    document.getElementById("pf").style.width=pct+"%";
+    document.getElementById("pl").textContent=`Fetching ${i+1}–${Math.min(i+B,allData.length)} of ${allData.length} stocks...`;
+    const slice=allData.slice(i,i+B);
+    await Promise.all(slice.map(async(d,j)=>{
+      const idx=i+j;
+      try{
+        const raw=await fetchYahoo(d.ticker);
+        // Extract price
+        const meta=raw.chart?.chart?.result?.[0]?.meta;
+        const closes=(raw.chart?.chart?.result?.[0]?.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
+        const timestamps=raw.chart?.chart?.result?.[0]?.timestamp||[];
+        const price=meta?.regularMarketPrice??null;
+        const prev=meta?.chartPreviousClose??price;
+        const change=price&&prev?((price-prev)/prev)*100:null;
+        // Technical with steps
+        const tRes=scoreTechnicalWithSteps(closes);
+        // Extract live fundamentals if available
+        const qs=raw.summary?.quoteSummary?.result?.[0];
+        const sd=qs?.summaryDetail,fd=qs?.financialData;
+        const livePE=sd?.trailingPE?.raw??sd?.forwardPE?.raw??d.pe;
+        const liveEG=fd?.earningsGrowth?.raw??d.eg;
+        const liveRG=fd?.revenueGrowth?.raw??d.rg;
+        const liveROE=fd?.returnOnEquity?.raw??d.roe;
+        const liveNPM=fd?.profitMargins?.raw??d.npm;
+        const liveDY=sd?.dividendYield?.raw??d.dy;
+        const liveDE=fd?.debtToEquity?.raw??d.de;
+        const liveCR=fd?.currentRatio?.raw??d.cr;
+        // Rescore with live data
+        const liveStock={...allData[idx],pe:livePE,eg:liveEG,rg:liveRG,roe:liveROE,npm:liveNPM,dy:liveDY,de:liveDE,cr:liveCR};
+        const fRes2=scoreFundamental(liveStock);
+        const bRes2=scoreBuffett(liveStock);
+        const pegRes2=scorePEG(livePE,liveEG);
+        const combined2=Math.round(fRes2.score*0.30+tRes.score*0.20+bRes2.buffett*0.35+pegRes2.score*0.15);
+        allData[idx]={
+          ...allData[idx],
+          pe:livePE,eg:liveEG,rg:liveRG,roe:liveROE,npm:liveNPM,dy:liveDY,de:liveDE,cr:liveCR,
+          price,change:change!=null?parseFloat(change.toFixed(2)):null,
+          closes,timestamps,priceLoaded:price!=null,
+          technical:tRes.score,techSteps:tRes.steps,rsi:tRes.rsi,sma20:tRes.sma20,sma50:tRes.sma50,momentum:tRes.momentum,
+          fundamental:fRes2.score,fundSteps:fRes2.steps,
+          buffett:bRes2.buffett,criteria:bRes2.criteria,buffSteps:bRes2.steps,
+          peg:pegRes2.peg,pegScore:pegRes2.score,pegSteps:pegRes2.steps,
+          combined:combined2,
+          rawData:{
+            incomeStatementHistory:qs?.incomeStatementHistory,
+            incomeStatementHistoryQuarterly:qs?.incomeStatementHistoryQuarterly,
+            balanceSheetHistory:qs?.balanceSheetHistory,
+            balanceSheetHistoryQuarterly:qs?.balanceSheetHistoryQuarterly,
+            cashflowStatementHistory:qs?.cashflowStatementHistory,
+            cashflowStatementHistoryQuarterly:qs?.cashflowStatementHistoryQuarterly,
+          }
+        };
+      }catch(e){allData[idx].priceLoaded=false;}
+    }));
+    // Re-render after each batch
+    if(window._fd)window._fd=window._fd.map(d=>{const found=allData.find(a=>a.ticker===d.ticker);return found||d;});
+    doFilter();
+    updateMetrics();
+  }
+  document.getElementById("pf").style.width="100%";
+  const loaded=allData.filter(d=>d.priceLoaded).length;
+  document.getElementById("pl").textContent=`✓ Done: ${loaded}/${allData.length} stocks loaded live data`;
+  setTimeout(()=>{pw.style.display="none";},3000);
+  btn.disabled=false;btn.textContent="↻ Reload Data";
+  document.getElementById("lu").textContent=`${loaded}/${allData.length} loaded · ${new Date().toLocaleTimeString("en-SA",{hour:"2-digit",minute:"2-digit"})}`;
+  doFilter();
+}
+
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
+init();
+setTimeout(()=>refreshAll(),500);
+</script>
+</body>
+</html>
 input[type=text]::placeholder{color:var(--tx3)}
 select{background:var(--bg2);border:1px solid var(--b2);border-radius:5px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none;cursor:pointer}
 /* SECTORS */
