@@ -142,7 +142,8 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 .ft-neg{color:var(--red)!important}
 .ft-head{background:var(--bg3);font-weight:600}
 .ft-total{border-top:1px solid var(--b2);font-weight:600}
-
+/* AI BOX */
+.aibox{background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;font-size:11px;line-height:1.7;color:var(--tx2);white-space:pre-wrap}
 /* SPINNER */
 .spin{display:inline-block;width:10px;height:10px;border:2px solid var(--b2);border-top-color:var(--acc);border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -166,6 +167,27 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 .pill{display:inline-block;font-family:var(--mono);font-size:8px;padding:1px 5px;border-radius:3px;vertical-align:middle;margin-left:3px}
 .pill-live{background:var(--adm);color:var(--acc);border:1px solid var(--acc)}
 .pill-est{background:#1a1a2e;color:var(--tx3);border:1px solid var(--b2)}
+/* SETTINGS OVERLAY */
+.settings-overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:300;padding:16px;backdrop-filter:blur(4px)}
+.settings-panel{background:var(--bg2);border:1px solid var(--b2);border-radius:11px;width:500px;max-width:100%;padding:20px;position:relative;max-height:90vh;overflow-y:auto}
+.sp-title{font-family:var(--mono);font-size:13px;font-weight:600;margin-bottom:6px}
+.sp-desc{font-family:var(--mono);font-size:10px;color:var(--tx2);line-height:1.65;margin-bottom:10px}
+.sp-label{font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;display:block}
+.sp-row{display:flex;gap:6px;margin-bottom:10px;align-items:center;flex-wrap:wrap}
+.sp-input{flex:1;min-width:180px;background:var(--bg3);border:1px solid var(--b2);border-radius:5px;color:var(--tx);font-family:var(--mono);font-size:11px;padding:7px 10px;outline:none;transition:border-color .15s}
+.sp-input:focus{border-color:var(--acc)}
+.sp-btn{font-family:var(--mono);font-size:10px;padding:6px 13px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer;white-space:nowrap;transition:all .15s}
+.sp-btn:hover{background:var(--acc);color:#000}
+.sp-btn-sec{background:var(--bg3);border-color:var(--b2);color:var(--tx2)}
+.sp-btn-sec:hover{border-color:var(--acc);color:var(--acc);background:var(--bg3)}
+.sp-btn-red{background:var(--rdim);border-color:var(--red);color:var(--red)}
+.sp-btn-red:hover{background:var(--red);color:#fff}
+.sp-log{font-family:var(--mono);font-size:10px;min-height:24px;padding:7px 10px;background:var(--bg3);border-radius:5px;border:1px solid var(--b1);color:var(--tx3);line-height:1.6}
+.sp-divider{border:none;border-top:1px solid var(--b1);margin:12px 0}
+.sp-close{position:absolute;top:14px;right:14px;width:22px;height:22px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;cursor:pointer;color:var(--tx2);font-size:14px;display:flex;align-items:center;justify-content:center;transition:all .12s}
+.sp-close:hover{border-color:var(--red);color:var(--red)}
+.gear-wrap{position:relative;display:inline-block}
+.gear-dot{display:none;position:absolute;top:0;right:0;width:7px;height:7px;background:var(--green);border-radius:50%;border:1.5px solid var(--bg2);pointer-events:none}
 </style>
 </head>
 <body>
@@ -186,6 +208,10 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
     <button class="rbtn" id="lang-btn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="toggleArabic()">عر</button>
     <button class="rbtn" id="cmpbtn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showComparePanel()">Compare</button>
     <button class="rbtn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showPortfolioPanel()">💼 Portfolio</button>
+    <div class="gear-wrap">
+      <button class="rbtn" id="gear-btn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showSettings()">⚙ Settings</button>
+      <span class="gear-dot" id="gear-dot"></span>
+    </div>
   </div>
 </header>
 
@@ -474,11 +500,11 @@ function showComparePanel() {
 // ── VISION 2030 SCORE ──
 const VISION2030 = {
   '2222.SR':85,'4002.SR':90,'6001.SR':95,'4030.SR':70,'4163.SR':75,
-  '4161.SR':65,'4150.SR':60,'4290.SR':55,'4270.SR':60,'4321.SR':80,
+  '4161.SR':65,'4150.SR':60,'4290.SR':55,'4270.SR':60,'4321.SR':82,
   '4322.SR':85,'4250.SR':90,'7203.SR':88,'7202.SR':82,'7200.SR':75,
   '4040.SR':65,'4050.SR':62,'5110.SR':78,'4280.SR':72,'4191.SR':80,
-  '4300.SR':75,'4321.SR':82,'4030.SR':70,'2300.SR':70,'2310.SR':68,
-  '2320.SR':66,'3004.SR':65,'4007.SR':68,'4009.SR':65,'2250.SR':80,
+  '4300.SR':75,'2300.SR':70,'2310.SR':68,'2320.SR':66,'3004.SR':65,
+  '4007.SR':68,'4009.SR':65,'2250.SR':80,
 };
 function getVision2030(ticker) { return VISION2030[ticker] || 35; }
 
@@ -506,6 +532,193 @@ function showToast(msg, duration=3000) {
   el.textContent = msg;
   document.body.appendChild(el);
   setTimeout(() => el.remove(), duration);
+}
+
+// ── INDEXEDDB CACHE (price/technical data, configurable TTL) ──
+const CACHE_KEY  = 'tasi_v6_stocks';
+const META_KEY   = 'tasi_v6_meta';
+let   CACHE_TTL  = 4 * 60 * 60 * 1000; // default 4 hours, overridden by selector
+
+let _db = null;
+const DB_NAME = 'TASI_DB', DB_VER = 1, DB_STORE = 'cache';
+
+function openDB() {
+  if (_db) return Promise.resolve(_db);
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VER);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
+    };
+    req.onsuccess = e => { _db = e.target.result; resolve(_db); };
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+function dbGet(key) {
+  return new Promise((resolve, reject) => {
+    if (!_db) { resolve(null); return; }
+    const req = _db.transaction(DB_STORE, 'readonly').objectStore(DB_STORE).get(key);
+    req.onsuccess = e => resolve(e.target.result ?? null);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+function dbPut(key, value) {
+  return new Promise((resolve, reject) => {
+    if (!_db) { resolve(); return; }
+    const req = _db.transaction(DB_STORE, 'readwrite').objectStore(DB_STORE).put(value, key);
+    req.onsuccess = () => resolve();
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+async function saveCache() {
+  const payload = allData.map(d => ({
+    ticker: d.ticker, price: d.price, change: d.change,
+    closes: d.closes, timestamps: d.timestamps, priceLoaded: d.priceLoaded,
+    technical: d.technical, rsi: d.rsi, sma20: d.sma20, sma50: d.sma50, momentum: d.momentum,
+    techSteps: d.techSteps, combined: d.combined, dataDate: d.dataDate, dataSource: d.dataSource,
+    w52high: d.w52high, w52low: d.w52low, mktCap: d.mktCap, beta: d.beta,
+  }));
+  const meta = { savedAt: Date.now(), count: payload.length, ttl: CACHE_TTL };
+  try { await dbPut(CACHE_KEY, payload); await dbPut(META_KEY, meta); } catch(e) {}
+  updateCacheUI(meta);
+}
+
+async function loadCache() {
+  const meta = await dbGet(META_KEY);
+  if (!meta?.savedAt) return false;
+  if (Date.now() - meta.savedAt > (meta.ttl || CACHE_TTL)) return false;
+  const cached = await dbGet(CACHE_KEY);
+  if (!cached?.length) return false;
+  cached.forEach(c => {
+    const idx = allData.findIndex(d => d.ticker === c.ticker);
+    if (idx >= 0) allData[idx] = { ...allData[idx], ...c };
+  });
+  doFilter(); updateMetrics();
+  return true;
+}
+
+async function clearCache() {
+  try { await dbPut(CACHE_KEY, []); await dbPut(META_KEY, null); } catch(e) {}
+  updateCacheUI(null);
+}
+
+function updateCacheUI(meta) {
+  const el = document.getElementById('cache-info');
+  if (!el) return;
+  if (!meta?.savedAt) { el.textContent = 'No cache'; return; }
+  const age = Math.round((Date.now() - meta.savedAt) / 60000);
+  el.textContent = `Cache: ${meta.count} stocks · ${age < 60 ? age + 'm' : Math.round(age / 60) + 'h'} ago`;
+}
+
+function saveUIState() {
+  try { localStorage.setItem('TASI_ui', JSON.stringify({ sortKey, activeSector })); } catch(e) {}
+}
+
+function restoreUIState() {
+  try {
+    const s = localStorage.getItem('TASI_ui');
+    if (!s) return;
+    const ui = JSON.parse(s);
+    if (ui.sortKey) { sortKey = ui.sortKey; const el = document.getElementById('ss'); if (el) el.value = sortKey; }
+    if (ui.activeSector) setSector(ui.activeSector);
+  } catch(e) {}
+}
+
+// ── TWELVE DATA API + SETTINGS PANEL ──
+const TD_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function getTwelveKey() { return localStorage.getItem('TASI_twelvedata_key') || ''; }
+
+function updateGearDot() {
+  const dot = document.getElementById('gear-dot');
+  if (dot) dot.style.display = getTwelveKey() ? 'block' : 'none';
+}
+
+function showSettings() {
+  const ov = document.getElementById('settings-overlay');
+  if (!ov) return;
+  document.getElementById('td-key-input').value = getTwelveKey();
+  document.getElementById('td-log').innerHTML = '';
+  ov.style.display = 'flex';
+}
+
+function hideSettings() {
+  const ov = document.getElementById('settings-overlay');
+  if (ov) ov.style.display = 'none';
+}
+
+function saveTwelveKey() {
+  const k = document.getElementById('td-key-input').value.trim();
+  if (k) localStorage.setItem('TASI_twelvedata_key', k);
+  else localStorage.removeItem('TASI_twelvedata_key');
+  updateGearDot();
+  showToast(k ? '✓ API key saved' : 'Key cleared');
+}
+
+function clearTwelveCache() {
+  Object.keys(localStorage).filter(k => k.startsWith('TASI_td_')).forEach(k => localStorage.removeItem(k));
+  showToast('✓ Financial statement cache cleared');
+  document.getElementById('td-log').textContent = 'Cache cleared — next tab click will fetch fresh data.';
+}
+
+async function testTwelveKey() {
+  const key = getTwelveKey();
+  const logEl = document.getElementById('td-log');
+  if (!key) { if (logEl) logEl.innerHTML = '<span style="color:var(--red)">No key saved. Paste your key and click Save first.</span>'; return; }
+  if (logEl) logEl.innerHTML = '<span class="spin"></span> Testing with Aramco (2222.SR)…';
+  try {
+    const r = await fetch(`https://api.twelvedata.com/quote?symbol=2222.SR&apikey=${key}`, { signal: AbortSignal.timeout(10000) });
+    const data = await r.json();
+    if (data.code || data.status === 'error') {
+      if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ API error: ${data.message || data.code}</span>`;
+    } else {
+      if (logEl) logEl.innerHTML = `<span style="color:var(--green)">✓ Key works! Aramco price: ${data.close} SAR — you're ready to load financial statements.</span>`;
+      updateGearDot();
+    }
+  } catch(e) {
+    if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ Network error: ${e.message}</span>`;
+  }
+}
+
+function tdLog(msg, ok = true) {
+  const el = document.getElementById('td-log');
+  if (!el) return;
+  const line = document.createElement('div');
+  line.style.color = ok ? 'var(--green)' : 'var(--red)';
+  line.textContent = (ok ? '✓ ' : '✗ ') + msg;
+  el.appendChild(line);
+}
+
+function tdCacheGet(ticker) {
+  try {
+    const raw = localStorage.getItem('TASI_td_' + ticker);
+    if (!raw) return null;
+    const cached = JSON.parse(raw);
+    if (Date.now() - cached.ts > TD_CACHE_TTL) { localStorage.removeItem('TASI_td_' + ticker); return null; }
+    return cached;
+  } catch(e) { return null; }
+}
+
+function tdCacheSet(ticker, quarterly, annual) {
+  try {
+    localStorage.setItem('TASI_td_' + ticker, JSON.stringify({ ts: Date.now(), quarterly, annual }));
+  } catch(e) {}
+}
+
+async function fetchTwelveStatement(ticker, endpoint, period, outputsize = 5) {
+  const key = getTwelveKey();
+  if (!key) return null;
+  try {
+    const url = `https://api.twelvedata.com/${endpoint}?symbol=${ticker}&period=${period}&outputsize=${outputsize}&apikey=${key}`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (data.code || data.status === 'error') return null;
+    return Array.isArray(data.data) ? data.data : null;
+  } catch(e) { return null; }
 }
 
 // ── DARK / LIGHT MODE ──
@@ -1384,28 +1597,29 @@ function bar(s){return`<div class="bw"><div class="bt"><div class="bfill" style=
 // YAHOO FINANCE DATA FETCH — with multi-proxy rotation
 // ═══════════════════════════════════════════════════
 
-// Multiple CORS proxies — rotate to avoid rate limits
+// Multiple CORS proxies — 4-proxy fallback for Yahoo chart endpoint
 const PROXIES = [
-  url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
-  url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  { fn: url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,             raw: true  },
+  { fn: url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,    raw: true  },
+  { fn: url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`, raw: true },
+  { fn: url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,    raw: false },
 ];
 let proxyIdx = 0;
 
 async function fetchWithProxy(url){
   for(let attempt=0; attempt<PROXIES.length; attempt++){
     const pi = (proxyIdx + attempt) % PROXIES.length;
+    const proxy = PROXIES[pi];
     try{
-      const resp = await fetch(PROXIES[pi](url), {signal: AbortSignal.timeout(12000)});
+      const resp = await fetch(proxy.fn(url), {signal: AbortSignal.timeout(12000)});
       if(!resp.ok) continue;
       const text = await resp.text();
       let data;
-      try{ const j=JSON.parse(text); data = j.contents ? JSON.parse(j.contents) : j; }
-      catch(e){ data = {}; }
-      if(data && Object.keys(data).length > 0){
-        proxyIdx = pi;
-        return data;
-      }
+      try{
+        if(proxy.raw){ data = JSON.parse(text); }
+        else { const j = JSON.parse(text); data = j.contents ? JSON.parse(j.contents) : j; }
+      }catch(e){ data = {}; }
+      if(data && Object.keys(data).length > 0){ proxyIdx = pi; return data; }
     }catch(e){ continue; }
   }
   return {};
@@ -1620,6 +1834,7 @@ function updateMetrics(){
   document.getElementById("m-pl").textContent=pct+"%";
   document.getElementById("m-pl").style.color=pct===100?"var(--green)":pct>50?"var(--amb)":"var(--tx)";
   document.getElementById("lu").textContent=`${loaded}/${allData.length} prices loaded`;
+  fetchMarketSummary();
 }
 
 function buildSectors(){
@@ -1854,8 +2069,14 @@ function switchTab(tab){
   const body=document.getElementById("panel-content");if(!body)return;
   if(tab==="overview")body.innerHTML=buildOverview(d);
   else if(tab==="breakdown")body.innerHTML=buildBreakdown(d);
-  else if(tab==="quarterly")body.innerHTML=buildQuarterly(d);
-  else if(tab==="annual")body.innerHTML=buildAnnual(d);
+  else if(tab==="quarterly"){
+    body.innerHTML=`<div class="tab-loading"><span class="spin"></span> Loading quarterly statements…</div>`;
+    buildQuarterly(d).then(html=>{if(body.isConnected)body.innerHTML=html;});
+  }
+  else if(tab==="annual"){
+    body.innerHTML=`<div class="tab-loading"><span class="spin"></span> Loading annual statements…</div>`;
+    buildAnnual(d).then(html=>{if(body.isConnected)body.innerHTML=html;});
+  }
   else if(tab==="buffett")body.innerHTML=buildBuffett(d);
   else if(tab==="chart"){chartRangeIdx=3;chartShowRSI=false;chartShowSMA20=true;chartShowSMA50=false;chartShowBollinger=false;body.innerHTML=buildChartPanel(d);drawChart(d);}
   else if(tab==="extra")body.innerHTML=buildExtraPanel(d);
@@ -1984,123 +2205,128 @@ function buildBreakdown(d){
   ${renderSteps(pegSteps,pegScore,"PEG Score","#22c55e")}`;
 }
 
-function buildQuarterly(d){
-  // Financial statements from Yahoo Finance
-  // ── Yahoo fallback ──
-  const raw=d.rawData;
-  if(!raw){return`<div style="padding:14px;font-family:var(--mono);font-size:11px;color:var(--tx3)">
-    <div style="margin-bottom:8px;color:var(--amb)">⚠ Financial statements not yet loaded for this stock.</div>
-    <div style="margin-bottom:10px">Close this modal, wait for prices to finish loading, then click this stock again. Financial statements are fetched from Yahoo Finance when you open a stock.</div>
-    <button onclick="closeModal();setTimeout(()=>{const i=allData.findIndex(s=>s.ticker==='${d.ticker}');if(i>=0){const fi=filtData.findIndex(s=>s.ticker==='${d.ticker}');if(fi>=0)openModal(fi);}},500)" style="font-family:var(--mono);font-size:10px;padding:6px 14px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">↻ Retry loading this stock</button>
-  </div>`;}
-  const qIS=raw.incomeStatementHistoryQuarterly?.incomeStatementHistory||[];
-  const qBS=raw.balanceSheetHistoryQuarterly?.balanceSheetHistory||[];
-  const qCF=raw.cashflowStatementHistoryQuarterly?.cashflowStatements||[];
-  if(!qIS.length)return`<div style="padding:14px;font-family:var(--mono);font-size:11px;color:var(--tx3)">
-    <div style="margin-bottom:8px;color:var(--amb)">⚠ No quarterly data from Yahoo Finance for this stock.</div>
-    ${''?'Yahoo Finance may not have quarterly data for this stock.':
-    '<strong>Tip:</strong> Click Load Data then click any stock to fetch its full financial statements from Yahoo Finance.'}
+async function buildQuarterly(d){
+  // ── Cache check: in-memory then localStorage ──
+  if (!d.rawTwelveData) {
+    const cached = tdCacheGet(d.ticker);
+    if (cached) d.rawTwelveData = cached;
+  }
+  if (d.rawTwelveData?.quarterly) return renderTwelveStatements(d.rawTwelveData.quarterly, 'quarterly', d.ticker);
+
+  // ── No key → prompt ──
+  const key = getTwelveKey();
+  if (!key) return `<div style="padding:18px;font-family:var(--mono);font-size:11px;text-align:center">
+    <div style="color:var(--amb);margin-bottom:8px;font-size:13px">⚙ API Key Required</div>
+    <div style="color:var(--tx3);margin-bottom:12px;line-height:1.65">Quarterly financial statements are fetched from Twelve Data.<br>Free tier: 800 calls/day, no credit card needed.</div>
+    <button class="sp-btn" onclick="showSettings()">⚙ Open Settings to add key</button>
   </div>`;
-  function fmtB(v){if(v==null||v?.raw==null)return"—";const n=v.raw/1e9;return(n>=0?"":"")+n.toFixed(2)+"B";}
-  function fmtDate(v){if(!v)return"—";try{return new Date(v*1000).toLocaleDateString("en-SA",{year:"2-digit",month:"short"});}catch{return"—";}}
-  const qDates=qIS.map(q=>fmtDate(q.endDate?.raw));
-  const rows_is=[
-    {label:"Total Revenue",vals:qIS.map(q=>fmtB(q.totalRevenue))},
-    {label:"Gross Profit",vals:qIS.map(q=>fmtB(q.grossProfit))},
-    {label:"Operating Income",vals:qIS.map(q=>fmtB(q.operatingIncome))},
-    {label:"Net Income",vals:qIS.map(q=>fmtB(q.netIncome))},
-    {label:"EPS",vals:qIS.map(q=>q.earningsPerShare?.raw!=null?(q.earningsPerShare.raw.toFixed(2)+" SAR"):"—")},
-  ];
-  const rows_bs=[
-    {label:"Total Assets",vals:qBS.map(q=>fmtB(q.totalAssets))},
-    {label:"Total Liabilities",vals:qBS.map(q=>fmtB(q.totalLiab))},
-    {label:"Total Equity",vals:qBS.map(q=>fmtB(q.totalStockholderEquity))},
-    {label:"Cash",vals:qBS.map(q=>fmtB(q.cash))},
-  ];
-  const rows_cf=[
-    {label:"Operating CF",vals:qCF.map(q=>fmtB(q.totalCashFromOperatingActivities))},
-    {label:"CapEx",vals:qCF.map(q=>fmtB(q.capitalExpenditures))},
-    {label:"Free CF",vals:qCF.map((q)=>{
-      const op=q.totalCashFromOperatingActivities?.raw,cap=q.capitalExpenditures?.raw;
-      if(op==null)return"—";const fcfV=(op+(cap||0))/1e9;return fcfV.toFixed(2)+"B";
-    })},
-  ];
-  function makeTable(title,rows,dates){
-    return`<div style="margin-bottom:14px">
+
+  // ── Fetch from Twelve Data ──
+  tdLog('Fetching quarterly income statement…', true);
+  const [is, bs, cf] = await Promise.all([
+    fetchTwelveStatement(d.ticker, 'income_statement', 'quarterly'),
+    fetchTwelveStatement(d.ticker, 'balance_sheet',    'quarterly'),
+    fetchTwelveStatement(d.ticker, 'cash_flow',        'quarterly'),
+  ]);
+  tdLog('Income statement: ' + (is ? 'ok' : 'failed'), !!is);
+  tdLog('Balance sheet: '    + (bs ? 'ok' : 'failed'), !!bs);
+  tdLog('Cash flow: '        + (cf ? 'ok' : 'failed'), !!cf);
+
+  const quarterly = { is, bs, cf };
+  if (!d.rawTwelveData) d.rawTwelveData = {};
+  d.rawTwelveData.quarterly = quarterly;
+  tdCacheSet(d.ticker, quarterly, d.rawTwelveData?.annual || null);
+
+  return renderTwelveStatements(quarterly, 'quarterly', d.ticker);
+}
+
+function renderTwelveStatements(data, period, ticker) {
+  const { is, bs, cf } = data || {};
+  const noData = (arr) => !arr || !arr.length;
+  if (noData(is) && noData(bs) && noData(cf)) {
+    return `<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">
+      <div style="color:var(--amb);margin-bottom:6px">⚠ No ${period} data available for this stock on Twelve Data.</div>
+      <div>Some Saudi stocks may have limited coverage. Try the other tab or check your API key in ⚙ Settings.</div>
+    </div>`;
+  }
+  function fmtSAR(v) {
+    if (v == null || v === '' || v === 'None') return '—';
+    const n = parseFloat(v);
+    if (isNaN(n)) return '—';
+    return (n / 1e9).toFixed(2) + 'B';
+  }
+  function makeTable(title, rows, dates) {
+    if (!dates || !dates.length) return '';
+    return `<div style="margin-bottom:14px">
       <div style="font-family:var(--mono);font-size:9px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;padding-bottom:4px;border-bottom:1px solid var(--b1)">${title}</div>
       <div style="overflow-x:auto"><table class="ft">
         <thead><tr><th>Item</th>${dates.map(d=>`<th>${d}</th>`).join('')}</tr></thead>
-        <tbody>${rows.map(row=>`<tr><td>${row.label}</td>${row.vals.map(v=>`<td class="${v&&v.startsWith('-')?'ft-neg':v&&v!=='—'?'ft-pos':''}">${v||"—"}</td>`).join('')}</tr>`).join('')}</tbody>
+        <tbody>${rows.map(row=>`<tr><td>${row.label}</td>${row.vals.map(v=>`<td class="${v&&v.startsWith&&v.startsWith('-')?'ft-neg':v&&v!=='—'?'ft-pos':''}">${v||'—'}</td>`).join('')}</tr>`).join('')}</tbody>
       </table></div></div>`;
   }
-  return makeTable("Quarterly Income Statement",rows_is,qDates)
-       +makeTable("Quarterly Balance Sheet",rows_bs,qBS.map(q=>fmtDate(q.endDate?.raw)))
-       +makeTable("Quarterly Cash Flow",rows_cf,qCF.map(q=>fmtDate(q.endDate?.raw)))
-       +`<div style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Source: Yahoo Finance · SAR unless noted · B = Billions</div>`;
+  const isRows = is ? [
+    {label:'Revenue',        vals: is.map(r => fmtSAR(r.revenue))},
+    {label:'Gross Profit',   vals: is.map(r => fmtSAR(r.gross_profit))},
+    {label:'EBITDA',         vals: is.map(r => fmtSAR(r.ebitda))},
+    {label:'Operating Inc.', vals: is.map(r => fmtSAR(r.operating_income))},
+    {label:'Net Income',     vals: is.map(r => fmtSAR(r.net_income))},
+    {label:'EPS (SAR)',      vals: is.map(r => r.eps != null && r.eps !== '' ? parseFloat(r.eps).toFixed(3) : '—')},
+  ] : [];
+  const bsRows = bs ? [
+    {label:'Total Assets',   vals: bs.map(r => fmtSAR(r.total_assets))},
+    {label:'Total Liab.',    vals: bs.map(r => fmtSAR(r.total_liabilities))},
+    {label:'Total Equity',   vals: bs.map(r => fmtSAR(r.total_equity))},
+    {label:'Cash & Equiv.',  vals: bs.map(r => fmtSAR(r.cash_and_equivalents))},
+    {label:'Long-term Debt', vals: bs.map(r => fmtSAR(r.long_term_debt))},
+  ] : [];
+  const cfRows = cf ? [
+    {label:'Operating CF',   vals: cf.map(r => fmtSAR(r.operating_activities))},
+    {label:'Investing CF',   vals: cf.map(r => fmtSAR(r.investing_activities))},
+    {label:'Financing CF',   vals: cf.map(r => fmtSAR(r.financing_activities))},
+    {label:'CapEx',          vals: cf.map(r => fmtSAR(r.capital_expenditure))},
+    {label:'Free Cashflow',  vals: cf.map(r => fmtSAR(r.free_cash_flow))},
+    {label:'Dividends Paid', vals: cf.map(r => fmtSAR(r.dividends_paid))},
+  ] : [];
+  const pLabel = period === 'quarterly' ? (r => r.fiscal_date || '—') : (r => 'FY' + (r.fiscal_date || '—').slice(0, 4));
+  return makeTable(period === 'quarterly' ? 'Quarterly Income Statement' : '5-Year Income Statement', isRows, is?.map(pLabel) || [])
+       + makeTable(period === 'quarterly' ? 'Quarterly Balance Sheet'    : '5-Year Balance Sheet',    bsRows, bs?.map(pLabel) || [])
+       + makeTable(period === 'quarterly' ? 'Quarterly Cash Flow'        : '5-Year Cash Flow',        cfRows, cf?.map(pLabel) || [])
+       + `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Source: Twelve Data · SAR · B = Billions · Cached 7 days in browser</div>`;
 }
 
-
-
-function buildAnnual(d){
-  // Financial statements from Yahoo Finance
-  // ── Yahoo fallback ──
-  const raw=d.rawData;
-  if(!raw)return`<div style="padding:14px;font-family:var(--mono);font-size:11px;color:var(--tx3)">
-    <div style="margin-bottom:8px;color:var(--amb)">⚠ Annual statements not yet loaded.</div>
-    <div>Close and reopen this stock — full data loads on click.</div>
-  </div>`;
-  const aIS=raw.incomeStatementHistory?.incomeStatementHistory||[];
-  const aBS=raw.balanceSheetHistory?.balanceSheetHistory||[];
-  const aCF=raw.cashflowStatementHistory?.cashflowStatements||[];
-  if(!aIS.length)return`<div style="padding:14px;font-family:var(--mono);font-size:11px;color:var(--tx3)">
-    <div style="margin-bottom:8px;color:var(--amb)">⚠ No annual data from Yahoo Finance for this stock.</div>
-    ${''
-      ? 'Yahoo Finance may not have annual data for this stock.'
-      : '<strong>Tip:</strong> Close this modal and click the stock again — financial statements load on the second click after prices are loaded.'}
-  </div>`;
-  function fmtB(v){if(v==null||v?.raw==null)return"—";const n=v.raw/1e9;return n.toFixed(2)+"B";}
-  function fmtPct(a,b){
-    if(a?.raw==null||b?.raw==null||b.raw===0)return"";
-    const chg=((a.raw-b.raw)/Math.abs(b.raw))*100;
-    return`<span style="font-size:8px;color:${chg>=0?"var(--green)":"var(--red)"}">${chg>=0?"+":""}${chg.toFixed(0)}%</span>`;
+async function buildAnnual(d){
+  // ── Cache check: in-memory then localStorage ──
+  if (!d.rawTwelveData) {
+    const cached = tdCacheGet(d.ticker);
+    if (cached) d.rawTwelveData = cached;
   }
-  function fmtYear(v){try{return new Date(v*1000).getFullYear().toString();}catch{return"—";}}
-  const years=aIS.map(q=>fmtYear(q.endDate?.raw));
-  const rows_is=[
-    {label:"Revenue",vals:aIS.map((q,i)=>fmtB(q.totalRevenue)+(i<aIS.length-1?fmtPct(q.totalRevenue,aIS[i+1]?.totalRevenue):""))},
-    {label:"Gross Profit",vals:aIS.map(q=>fmtB(q.grossProfit))},
-    {label:"Operating Income",vals:aIS.map(q=>fmtB(q.operatingIncome))},
-    {label:"Net Income",vals:aIS.map((q,i)=>fmtB(q.netIncome)+(i<aIS.length-1?fmtPct(q.netIncome,aIS[i+1]?.netIncome):""))},
-    {label:"EPS (SAR)",vals:aIS.map(q=>q.earningsPerShare?.raw!=null?q.earningsPerShare.raw.toFixed(2):"—")},
-  ];
-  const rows_bs=[
-    {label:"Total Assets",vals:aBS.map(q=>fmtB(q.totalAssets))},
-    {label:"Total Liabilities",vals:aBS.map(q=>fmtB(q.totalLiab))},
-    {label:"Total Equity",vals:aBS.map(q=>fmtB(q.totalStockholderEquity))},
-    {label:"Cash",vals:aBS.map(q=>fmtB(q.cash))},
-    {label:"Total Debt",vals:aBS.map(q=>fmtB(q.longTermDebt))},
-    {label:"D/E %",vals:aBS.map(q=>{const e=q.totalStockholderEquity?.raw,debt=q.longTermDebt?.raw;return e&&debt?(((debt/e)*100).toFixed(0)+"%"):"—";})},
-  ];
-  const rows_cf=[
-    {label:"Operating CF",vals:aCF.map(q=>fmtB(q.totalCashFromOperatingActivities))},
-    {label:"Investing CF",vals:aCF.map(q=>fmtB(q.totalCashFromInvestingActivities))},
-    {label:"Financing CF",vals:aCF.map(q=>fmtB(q.totalCashFromFinancingActivities))},
-    {label:"CapEx",vals:aCF.map(q=>fmtB(q.capitalExpenditures))},
-    {label:"Free CF",vals:aCF.map(q=>{const op=q.totalCashFromOperatingActivities?.raw,cap=q.capitalExpenditures?.raw;if(op==null)return"—";return((op+(cap||0))/1e9).toFixed(2)+"B";})},
-    {label:"Dividends",vals:aCF.map(q=>fmtB(q.dividendsPaid))},
-  ];
-  function makeTable(title,rows,dates){
-    return`<div style="margin-bottom:14px">
-      <div style="font-family:var(--mono);font-size:9px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;padding-bottom:4px;border-bottom:1px solid var(--b1)">${title}</div>
-      <div style="overflow-x:auto"><table class="ft">
-        <thead><tr><th>Item</th>${dates.map(d=>`<th>FY${d}</th>`).join('')}</tr></thead>
-        <tbody>${rows.map(row=>`<tr><td>${row.label}</td>${row.vals.map(v=>`<td>${v||"—"}</td>`).join('')}</tr>`).join('')}</tbody>
-      </table></div></div>`;
-  }
-  return makeTable("5-Year Income Statement",rows_is,years)
-       +makeTable("5-Year Balance Sheet",rows_bs,aBS.map(q=>{try{return new Date(q.endDate?.raw*1000).getFullYear();}catch{return"—";}}))
-       +makeTable("5-Year Cash Flow",rows_cf,aCF.map(q=>{try{return new Date(q.endDate?.raw*1000).getFullYear();}catch{return"—";}}))
-       +`<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Source: Yahoo Finance · SAR · Growth % vs prior year</div>`;
+  if (d.rawTwelveData?.annual) return renderTwelveStatements(d.rawTwelveData.annual, 'annual', d.ticker);
+
+  // ── No key → prompt ──
+  const key = getTwelveKey();
+  if (!key) return `<div style="padding:18px;font-family:var(--mono);font-size:11px;text-align:center">
+    <div style="color:var(--amb);margin-bottom:8px;font-size:13px">⚙ API Key Required</div>
+    <div style="color:var(--tx3);margin-bottom:12px;line-height:1.65">Annual financial statements are fetched from Twelve Data.<br>Free tier: 800 calls/day, no credit card needed.</div>
+    <button class="sp-btn" onclick="showSettings()">⚙ Open Settings to add key</button>
+  </div>`;
+
+  // ── Fetch from Twelve Data ──
+  tdLog('Fetching annual income statement…', true);
+  const [is, bs, cf] = await Promise.all([
+    fetchTwelveStatement(d.ticker, 'income_statement', 'annual'),
+    fetchTwelveStatement(d.ticker, 'balance_sheet',    'annual'),
+    fetchTwelveStatement(d.ticker, 'cash_flow',        'annual'),
+  ]);
+  tdLog('Income statement: ' + (is ? 'ok' : 'failed'), !!is);
+  tdLog('Balance sheet: '    + (bs ? 'ok' : 'failed'), !!bs);
+  tdLog('Cash flow: '        + (cf ? 'ok' : 'failed'), !!cf);
+
+  const annual = { is, bs, cf };
+  if (!d.rawTwelveData) d.rawTwelveData = {};
+  d.rawTwelveData.annual = annual;
+  tdCacheSet(d.ticker, d.rawTwelveData?.quarterly || null, annual);
+
+  return renderTwelveStatements(annual, 'annual', d.ticker);
 }
 
 
@@ -2615,23 +2841,24 @@ function showExportMenu(){
 
 // ═══════════════════════════════════════
 // ── MARKET SUMMARY BAR ──
-async function fetchMarketSummary(){
+function fetchMarketSummary(){
+  // Compute market stats from loaded allData (no external API needed)
   const bar = document.getElementById('market-bar');
-  if(!bar) return;
-  // Market summary requires a data source API — currently informational only
-  try {
-    let data = null;
-    // Could add Yahoo TASI index fetch here in future
-    if(!data?.index_value) return;
-    const chg = data.index_change_percent;
-    const chgColor = chg>=0?'var(--green)':'var(--red)';
-    document.getElementById('tasi-val').textContent = data.index_value?.toLocaleString('en-SA',{maximumFractionDigits:2})||'—';
-    document.getElementById('tasi-chg').innerHTML = `<span style="color:${chgColor}">${chg>=0?'+':''}${chg?.toFixed(2)||'0'}%</span>`;
-    document.getElementById('tasi-adv').textContent = data.advancing||'—';
-    document.getElementById('tasi-dec').textContent = data.declining||'—';
-    document.getElementById('tasi-mood').innerHTML = `<span style="color:${data.market_mood==='Bullish'?'var(--green)':data.market_mood==='Bearish'?'var(--red)':'var(--amb)'}">${data.market_mood||''}</span>`;
-    document.getElementById('tasi-time').textContent = data.is_delayed?'(15-min delay)':'Real-time';
-  } catch(e) {}
+  if (!bar) return;
+  const loaded = allData.filter(d => d.priceLoaded && d.change != null);
+  if (!loaded.length) return;
+  const advancing = loaded.filter(d => d.change > 0).length;
+  const declining  = loaded.filter(d => d.change < 0).length;
+  const avgChg = loaded.reduce((s, d) => s + d.change, 0) / loaded.length;
+  const mood = avgChg > 0.3 ? 'Bullish' : avgChg < -0.3 ? 'Bearish' : 'Neutral';
+  const moodColor = mood === 'Bullish' ? 'var(--green)' : mood === 'Bearish' ? 'var(--red)' : 'var(--amb)';
+  const chgColor  = avgChg >= 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('tasi-val').textContent = `${loaded.length} stocks`;
+  document.getElementById('tasi-chg').innerHTML  = `<span style="color:${chgColor}">${avgChg >= 0 ? '+' : ''}${avgChg.toFixed(2)}% avg</span>`;
+  document.getElementById('tasi-adv').textContent = advancing;
+  document.getElementById('tasi-dec').textContent  = declining;
+  document.getElementById('tasi-mood').innerHTML  = `<span style="color:${moodColor}">${mood}</span>`;
+  document.getElementById('tasi-time').textContent = new Date().toLocaleTimeString('en-SA', {hour:'2-digit', minute:'2-digit'});
 }
 
 // ═══════════════════════════════════════
@@ -2655,6 +2882,7 @@ async function fetchMarketSummary(){
 
   // Step 2: Open DB async in background, then check cache, then fetch prices
   restoreUIState();
+  updateGearDot();
   // Fetch TASI market summary
   fetchMarketSummary();
 
@@ -2670,5 +2898,33 @@ async function fetchMarketSummary(){
   });
 })();
 </script>
+<!-- ── SETTINGS OVERLAY ─────────────────────────────────────────────────── -->
+<div class="settings-overlay" id="settings-overlay" style="display:none" onclick="if(event.target===this)hideSettings()">
+  <div class="settings-panel">
+    <div class="sp-close" onclick="hideSettings()">×</div>
+    <div class="sp-title">⚙ API Settings</div>
+    <div class="sp-desc">
+      Financial statements (Quarterly &amp; Annual tabs) are fetched from <strong>Twelve Data</strong> — a real API with proper CORS support, no proxy needed.<br>
+      Free tier: <strong>800 API calls/day</strong>. Statements are cached in your browser for 7 days so each stock only uses 6 calls once.<br>
+      Get your free key at <strong>twelvedata.com/register</strong> (no credit card required).
+    </div>
+    <hr class="sp-divider">
+    <label class="sp-label">Twelve Data API Key</label>
+    <div class="sp-row">
+      <input class="sp-input" id="td-key-input" type="text" placeholder="Paste your API key here…" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="sp-row">
+      <button class="sp-btn" onclick="saveTwelveKey()">💾 Save Key</button>
+      <button class="sp-btn sp-btn-sec" onclick="testTwelveKey()">▷ Test Key</button>
+      <button class="sp-btn sp-btn-red" onclick="clearTwelveCache()">🗑 Clear Cache</button>
+    </div>
+    <div class="sp-log" id="td-log">Status will appear here after saving or testing.</div>
+    <hr class="sp-divider">
+    <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);line-height:1.65">
+      Your API key is stored only in this browser's localStorage and never sent anywhere except Twelve Data's servers.<br>
+      Price charts and technical scores continue using Yahoo Finance (no key needed).
+    </div>
+  </div>
+</div>
 </body>
 </html>
