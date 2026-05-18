@@ -500,11 +500,11 @@ function showComparePanel() {
 // ── VISION 2030 SCORE ──
 const VISION2030 = {
   '2222.SR':85,'4002.SR':90,'6001.SR':95,'4030.SR':70,'4163.SR':75,
-  '4161.SR':65,'4150.SR':60,'4290.SR':55,'4270.SR':60,'4321.SR':80,
+  '4161.SR':65,'4150.SR':60,'4290.SR':55,'4270.SR':60,'4321.SR':82,
   '4322.SR':85,'4250.SR':90,'7203.SR':88,'7202.SR':82,'7200.SR':75,
   '4040.SR':65,'4050.SR':62,'5110.SR':78,'4280.SR':72,'4191.SR':80,
-  '4300.SR':75,'4321.SR':82,'4030.SR':70,'2300.SR':70,'2310.SR':68,
-  '2320.SR':66,'3004.SR':65,'4007.SR':68,'4009.SR':65,'2250.SR':80,
+  '4300.SR':75,'2300.SR':70,'2310.SR':68,'2320.SR':66,'3004.SR':65,
+  '4007.SR':68,'4009.SR':65,'2250.SR':80,
 };
 function getVision2030(ticker) { return VISION2030[ticker] || 35; }
 
@@ -532,6 +532,99 @@ function showToast(msg, duration=3000) {
   el.textContent = msg;
   document.body.appendChild(el);
   setTimeout(() => el.remove(), duration);
+}
+
+// ── INDEXEDDB CACHE (price/technical data, configurable TTL) ──
+const CACHE_KEY  = 'tasi_v6_stocks';
+const META_KEY   = 'tasi_v6_meta';
+let   CACHE_TTL  = 4 * 60 * 60 * 1000; // default 4 hours, overridden by selector
+
+let _db = null;
+const DB_NAME = 'TASI_DB', DB_VER = 1, DB_STORE = 'cache';
+
+function openDB() {
+  if (_db) return Promise.resolve(_db);
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VER);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
+    };
+    req.onsuccess = e => { _db = e.target.result; resolve(_db); };
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+function dbGet(key) {
+  return new Promise((resolve, reject) => {
+    if (!_db) { resolve(null); return; }
+    const req = _db.transaction(DB_STORE, 'readonly').objectStore(DB_STORE).get(key);
+    req.onsuccess = e => resolve(e.target.result ?? null);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+function dbPut(key, value) {
+  return new Promise((resolve, reject) => {
+    if (!_db) { resolve(); return; }
+    const req = _db.transaction(DB_STORE, 'readwrite').objectStore(DB_STORE).put(value, key);
+    req.onsuccess = () => resolve();
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+async function saveCache() {
+  const payload = allData.map(d => ({
+    ticker: d.ticker, price: d.price, change: d.change,
+    closes: d.closes, timestamps: d.timestamps, priceLoaded: d.priceLoaded,
+    technical: d.technical, rsi: d.rsi, sma20: d.sma20, sma50: d.sma50, momentum: d.momentum,
+    techSteps: d.techSteps, combined: d.combined, dataDate: d.dataDate, dataSource: d.dataSource,
+    w52high: d.w52high, w52low: d.w52low, mktCap: d.mktCap, beta: d.beta,
+  }));
+  const meta = { savedAt: Date.now(), count: payload.length, ttl: CACHE_TTL };
+  try { await dbPut(CACHE_KEY, payload); await dbPut(META_KEY, meta); } catch(e) {}
+  updateCacheUI(meta);
+}
+
+async function loadCache() {
+  const meta = await dbGet(META_KEY);
+  if (!meta?.savedAt) return false;
+  if (Date.now() - meta.savedAt > (meta.ttl || CACHE_TTL)) return false;
+  const cached = await dbGet(CACHE_KEY);
+  if (!cached?.length) return false;
+  cached.forEach(c => {
+    const idx = allData.findIndex(d => d.ticker === c.ticker);
+    if (idx >= 0) allData[idx] = { ...allData[idx], ...c };
+  });
+  doFilter(); updateMetrics();
+  return true;
+}
+
+async function clearCache() {
+  try { await dbPut(CACHE_KEY, []); await dbPut(META_KEY, null); } catch(e) {}
+  updateCacheUI(null);
+}
+
+function updateCacheUI(meta) {
+  const el = document.getElementById('cache-info');
+  if (!el) return;
+  if (!meta?.savedAt) { el.textContent = 'No cache'; return; }
+  const age = Math.round((Date.now() - meta.savedAt) / 60000);
+  el.textContent = `Cache: ${meta.count} stocks · ${age < 60 ? age + 'm' : Math.round(age / 60) + 'h'} ago`;
+}
+
+function saveUIState() {
+  try { localStorage.setItem('TASI_ui', JSON.stringify({ sortKey, activeSector })); } catch(e) {}
+}
+
+function restoreUIState() {
+  try {
+    const s = localStorage.getItem('TASI_ui');
+    if (!s) return;
+    const ui = JSON.parse(s);
+    if (ui.sortKey) { sortKey = ui.sortKey; const el = document.getElementById('ss'); if (el) el.value = sortKey; }
+    if (ui.activeSector) setSector(ui.activeSector);
+  } catch(e) {}
 }
 
 // ── TWELVE DATA API + SETTINGS PANEL ──
@@ -1632,6 +1725,7 @@ function updateMetrics(){
   document.getElementById("m-pl").textContent=pct+"%";
   document.getElementById("m-pl").style.color=pct===100?"var(--green)":pct>50?"var(--amb)":"var(--tx)";
   document.getElementById("lu").textContent=`${loaded}/${allData.length} prices loaded`;
+  fetchMarketSummary();
 }
 
 function buildSectors(){
@@ -1954,51 +2048,6 @@ function renderTwelveStatements(data, period, ticker) {
        + makeTable(period === 'quarterly' ? 'Quarterly Cash Flow'        : '5-Year Cash Flow',        cfRows, cf?.map(pLabel) || [])
        + `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Source: Twelve Data · SAR · B = Billions · Cached 7 days in browser</div>`;
 }
-
-function buildFinancialTable(periods,title){
-  if(!periods?.length) return '<div class="tab-loading" style="color:var(--tx3)">No data available.</div>';
-  const cols=['period','revenue','gross_profit','operating_income','net_income',
-              'total_assets','total_equity','total_debt',
-              'operating_cash_flow','free_cash_flow','capex','dividends_paid'];
-  const labels={
-    period:'Period',revenue:'Revenue',gross_profit:'Gross Profit',
-    operating_income:'Operating Income',net_income:'Net Income',
-    total_assets:'Total Assets',total_equity:'Total Equity',total_debt:'Total Debt',
-    operating_cash_flow:'Operating CF',free_cash_flow:'Free CF',
-    capex:'Capital Expenditure',dividends_paid:'Dividends Paid'
-  };
-  function fmtVal(v,key){
-    if(key==='period')return v||'—';
-    if(v==null)return'—';
-    const n=typeof v==='number'?v:parseFloat(v);
-    if(isNaN(n))return'—';
-    return(n>=0?'':'')+(n/1e9).toFixed(2)+'B';
-  }
-  const isGroups=[['revenue','gross_profit','operating_income','net_income'],
-                  ['total_assets','total_equity','total_debt'],
-                  ['operating_cash_flow','free_cash_flow','capex','dividends_paid']];
-  const groupTitles=['Income Statement','Balance Sheet','Cash Flow'];
-  let html=`<div style="font-family:var(--mono);font-size:9px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--b1)">${title} — via LEGACY API ✓</div>`;
-  isGroups.forEach((grp,gi)=>{
-    html+=`<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin:10px 0 5px;text-transform:uppercase">${groupTitles[gi]}</div>`;
-    html+=`<div style="overflow-x:auto;margin-bottom:10px"><table class="ft"><thead><tr><th>Item</th>`;
-    periods.forEach(p=>{ html+=`<th>${p.period||'—'}</th>`; });
-    html+=`</tr></thead><tbody>`;
-    grp.forEach(key=>{
-      html+=`<tr><td>${labels[key]}</td>`;
-      periods.forEach(p=>{
-        const v=fmtVal(p[key],key);
-        const neg=typeof p[key]==='number'&&p[key]<0;
-        html+=`<td class="${neg?'ft-neg':p[key]>0?'ft-pos':''}">${v}</td>`;
-      });
-      html+=`</tr>`;
-    });
-    html+=`</tbody></table></div>`;
-  });
-  html+=`<div style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Source: Financial data · All figures in SAR · B = Billions</div>`;
-  return html;
-}
-
 
 async function buildAnnual(d){
   // ── Cache check: in-memory then localStorage ──
@@ -2574,21 +2623,24 @@ function setCacheTTL(hours){
 
 // ═══════════════════════════════════════
 // ── MARKET SUMMARY BAR ──
-async function fetchMarketSummary(){
+function fetchMarketSummary(){
+  // Compute market stats from loaded allData (no external API needed)
   const bar = document.getElementById('market-bar');
-  if(!bar) return;
-  try {
-    let data = null;
-    if(!data?.index_value) return;
-    const chg = data.index_change_percent;
-    const chgColor = chg>=0?'var(--green)':'var(--red)';
-    document.getElementById('tasi-val').textContent = data.index_value?.toLocaleString('en-SA',{maximumFractionDigits:2})||'—';
-    document.getElementById('tasi-chg').innerHTML = `<span style="color:${chgColor}">${chg>=0?'+':''}${chg?.toFixed(2)||'0'}%</span>`;
-    document.getElementById('tasi-adv').textContent = data.advancing||'—';
-    document.getElementById('tasi-dec').textContent = data.declining||'—';
-    document.getElementById('tasi-mood').innerHTML = `<span style="color:${data.market_mood==='Bullish'?'var(--green)':data.market_mood==='Bearish'?'var(--red)':'var(--amb)'}">${data.market_mood||''}</span>`;
-    document.getElementById('tasi-time').textContent = data.is_delayed?'(15-min delay)':'Real-time';
-  } catch(e) {}
+  if (!bar) return;
+  const loaded = allData.filter(d => d.priceLoaded && d.change != null);
+  if (!loaded.length) return;
+  const advancing = loaded.filter(d => d.change > 0).length;
+  const declining  = loaded.filter(d => d.change < 0).length;
+  const avgChg = loaded.reduce((s, d) => s + d.change, 0) / loaded.length;
+  const mood = avgChg > 0.3 ? 'Bullish' : avgChg < -0.3 ? 'Bearish' : 'Neutral';
+  const moodColor = mood === 'Bullish' ? 'var(--green)' : mood === 'Bearish' ? 'var(--red)' : 'var(--amb)';
+  const chgColor  = avgChg >= 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('tasi-val').textContent = `${loaded.length} stocks`;
+  document.getElementById('tasi-chg').innerHTML  = `<span style="color:${chgColor}">${avgChg >= 0 ? '+' : ''}${avgChg.toFixed(2)}% avg</span>`;
+  document.getElementById('tasi-adv').textContent = advancing;
+  document.getElementById('tasi-dec').textContent  = declining;
+  document.getElementById('tasi-mood').innerHTML  = `<span style="color:${moodColor}">${mood}</span>`;
+  document.getElementById('tasi-time').textContent = new Date().toLocaleTimeString('en-SA', {hour:'2-digit', minute:'2-digit'});
 }
 
 // ═══════════════════════════════════════
