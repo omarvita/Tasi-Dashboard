@@ -167,6 +167,11 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 .pill{display:inline-block;font-family:var(--mono);font-size:8px;padding:1px 5px;border-radius:3px;vertical-align:middle;margin-left:3px}
 .pill-live{background:var(--adm);color:var(--acc);border:1px solid var(--acc)}
 .pill-est{background:#1a1a2e;color:var(--tx3);border:1px solid var(--b2)}
+/* SECTOR PERFORMANCE BAR */
+.secperf{background:var(--bg2);border:1px solid var(--b1);border-radius:7px;padding:6px 12px;margin-bottom:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.secperf-lbl{font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;margin-right:2px;white-space:nowrap}
+.sp-pill{display:inline-flex;align-items:center;gap:3px;font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:12px;border:1px solid;cursor:pointer;transition:opacity .12s;white-space:nowrap}
+.sp-pill:hover{opacity:.75}
 /* SETTINGS OVERLAY */
 .settings-overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:300;padding:16px;backdrop-filter:blur(4px)}
 .settings-panel{background:var(--bg2);border:1px solid var(--b2);border-radius:11px;width:500px;max-width:100%;padding:20px;position:relative;max-height:90vh;overflow-y:auto}
@@ -236,6 +241,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
     <span id="tasi-mood">—</span>
     <span style="margin-left:auto;color:var(--tx3)" id="tasi-time">—</span>
   </div>
+  <div class="secperf" id="secperf-bar"><span class="secperf-lbl">Sectors</span><span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Loading…</span></div>
   <div class="pw" id="pw" style="display:none">
     <div class="pl" id="pl">Initialising...</div>
     <div class="pt"><div class="pf" id="pf"></div></div>
@@ -534,98 +540,6 @@ function showToast(msg, duration=3000) {
   setTimeout(() => el.remove(), duration);
 }
 
-// ── INDEXEDDB CACHE (price/technical data, configurable TTL) ──
-const CACHE_KEY  = 'tasi_v6_stocks';
-const META_KEY   = 'tasi_v6_meta';
-let   CACHE_TTL  = 4 * 60 * 60 * 1000; // default 4 hours, overridden by selector
-
-let _db = null;
-const DB_NAME = 'TASI_DB', DB_VER = 1, DB_STORE = 'cache';
-
-function openDB() {
-  if (_db) return Promise.resolve(_db);
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VER);
-    req.onupgradeneeded = e => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
-    };
-    req.onsuccess = e => { _db = e.target.result; resolve(_db); };
-    req.onerror   = e => reject(e.target.error);
-  });
-}
-
-function dbGet(key) {
-  return new Promise((resolve, reject) => {
-    if (!_db) { resolve(null); return; }
-    const req = _db.transaction(DB_STORE, 'readonly').objectStore(DB_STORE).get(key);
-    req.onsuccess = e => resolve(e.target.result ?? null);
-    req.onerror   = e => reject(e.target.error);
-  });
-}
-
-function dbPut(key, value) {
-  return new Promise((resolve, reject) => {
-    if (!_db) { resolve(); return; }
-    const req = _db.transaction(DB_STORE, 'readwrite').objectStore(DB_STORE).put(value, key);
-    req.onsuccess = () => resolve();
-    req.onerror   = e => reject(e.target.error);
-  });
-}
-
-async function saveCache() {
-  const payload = allData.map(d => ({
-    ticker: d.ticker, price: d.price, change: d.change,
-    closes: d.closes, timestamps: d.timestamps, priceLoaded: d.priceLoaded,
-    technical: d.technical, rsi: d.rsi, sma20: d.sma20, sma50: d.sma50, momentum: d.momentum,
-    techSteps: d.techSteps, combined: d.combined, dataDate: d.dataDate, dataSource: d.dataSource,
-    w52high: d.w52high, w52low: d.w52low, mktCap: d.mktCap, beta: d.beta,
-  }));
-  const meta = { savedAt: Date.now(), count: payload.length, ttl: CACHE_TTL };
-  try { await dbPut(CACHE_KEY, payload); await dbPut(META_KEY, meta); } catch(e) {}
-  updateCacheUI(meta);
-}
-
-async function loadCache() {
-  const meta = await dbGet(META_KEY);
-  if (!meta?.savedAt) return false;
-  if (Date.now() - meta.savedAt > (meta.ttl || CACHE_TTL)) return false;
-  const cached = await dbGet(CACHE_KEY);
-  if (!cached?.length) return false;
-  cached.forEach(c => {
-    const idx = allData.findIndex(d => d.ticker === c.ticker);
-    if (idx >= 0) allData[idx] = { ...allData[idx], ...c };
-  });
-  doFilter(); updateMetrics();
-  return true;
-}
-
-async function clearCache() {
-  try { await dbPut(CACHE_KEY, []); await dbPut(META_KEY, null); } catch(e) {}
-  updateCacheUI(null);
-}
-
-function updateCacheUI(meta) {
-  const el = document.getElementById('cache-info');
-  if (!el) return;
-  if (!meta?.savedAt) { el.textContent = 'No cache'; return; }
-  const age = Math.round((Date.now() - meta.savedAt) / 60000);
-  el.textContent = `Cache: ${meta.count} stocks · ${age < 60 ? age + 'm' : Math.round(age / 60) + 'h'} ago`;
-}
-
-function saveUIState() {
-  try { localStorage.setItem('TASI_ui', JSON.stringify({ sortKey, activeSector })); } catch(e) {}
-}
-
-function restoreUIState() {
-  try {
-    const s = localStorage.getItem('TASI_ui');
-    if (!s) return;
-    const ui = JSON.parse(s);
-    if (ui.sortKey) { sortKey = ui.sortKey; const el = document.getElementById('ss'); if (el) el.value = sortKey; }
-    if (ui.activeSector) setSector(ui.activeSector);
-  } catch(e) {}
-}
 
 // ── TWELVE DATA API + SETTINGS PANEL ──
 const TD_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -2859,6 +2773,39 @@ function fetchMarketSummary(){
   document.getElementById('tasi-dec').textContent  = declining;
   document.getElementById('tasi-mood').innerHTML  = `<span style="color:${moodColor}">${mood}</span>`;
   document.getElementById('tasi-time').textContent = new Date().toLocaleTimeString('en-SA', {hour:'2-digit', minute:'2-digit'});
+  buildSectorPerf();
+}
+
+function buildSectorPerf() {
+  const bar = document.getElementById('secperf-bar');
+  if (!bar) return;
+  const loaded = allData.filter(d => d.priceLoaded && d.change != null);
+  if (!loaded.length) return;
+
+  // Group by sector, compute avg change%
+  const secMap = {};
+  loaded.forEach(d => {
+    if (!d.sector) return;
+    if (!secMap[d.sector]) secMap[d.sector] = [];
+    secMap[d.sector].push(d.change);
+  });
+
+  const sectors = Object.entries(secMap)
+    .map(([name, changes]) => ({ name, avg: changes.reduce((s,v)=>s+v,0)/changes.length, count: changes.length }))
+    .sort((a,b) => b.avg - a.avg);
+
+  const pills = sectors.map(s => {
+    const pos = s.avg >= 0;
+    const color = pos ? 'var(--green)' : 'var(--red)';
+    const bg    = pos ? 'var(--gdim)'  : 'var(--rdim)';
+    const border= pos ? '#166534'      : '#991b1b';
+    const sign  = pos ? '+' : '';
+    return `<span class="sp-pill" style="color:${color};background:${bg};border-color:${border}" onclick="setSector('${s.name}')" title="${s.count} stocks">
+      ${s.name} <strong>${sign}${s.avg.toFixed(1)}%</strong>
+    </span>`;
+  }).join('');
+
+  bar.innerHTML = `<span class="secperf-lbl">Sectors</span>${pills}`;
 }
 
 // ═══════════════════════════════════════
