@@ -582,14 +582,14 @@ async function testTwelveKey() {
   const key = getTwelveKey();
   const logEl = document.getElementById('td-log');
   if (!key) { if (logEl) logEl.innerHTML = '<span style="color:var(--red)">No key saved. Paste your key and click Save first.</span>'; return; }
-  if (logEl) logEl.innerHTML = '<span class="spin"></span> Testing with Aramco (2222.SR)…';
+  if (logEl) logEl.innerHTML = '<span class="spin"></span> Testing with Aramco (2222 / TADAWUL)…';
   try {
-    const r = await fetch(`https://api.twelvedata.com/quote?symbol=2222.SR&apikey=${key}`, { signal: AbortSignal.timeout(10000) });
+    const r = await fetch(`https://api.twelvedata.com/quote?symbol=2222&exchange=TADAWUL&apikey=${key}`, { signal: AbortSignal.timeout(10000) });
     const data = await r.json();
     if (data.code || data.status === 'error') {
       if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ API error: ${data.message || data.code}</span>`;
     } else {
-      if (logEl) logEl.innerHTML = `<span style="color:var(--green)">✓ Key works! Aramco price: ${data.close} SAR — you're ready to load financial statements.</span>`;
+      if (logEl) logEl.innerHTML = `<span style="color:var(--green)">✓ Key works! Aramco price: ${data.close} SAR — ready to load financial statements.</span>`;
       updateGearDot();
     }
   } catch(e) {
@@ -622,11 +622,17 @@ function tdCacheSet(ticker, quarterly, annual) {
   } catch(e) {}
 }
 
+function tdTicker(ticker) {
+  // Convert Yahoo Finance format (2222.SR) → Twelve Data format (symbol=2222&exchange=TADAWUL)
+  return ticker.replace(/\.SR$/i, '');
+}
+
 async function fetchTwelveStatement(ticker, endpoint, period, outputsize = 5) {
   const key = getTwelveKey();
   if (!key) return null;
   try {
-    const url = `https://api.twelvedata.com/${endpoint}?symbol=${ticker}&period=${period}&outputsize=${outputsize}&apikey=${key}`;
+    const sym = tdTicker(ticker);
+    const url = `https://api.twelvedata.com/${endpoint}?symbol=${sym}&exchange=TADAWUL&period=${period}&outputsize=${outputsize}&apikey=${key}`;
     const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
     if (!r.ok) return null;
     const data = await r.json();
