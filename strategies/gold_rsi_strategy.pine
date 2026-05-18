@@ -1,0 +1,148 @@
+//@version=5
+strategy(
+    title             = "RSI Full Forecast [Titans_Invest] — Gold",
+    shorttitle        = "RSI-GOLD",
+    overlay           = true,
+    default_qty_type  = strategy.percent_of_equity,
+    default_qty_value = 100,
+    initial_capital   = 10000,
+    currency          = currency.USD,
+    commission_type   = strategy.commission.percent,
+    commission_value  = 0.05,
+    calc_on_every_tick = false,
+    process_orders_on_close = false
+)
+
+// ═══════════════════════════════════════════════════════════════
+// INPUTS
+// Apply this script to a Gold chart: XAUUSD, GC1!, or GOLD
+// ═══════════════════════════════════════════════════════════════
+var GRP_S = "RSI Full Forecast Settings"
+baseLen  = input.int(26,   "Ichimoku Base Line Period",        minval=5,  maxval=100, group=GRP_S,
+     tooltip="Kijun-sen period. Typical TradingView default is 26.")
+rsiLen   = input.int(14,   "RSI Period",                       minval=2,  maxval=50,  group=GRP_S)
+wmaLen   = input.int(9,    "WMA Period (signal smoothing)",    minval=2,  maxval=50,  group=GRP_S)
+lvl      = input.float(50, "Cross Threshold (buy above / sell below)", minval=1, maxval=99, step=1, group=GRP_S,
+     tooltip="Buy when WMA-RSI crosses above this level. Sell when it crosses below.")
+
+var GRP_D = "Display"
+showBuySell = input.bool(true,  "Show Buy / Sell Labels",      group=GRP_D)
+showBHLine  = input.bool(true,  "Show Buy-and-Hold Line",      group=GRP_D)
+showBLine   = input.bool(false, "Show Ichimoku Base Line",     group=GRP_D)
+
+// ═══════════════════════════════════════════════════════════════
+// ICHIMOKU BASE LINE  (Kijun-sen)
+// Definition: midpoint of highest high and lowest low over baseLen bars
+// ═══════════════════════════════════════════════════════════════
+baseLine = math.avg(ta.highest(high, baseLen), ta.lowest(low, baseLen))
+
+// ═══════════════════════════════════════════════════════════════
+// RSI OF THE BASE LINE
+// Standard RSI formula, source = baseLine instead of close
+// ═══════════════════════════════════════════════════════════════
+blDelta  = baseLine - baseLine[1]
+blGain   = math.max(blDelta,  0)
+blLoss   = math.max(-blDelta, 0)
+avgGain  = ta.rma(blGain, rsiLen)
+avgLoss  = ta.rma(blLoss, rsiLen)
+rsiVal   = avgLoss == 0 ? 100.0 : 100.0 - (100.0 / (1.0 + avgGain / avgLoss))
+
+// ═══════════════════════════════════════════════════════════════
+// WMA OF RSI  (Weighted Moving Average — smoothed signal line)
+// ═══════════════════════════════════════════════════════════════
+wmaRsi = ta.wma(rsiVal, wmaLen)
+
+// ═══════════════════════════════════════════════════════════════
+// SIGNALS
+// Buy  : WMA-RSI crosses ABOVE threshold  → bullish momentum shift
+// Sell : WMA-RSI crosses BELOW threshold  → bearish momentum shift
+// ═══════════════════════════════════════════════════════════════
+buySignal  = ta.crossover(wmaRsi,  lvl)
+sellSignal = ta.crossunder(wmaRsi, lvl)
+
+// ═══════════════════════════════════════════════════════════════
+// STRATEGY EXECUTION
+// Uses 100 % of equity per entry so it mirrors a full-capital bet
+// ═══════════════════════════════════════════════════════════════
+if buySignal
+    strategy.entry("Long", strategy.long)
+
+if sellSignal
+    strategy.close("Long", comment="Exit")
+
+// ═══════════════════════════════════════════════════════════════
+// BUY-AND-HOLD BASELINE
+// Simulates buying at the very first bar and never selling
+// ═══════════════════════════════════════════════════════════════
+var float bhShares = na
+if na(bhShares)
+    bhShares := strategy.initial_capital / close
+
+bhEquity = bhShares * close
+
+// ═══════════════════════════════════════════════════════════════
+// CHART OVERLAYS
+// ═══════════════════════════════════════════════════════════════
+plot(showBLine   ? baseLine : na, "Base Line",      color=color.new(color.yellow, 40), linewidth=1)
+plot(showBHLine  ? bhEquity : na, "Buy & Hold ($)", color=color.new(color.orange, 20), linewidth=1, display=display.pane)
+
+plotshape(showBuySell and buySignal,
+     title="Buy", style=shape.triangleup, location=location.belowbar,
+     color=color.new(color.lime, 0), size=size.small, text="B")
+
+plotshape(showBuySell and sellSignal,
+     title="Sell", style=shape.triangledown, location=location.abovebar,
+     color=color.new(color.red, 0), size=size.small, text="S")
+
+// ═══════════════════════════════════════════════════════════════
+// PERFORMANCE TABLE  (top-right corner)
+// ═══════════════════════════════════════════════════════════════
+var table tbl = table.new(
+     position.top_right, 2, 9,
+     border_color=color.new(color.gray, 60), border_width=1,
+     frame_color =color.new(color.gray, 50), frame_width =1)
+
+C_HEAD = color.new(#1e2130, 5)
+C_ROW  = color.new(#131722, 15)
+C_TXT  = color.white
+C_DIM  = color.new(color.gray, 20)
+C_G    = color.new(color.lime, 0)
+C_R    = color.new(color.red, 0)
+C_TEAL = color.teal
+C_ORG  = color.orange
+
+_hdr(col, row, txt) => table.cell(tbl, col, row, txt, text_color=C_DIM,  bgcolor=C_HEAD, text_size=size.small, text_halign=col==0?text.align_left:text.align_right)
+_row(col, row, txt, clr) => table.cell(tbl, col, row, txt, text_color=clr, bgcolor=C_ROW,  text_size=size.small, text_halign=col==0?text.align_left:text.align_right)
+
+if barstate.islast
+    stratRet = (strategy.equity - strategy.initial_capital) / strategy.initial_capital * 100
+    bhRet    = (bhEquity        - strategy.initial_capital) / strategy.initial_capital * 100
+    alpha    = stratRet - bhRet
+    winRate  = strategy.closedtrades > 0 ? strategy.wintrades / strategy.closedtrades * 100 : 0.0
+
+    _hdr(0, 0, "RSI Full Forecast — Gold")
+    _hdr(1, 0, "Capital $" + str.tostring(strategy.initial_capital, "#,###.##"))
+
+    _row(0, 1, "Strategy Equity",  C_TXT)
+    _row(1, 1, "$" + str.tostring(math.round(strategy.equity, 2), "#,###.##"), C_TEAL)
+
+    _row(0, 2, "Strategy Return",  C_TXT)
+    _row(1, 2, str.tostring(stratRet, "#.##") + "%", stratRet >= 0 ? C_G : C_R)
+
+    _row(0, 3, "Buy & Hold Equity", C_TXT)
+    _row(1, 3, "$" + str.tostring(math.round(bhEquity, 2), "#,###.##"), C_ORG)
+
+    _row(0, 4, "Buy & Hold Return", C_TXT)
+    _row(1, 4, str.tostring(bhRet, "#.##") + "%", bhRet >= 0 ? C_G : C_R)
+
+    _row(0, 5, "Alpha (vs B&H)", C_TXT)
+    _row(1, 5, str.tostring(alpha, "#.##") + "%", alpha >= 0 ? C_G : C_R)
+
+    _row(0, 6, "Closed Trades", C_TXT)
+    _row(1, 6, str.tostring(strategy.closedtrades), C_TXT)
+
+    _row(0, 7, "Win Rate", C_TXT)
+    _row(1, 7, str.tostring(winRate, "#.#") + "%", winRate >= 50 ? C_G : C_R)
+
+    _row(0, 8, "Max Drawdown", C_TXT)
+    _row(1, 8, str.tostring(strategy.max_drawdown_percent, "#.##") + "%", C_R)

@@ -1,0 +1,51 @@
+//@version=5
+// ═══════════════════════════════════════════════════════════════
+// COMPANION INDICATOR — RSI WMA pane
+// Add this as a SEPARATE indicator below the strategy chart
+// so you can see the RSI/WMA oscillator and its crossovers
+// ═══════════════════════════════════════════════════════════════
+indicator(
+    title     = "RSI(Base Line) WMA — Gold Companion",
+    shorttitle= "RSI-BL-WMA",
+    overlay   = false
+)
+
+// ── Keep these values identical to the strategy script ──
+baseLen = input.int(26, "Ichimoku Base Line Period", minval=5,  group="Settings")
+rsiLen  = input.int(14, "RSI Period",                minval=2,  group="Settings")
+wmaLen  = input.int(9,  "WMA Period",                minval=2,  group="Settings")
+lvl     = input.float(50, "Threshold",               minval=1, maxval=99, group="Settings")
+
+// ── Ichimoku Base Line ──
+baseLine = math.avg(ta.highest(high, baseLen), ta.lowest(low, baseLen))
+
+// ── RSI of Base Line ──
+blDelta = baseLine - baseLine[1]
+avgGain = ta.rma(math.max(blDelta, 0),  rsiLen)
+avgLoss = ta.rma(math.max(-blDelta, 0), rsiLen)
+rsiVal  = avgLoss == 0 ? 100.0 : 100.0 - (100.0 / (1.0 + avgGain / avgLoss))
+
+// ── WMA of RSI ──
+wmaRsi = ta.wma(rsiVal, wmaLen)
+
+// ── Plots ──
+hline(lvl, "Threshold",   color=color.new(color.gray, 40), linestyle=hline.style_dashed)
+hline(70,  "Overbought",  color=color.new(color.red, 50),  linestyle=hline.style_dotted)
+hline(30,  "Oversold",    color=color.new(color.lime, 50), linestyle=hline.style_dotted)
+
+rsiColor = rsiVal >= 70 ? color.new(color.red, 30) :
+           rsiVal <= 30 ? color.new(color.lime, 30) :
+           color.new(color.gray, 40)
+
+plot(rsiVal, "RSI(Base Line)", color=rsiColor,               linewidth=1)
+plot(wmaRsi, "WMA of RSI",     color=color.new(color.teal,0), linewidth=2)
+
+// ── Highlight crossover zones ──
+buyZone  = ta.crossover(wmaRsi,  lvl)
+sellZone = ta.crossunder(wmaRsi, lvl)
+
+bgcolor(buyZone  ? color.new(color.lime, 85) : na, title="Buy cross")
+bgcolor(sellZone ? color.new(color.red,  85) : na, title="Sell cross")
+
+plotshape(buyZone,  style=shape.circle, location=location.bottom, color=color.lime, size=size.tiny)
+plotshape(sellZone, style=shape.circle, location=location.top,    color=color.red,  size=size.tiny)
