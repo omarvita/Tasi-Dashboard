@@ -768,7 +768,7 @@ async function validateTickers() {
   }).join('');
 
   // Build copy-friendly text of issues only
-  const issueText = issues.length
+  window._validateIssueText = issues.length
     ? 'Ticker Validation Issues (' + issues.length + '):\n' +
       issues.map(r => (!r.found ? '✗' : '⚠') + ' ' + r.ticker + ' — ' + r.appName + (r.yhName && r.yhName !== '—' ? ' | Yahoo: ' + r.yhName : ' | not found on Yahoo')).join('\n')
     : 'No issues found.';
@@ -781,7 +781,7 @@ async function validateTickers() {
     ${issues.length ? `
     <div style="display:flex;gap:8px;align-items:center;margin-top:7px;flex-wrap:wrap">
       <div style="color:var(--amb);font-size:9px;font-family:var(--mono)">⚠ ${issues.length} ticker(s) need review</div>
-      <button onclick="navigator.clipboard.writeText(${JSON.stringify(issueText)}).then(()=>{this.textContent='✓ Copied!';setTimeout(()=>this.textContent='📋 Copy Issues',1500)})" style="font-family:var(--mono);font-size:9px;padding:3px 9px;background:var(--bg2);border:1px solid var(--b2);border-radius:4px;color:var(--tx2);cursor:pointer">📋 Copy Issues</button>
+      <button onclick="navigator.clipboard.writeText(window._validateIssueText||'').then(()=>{this.textContent='✓ Copied!';setTimeout(()=>this.textContent='📋 Copy Issues',1500)})" style="font-family:var(--mono);font-size:9px;padding:3px 9px;background:var(--bg2);border:1px solid var(--b2);border-radius:4px;color:var(--tx2);cursor:pointer">📋 Copy Issues</button>
     </div>` : '<div style="margin-top:5px;color:var(--green);font-size:9px;font-family:var(--mono)">✓ All tickers confirmed!</div>'}`;
 }
 
@@ -2820,16 +2820,50 @@ function buildBreakdown(d){
 
   const pegSteps=d.pegSteps||[];
   const pegScore=d.pegScore||50;
+  const W=SCORE_WEIGHTS;
+  const rawTotal=(W.fundamental||0)+(W.technical||0)+(W.buffett||0)+(W.peg||0)+(W.dcf||0)||100;
+  const nW={
+    fundamental:(W.fundamental||0)/rawTotal,
+    technical:(W.technical||0)/rawTotal,
+    buffett:(W.buffett||0)/rawTotal,
+    peg:(W.peg||0)/rawTotal,
+    dcf:(W.dcf||0)/rawTotal
+  };
+  const dcfScore=dcfUpsideToScore(d.dcfUpside);
+
+  // Formula display — only show components with non-zero weight
+  const fmParts=[];
+  const fmCalc=[];
+  if(nW.fundamental>0){fmParts.push(`(<span class="var">Fundamental</span> <span class="val">${d.fundamental}</span> × ${Math.round(nW.fundamental*100)}%)`);fmCalc.push((d.fundamental*nW.fundamental).toFixed(1));}
+  if(nW.technical>0){fmParts.push(`(<span class="var">Technical</span> <span class="val">${d.technical}</span> × ${Math.round(nW.technical*100)}%)`);fmCalc.push((d.technical*nW.technical).toFixed(1));}
+  if(nW.buffett>0){fmParts.push(`(<span class="var">Buffett</span> <span class="val">${d.buffett}</span> × ${Math.round(nW.buffett*100)}%)`);fmCalc.push((d.buffett*nW.buffett).toFixed(1));}
+  if(nW.peg>0){fmParts.push(`(<span class="var">PEG Score</span> <span class="val">${pegScore}</span> × ${Math.round(nW.peg*100)}%)`);fmCalc.push((pegScore*nW.peg).toFixed(1));}
+  if(nW.dcf>0){fmParts.push(`(<span class="var">DCF/DDM</span> <span class="val">${dcfScore}</span> × ${Math.round(nW.dcf*100)}%)`);fmCalc.push((dcfScore*nW.dcf).toFixed(1));}
+
+  // DCF breakdown steps
+  const dcfStepsHtml=nW.dcf>0?(()=>{
+    const upside=d.dcfUpside;
+    const s=upside!=null?[{
+      label:d.dcfMethod||'DCF/DDM',
+      raw:upside!=null?`${upside>=0?'+':''}${(upside*100).toFixed(1)}%`:'N/A',
+      why:upside>0.10?'Strong upside vs fair value':upside>-0.10?'Near fair value':'Overvalued vs DCF estimate',
+      delta:Math.round(dcfScore-50),
+      detail:`DCF/DDM upside of ${(upside*100).toFixed(1)}% maps to a score of ${dcfScore}/100.<br>Scoring: 50 base + (upside ÷ 50%) × 50, clamped 0–100.<br>+50% upside → 100 · 0% → 50 · −50% → 0.`
+    }]:[{label:'DCF/DDM',raw:'—',why:'DCF not yet calculated — open DCF tab first',delta:0,detail:'Open the DCF tab to run the valuation model and populate this score.'}];
+    return renderSteps(s,upside!=null?dcfScore:50,'DCF / DDM Score','#00d4aa',50);
+  })():'';
+
   return`
   <div class="formula-box" style="margin-bottom:10px">
     <span style="color:var(--tx)">Combined Score Formula:</span><br>
-    = (<span class="var">Fundamental</span> <span class="val">${d.fundamental}</span> × 30%) + (<span class="var">Technical</span> <span class="val">${d.technical}</span> × 20%) + (<span class="var">Buffett</span> <span class="val">${d.buffett}</span> × 35%) + (<span class="var">PEG Score</span> <span class="val">${pegScore}</span> × 15%)<br>
-    = ${(d.fundamental*0.30).toFixed(1)} + ${(d.technical*0.20).toFixed(1)} + ${(d.buffett*0.35).toFixed(1)} + ${(pegScore*0.15).toFixed(1)} = <span class="val" style="color:${sc(d.combined)}">${d.combined}</span>
+    = ${fmParts.join(' + ')}<br>
+    = ${fmCalc.join(' + ')} = <span class="val" style="color:${sc(d.combined)}">${d.combined}</span>
   </div>
-  ${renderSteps(d.fundSteps||[],d.fundamental,"Fundamental Score","#60a5fa")}
-  ${renderSteps(d.techSteps||[],d.technical,"Technical Score","#a855f7")}
-  ${renderSteps(d.buffSteps||[],d.buffett,"Buffett Score","#f59e0b")}
-  ${renderSteps(pegSteps,pegScore,"PEG Score","#22c55e")}`;
+  ${nW.fundamental>0?renderSteps(d.fundSteps||[],d.fundamental,"Fundamental Score","#60a5fa"):''}
+  ${nW.technical>0?renderSteps(d.techSteps||[],d.technical,"Technical Score","#a855f7"):''}
+  ${nW.buffett>0?renderSteps(d.buffSteps||[],d.buffett,"Buffett Score","#f59e0b"):''}
+  ${nW.peg>0?renderSteps(pegSteps,pegScore,"PEG Score","#22c55e"):''}
+  ${dcfStepsHtml}`;
 }
 
 async function buildFinancials(d, period) {
