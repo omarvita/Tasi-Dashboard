@@ -668,15 +668,13 @@ function renderWeightsUI() {
 }
 
 function updateWeightTotal() {
-  const keys = ['fundamental','technical','buffett','peg','dcf'];
-  const total = keys.reduce((s,k) => s + (+(document.getElementById('ws-'+k)?.value||0)), 0);
+  const total = WEIGHT_KEYS.reduce((s,k) => s + (+(document.getElementById('ws-'+k)?.value||0)), 0);
   const el = document.getElementById('weights-total-lbl');
   if (el) el.innerHTML = `Total: <span style="color:${total===100?'var(--green)':total===0?'var(--tx3)':'var(--amb)'};font-weight:600">${total}%</span>${total!==100&&total!==0?' — weights will be normalized to 100%':''}`;
 }
 
 function saveScoreWeights() {
-  const keys = ['fundamental','technical','buffett','peg','dcf'];
-  keys.forEach(k => { SCORE_WEIGHTS[k] = +(document.getElementById('ws-'+k)?.value||0); });
+  WEIGHT_KEYS.forEach(k => { SCORE_WEIGHTS[k] = +(document.getElementById('ws-'+k)?.value||0); });
   localStorage.setItem('tasi_score_weights', JSON.stringify(SCORE_WEIGHTS));
   allData.forEach(d => { d.combined = calcCombined(d); });
   if (window._fd) window._fd.forEach(d => { d.combined = calcCombined(d); });
@@ -1710,6 +1708,15 @@ let allData=[],filtData=[],activeSector="All",sortKey="combined",curPage=1;
 
 // ── COMBINED SCORE WEIGHTS ──
 let SCORE_WEIGHTS = JSON.parse(localStorage.getItem('tasi_score_weights') || 'null') || {fundamental:30,technical:20,buffett:35,peg:15,dcf:0};
+const WEIGHT_KEYS   = ['fundamental','technical','buffett','peg','dcf'];
+const WEIGHT_LABELS = {fundamental:'Fund',technical:'Tech',buffett:'Buffett',peg:'PEG',dcf:'DCF'};
+
+function normalizeScoreWeights() {
+  const W = SCORE_WEIGHTS;
+  const total = WEIGHT_KEYS.reduce((s, k) => s + (W[k]||0), 0);
+  if (!total) return null;
+  return Object.fromEntries(WEIGHT_KEYS.map(k => [k, (W[k]||0)/total]));
+}
 
 function dcfUpsideToScore(upside) {
   if (upside == null) return 50;
@@ -1720,16 +1727,15 @@ function dcfUpsideToScore(upside) {
 }
 
 function calcCombined(d) {
-  const W = SCORE_WEIGHTS;
-  const total = (W.fundamental||0) + (W.technical||0) + (W.buffett||0) + (W.peg||0) + (W.dcf||0);
-  if (total === 0) return 50;
-  const dcfScore = (W.dcf > 0 && d.dcfUpside != null) ? dcfUpsideToScore(d.dcfUpside) : 50;
+  const nW = normalizeScoreWeights();
+  if (!nW) return 50;
+  const dcfScore = (nW.dcf > 0 && d.dcfUpside != null) ? dcfUpsideToScore(d.dcfUpside) : 50;
   return Math.round(
-    (d.fundamental||50) * (W.fundamental||0) / total +
-    (d.technical||50)   * (W.technical||0)   / total +
-    (d.buffett||50)     * (W.buffett||0)      / total +
-    (d.pegScore||50)    * (W.peg||0)          / total +
-    dcfScore            * (W.dcf||0)          / total
+    (d.fundamental||50) * nW.fundamental +
+    (d.technical||50)   * nW.technical +
+    (d.buffett||50)     * nW.buffett +
+    (d.pegScore||50)    * nW.peg +
+    dcfScore            * nW.dcf
   );
 }
 const PG=30;
@@ -2726,7 +2732,7 @@ function buildOverview(d){
     <div class="scard hl"><div class="slbl">Combined</div><div class="sval" style="color:${sc(d.combined)}">${d.combined}</div></div>
   </div>
   <div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:8px 10px;font-family:var(--mono);font-size:9px;color:var(--tx3);margin-bottom:8px">
-    ${(()=>{const W=SCORE_WEIGHTS;const t=(W.fundamental||0)+(W.technical||0)+(W.buffett||0)+(W.peg||0)+(W.dcf||0)||100;const parts=[];if(W.fundamental>0)parts.push(`Fund×${W.fundamental}%`);if(W.technical>0)parts.push(`Tech×${W.technical}%`);if(W.buffett>0)parts.push(`Buffett×${W.buffett}%`);if(W.peg>0)parts.push(`PEG×${W.peg}%`);if(W.dcf>0)parts.push(`DCF×${W.dcf}%`);return`Combined = ${parts.join(' + ')} = <span style="color:var(--acc);font-weight:600">${d.combined}</span>`;})()}
+    ${(()=>{const W=SCORE_WEIGHTS;const parts=WEIGHT_KEYS.filter(k=>W[k]>0).map(k=>`${WEIGHT_LABELS[k]}×${W[k]}%`);return`Combined = ${parts.join(' + ')} = <span style="color:var(--acc);font-weight:600">${d.combined}</span>`;})()}
   </div>
   <div class="secl">Market & Valuation</div>
   <div class="mgrid4">
@@ -2820,38 +2826,35 @@ function buildBreakdown(d){
 
   const pegSteps=d.pegSteps||[];
   const pegScore=d.pegScore||50;
-  const W=SCORE_WEIGHTS;
-  const rawTotal=(W.fundamental||0)+(W.technical||0)+(W.buffett||0)+(W.peg||0)+(W.dcf||0)||100;
-  const nW={
-    fundamental:(W.fundamental||0)/rawTotal,
-    technical:(W.technical||0)/rawTotal,
-    buffett:(W.buffett||0)/rawTotal,
-    peg:(W.peg||0)/rawTotal,
-    dcf:(W.dcf||0)/rawTotal
-  };
-  const dcfScore=dcfUpsideToScore(d.dcfUpside);
+  const nW = normalizeScoreWeights() || Object.fromEntries(WEIGHT_KEYS.map(k=>[k,0]));
+  const dcfScore = dcfUpsideToScore(d.dcfUpside);
 
-  // Formula display — only show components with non-zero weight
-  const fmParts=[];
-  const fmCalc=[];
-  if(nW.fundamental>0){fmParts.push(`(<span class="var">Fundamental</span> <span class="val">${d.fundamental}</span> × ${Math.round(nW.fundamental*100)}%)`);fmCalc.push((d.fundamental*nW.fundamental).toFixed(1));}
-  if(nW.technical>0){fmParts.push(`(<span class="var">Technical</span> <span class="val">${d.technical}</span> × ${Math.round(nW.technical*100)}%)`);fmCalc.push((d.technical*nW.technical).toFixed(1));}
-  if(nW.buffett>0){fmParts.push(`(<span class="var">Buffett</span> <span class="val">${d.buffett}</span> × ${Math.round(nW.buffett*100)}%)`);fmCalc.push((d.buffett*nW.buffett).toFixed(1));}
-  if(nW.peg>0){fmParts.push(`(<span class="var">PEG Score</span> <span class="val">${pegScore}</span> × ${Math.round(nW.peg*100)}%)`);fmCalc.push((pegScore*nW.peg).toFixed(1));}
-  if(nW.dcf>0){fmParts.push(`(<span class="var">DCF/DDM</span> <span class="val">${dcfScore}</span> × ${Math.round(nW.dcf*100)}%)`);fmCalc.push((dcfScore*nW.dcf).toFixed(1));}
+  const fmParts=[], fmCalc=[];
+  const fmComponents=[
+    {key:'fundamental', label:'Fundamental', value:d.fundamental},
+    {key:'technical',   label:'Technical',   value:d.technical},
+    {key:'buffett',     label:'Buffett',      value:d.buffett},
+    {key:'peg',         label:'PEG Score',   value:pegScore},
+    {key:'dcf',         label:'DCF/DDM',     value:dcfScore},
+  ];
+  for(const {key,label,value} of fmComponents){
+    if(nW[key]<=0)continue;
+    fmParts.push(`(<span class="var">${label}</span> <span class="val">${value}</span> × ${Math.round(nW[key]*100)}%)`);
+    fmCalc.push((value*nW[key]).toFixed(1));
+  }
 
-  // DCF breakdown steps
-  const dcfStepsHtml=nW.dcf>0?(()=>{
+  let dcfStepsHtml='';
+  if(nW.dcf>0){
     const upside=d.dcfUpside;
-    const s=upside!=null?[{
+    const dcfSteps=upside!=null?[{
       label:d.dcfMethod||'DCF/DDM',
-      raw:upside!=null?`${upside>=0?'+':''}${(upside*100).toFixed(1)}%`:'N/A',
+      raw:`${upside>=0?'+':''}${(upside*100).toFixed(1)}%`,
       why:upside>0.10?'Strong upside vs fair value':upside>-0.10?'Near fair value':'Overvalued vs DCF estimate',
       delta:Math.round(dcfScore-50),
       detail:`DCF/DDM upside of ${(upside*100).toFixed(1)}% maps to a score of ${dcfScore}/100.<br>Scoring: 50 base + (upside ÷ 50%) × 50, clamped 0–100.<br>+50% upside → 100 · 0% → 50 · −50% → 0.`
     }]:[{label:'DCF/DDM',raw:'—',why:'DCF not yet calculated — open DCF tab first',delta:0,detail:'Open the DCF tab to run the valuation model and populate this score.'}];
-    return renderSteps(s,upside!=null?dcfScore:50,'DCF / DDM Score','#00d4aa',50);
-  })():'';
+    dcfStepsHtml=renderSteps(dcfSteps,upside!=null?dcfScore:50,'DCF / DDM Score','#00d4aa',50);
+  }
 
   return`
   <div class="formula-box" style="margin-bottom:10px">
@@ -2892,23 +2895,17 @@ async function buildFinancials(d, period) {
   const driveStock = await gdReadStock(d.ticker);
   const driveStmt = driveStock?.[cacheKey];
   const driveUpdated = driveStock?.[`${cacheKey}Updated`] || 0;
-  if (driveStmt && (driveStmt.is || driveStmt.bs || driveStmt.cf) && (Date.now() - driveUpdated < GD_STMT_TTL)) {
-    // For annual: if the most recent FY ended >13 months ago a new year is out — bypass cache
-    if (!isQ) {
-      const stmts = driveStmt.is || driveStmt.bs || driveStmt.cf;
-      const recentDate = stmts?.[0]?.fiscal_date;
-      const monthsOld = recentDate ? (Date.now() - new Date(recentDate).getTime()) / (30.5 * 24 * 60 * 60 * 1000) : 0;
-      if (recentDate && monthsOld > 13) {
-        tdLog('Cache stale — new fiscal year available, refreshing…', true);
-        // fall through to re-fetch
-      } else {
-        tdLog('Loaded from Google Drive ✓', true);
-        return enrichAndRender(driveStmt, 'Google Drive cache');
-      }
-    } else {
+  const now = Date.now();
+  const driveData = driveStmt && (driveStmt.is || driveStmt.bs || driveStmt.cf);
+  if (driveData && now - driveUpdated < GD_STMT_TTL) {
+    const recentDate = !isQ ? driveData[0]?.fiscal_date : null;
+    const monthsOld = recentDate ? (now - new Date(recentDate).getTime()) / (30.5 * 24 * 60 * 60 * 1000) : 0;
+    // For annual: bypass if most recent FY ended >13 months ago — a new year is out
+    if (!recentDate || monthsOld <= 13) {
       tdLog('Loaded from Google Drive ✓', true);
       return enrichAndRender(driveStmt, 'Google Drive cache');
     }
+    tdLog('Cache stale — new fiscal year available, refreshing…', true);
   }
 
   // 2. Yahoo quoteSummary rawYahoo (fetched when panel opened)
