@@ -593,8 +593,45 @@ async function testFMPKey() {
 
 function clearTwelveCache() {
   Object.keys(localStorage).filter(k => k.startsWith('TASI_td_')).forEach(k => localStorage.removeItem(k));
+  // Also clear Drive in-memory cache so next open re-reads from Drive
+  Object.keys(_gdCache).forEach(k => delete _gdCache[k]);
   showToast('✓ Financial statement cache cleared');
   document.getElementById('td-log').textContent = 'Cache cleared — next tab click will fetch fresh data.';
+}
+
+async function validateTickers() {
+  const logEl = document.getElementById('td-log');
+  if (!logEl) return;
+  const stocks = (typeof allStockDefs !== 'undefined' ? allStockDefs : (typeof STOCKS !== 'undefined' ? STOCKS : []));
+  if (!stocks.length) { logEl.innerHTML = '<span style="color:var(--red)">No stock data loaded yet.</span>'; return; }
+  logEl.innerHTML = '<span class="spin"></span> Validating tickers against Yahoo Finance… (checking first 15)';
+  const sample = stocks.slice(0, 15);
+  const results = [];
+  for (const s of sample) {
+    try {
+      const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s.t)}?interval=1d&range=1d`;
+      const data = await fetchWithProxy(url);
+      const meta = data?.chart?.result?.[0]?.meta;
+      const yhName = meta?.longName || meta?.shortName || '—';
+      const yhSymbol = meta?.symbol || '—';
+      const match = yhSymbol.toUpperCase() === s.t.toUpperCase();
+      const nameSimilar = yhName.toLowerCase().includes(s.n.split(' ')[0].toLowerCase()) || s.n.toLowerCase().includes(yhName.split(' ')[0].toLowerCase());
+      results.push({ ticker: s.t, appName: s.n, yhName, match, nameSimilar });
+    } catch(e) {
+      results.push({ ticker: s.t, appName: s.n, yhName: 'error', match: false, nameSimilar: false });
+    }
+  }
+  const rows = results.map(r => {
+    const tickerOk = r.match ? '✓' : '✗';
+    const nameOk = r.nameSimilar ? '~' : '?';
+    const col = r.match && r.nameSimilar ? 'var(--green)' : r.match ? 'var(--amb)' : 'var(--red)';
+    return `<tr><td style="color:${col}">${tickerOk}</td><td>${r.ticker}</td><td>${r.appName}</td><td style="color:var(--tx3)">${r.yhName}</td><td style="color:${col}">${nameOk}</td></tr>`;
+  }).join('');
+  logEl.innerHTML = `<div style="font-size:9px;margin-bottom:4px;color:var(--tx2)">✓ ticker match  ~ name similar  ? check manually</div>
+    <div style="overflow-x:auto"><table style="width:100%;font-family:var(--mono);font-size:9px;border-collapse:collapse">
+      <thead><tr style="color:var(--tx3)"><th></th><th>Ticker</th><th>App Name</th><th>Yahoo Name</th><th>Name</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
 }
 
 function tdLog(msg, ok = true) {
@@ -676,14 +713,15 @@ async function fetchYahooFinancials(ticker) {
 async function fetchYahooTimeseries(ticker, period) {
   const prefix = period === 'quarterly' ? 'quarterly' : 'annual';
   const metrics = [
-    `${prefix}TotalRevenue`, `${prefix}GrossProfit`, `${prefix}Ebitda`,
+    `${prefix}TotalRevenue`, `${prefix}GrossProfit`, `${prefix}EBITDA`,
     `${prefix}OperatingIncome`, `${prefix}NetIncome`, `${prefix}BasicEPS`,
     `${prefix}TotalAssets`, `${prefix}TotalLiabilitiesNetMinorityInterest`,
     `${prefix}StockholdersEquity`, `${prefix}CashAndCashEquivalents`, `${prefix}LongTermDebt`,
     `${prefix}OperatingCashFlow`, `${prefix}InvestingCashFlow`, `${prefix}FinancingCashFlow`,
-    `${prefix}CapitalExpenditure`, `${prefix}FreeCashFlow`, `${prefix}DividendsPaid`,
+    `${prefix}CapitalExpenditure`, `${prefix}FreeCashFlow`, `${prefix}CashDividendsPaid`,
+    `${prefix}DepreciationAndAmortization`,
   ].join(',');
-  const url = `https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(ticker)}?type=${metrics}&period1=1451606400&period2=1900000000`;
+  const url = `https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(ticker)}?type=${metrics}&period1=1388534400&period2=1900000000`;
   try {
     const data = await fetchWithProxy(url);
     return parseYahooTimeseries(data, period);
@@ -701,7 +739,12 @@ function parseYahooTimeseries(data, period) {
     const entries = series[metricKey];
     if (!Array.isArray(entries)) continue;
     const stripped = metricKey.replace(new RegExp(`^${prefix}`, 'i'), '');
-    const fieldName = stripped.charAt(0).toLowerCase() + stripped.slice(1);
+    // Normalize known all-caps variants so field lookups are consistent
+    const fieldName = (
+      stripped === 'EBITDA' ? 'ebitda' :
+      stripped === 'CashDividendsPaid' ? 'cashDividendsPaid' :
+      stripped.charAt(0).toLowerCase() + stripped.slice(1)
+    );
     for (const entry of entries) {
       if (!entry) continue;
       const date = entry.asOfDate;
@@ -710,12 +753,16 @@ function parseYahooTimeseries(data, period) {
       byDate[date][fieldName] = entry.reportedValue?.raw ?? null;
     }
   }
-  const dates = Object.keys(byDate).sort().reverse().slice(0, period === 'quarterly' ? 8 : 5);
+  const limit = period === 'quarterly' ? 8 : 6;
+  const dates = Object.keys(byDate).sort().reverse().slice(0, limit);
   if (!dates.length) return { is: null, bs: null, cf: null };
   const rows = dates.map(d => byDate[d]);
   const is = rows.some(r => r.totalRevenue != null || r.netIncome != null) ? rows.map(r => ({
     fiscal_date: r.fiscal_date, revenue: r.totalRevenue ?? null,
-    gross_profit: r.grossProfit ?? null, ebitda: r.ebitda ?? null,
+    gross_profit: r.grossProfit ?? null,
+    // Calculate EBITDA from D&A if not directly available
+    ebitda: r.ebitda ?? ((r.operatingIncome != null && r.depreciationAndAmortization != null)
+      ? r.operatingIncome + Math.abs(r.depreciationAndAmortization) : null),
     operating_income: r.operatingIncome ?? null, net_income: r.netIncome ?? null,
     eps: r.basicEPS ?? null,
   })) : null;
@@ -731,7 +778,8 @@ function parseYahooTimeseries(data, period) {
     investing_activities: r.investingCashFlow ?? null,
     financing_activities: r.financingCashFlow ?? null,
     capital_expenditure: r.capitalExpenditure ?? null,
-    free_cash_flow: r.freeCashFlow ?? null, dividends_paid: r.dividendsPaid ?? null,
+    free_cash_flow: r.freeCashFlow ?? null,
+    dividends_paid: r.cashDividendsPaid ?? null,
   })) : null;
   return { is, bs, cf };
 }
@@ -2578,7 +2626,7 @@ async function buildFinancials(d, period) {
   const driveUpdated = driveStock?.[`${cacheKey}Updated`] || 0;
   if (driveStmt && (driveStmt.is || driveStmt.bs || driveStmt.cf) && (Date.now() - driveUpdated < GD_STMT_TTL)) {
     tdLog('Loaded from Google Drive ✓', true);
-    return renderTwelveStatements(driveStmt, period, d.ticker, 'Google Drive cache');
+    return renderTwelveStatements(driveStmt, period, d.ticker, 'Google Drive cache', d);
   }
 
   // 2. Yahoo quoteSummary rawYahoo (fetched when panel opened)
@@ -2586,7 +2634,7 @@ async function buildFinancials(d, period) {
     const y = parseYahooFinancials(d.rawYahoo, period);
     if (y.is || y.bs || y.cf) {
       gdWriteStock(d.ticker, { [cacheKey]: y, [`${cacheKey}Updated`]: Date.now() });
-      return renderTwelveStatements(y, period, d.ticker, 'Yahoo Finance');
+      return renderTwelveStatements(y, period, d.ticker, 'Yahoo Finance', d);
     }
   }
 
@@ -2598,13 +2646,13 @@ async function buildFinancials(d, period) {
     d.rawTwelveData[cacheKey] = yt;
     tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
     gdWriteStock(d.ticker, { [cacheKey]: yt, [`${cacheKey}Updated`]: Date.now() });
-    return renderTwelveStatements(yt, period, d.ticker, 'Yahoo Finance');
+    return renderTwelveStatements(yt, period, d.ticker, 'Yahoo Finance', d);
   }
 
   // 4. localStorage cache
   if (!d.rawTwelveData) { const c = tdCacheGet(d.ticker); if (c) d.rawTwelveData = c; }
   const cached = d.rawTwelveData?.[cacheKey];
-  if (cached && (cached.is || cached.bs || cached.cf)) return renderTwelveStatements(cached, period, d.ticker, 'cache');
+  if (cached && (cached.is || cached.bs || cached.cf)) return renderTwelveStatements(cached, period, d.ticker, 'cache', d);
 
   // 5. Alpha Vantage (free, 500/day)
   if (getAVKey()) {
@@ -2618,7 +2666,7 @@ async function buildFinancials(d, period) {
       d.rawTwelveData[cacheKey] = av;
       tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
       gdWriteStock(d.ticker, { [cacheKey]: av, [`${cacheKey}Updated`]: Date.now() });
-      return renderTwelveStatements(av, period, d.ticker, 'Alpha Vantage');
+      return renderTwelveStatements(av, period, d.ticker, 'Alpha Vantage', d);
     }
   }
 
@@ -2631,7 +2679,7 @@ async function buildFinancials(d, period) {
       d.rawTwelveData[cacheKey] = fmp;
       tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
       gdWriteStock(d.ticker, { [cacheKey]: fmp, [`${cacheKey}Updated`]: Date.now() });
-      return renderTwelveStatements(fmp, period, d.ticker, 'FMP');
+      return renderTwelveStatements(fmp, period, d.ticker, 'FMP', d);
     }
   }
 
@@ -2642,21 +2690,21 @@ async function buildFinancials(d, period) {
     d.rawTwelveData[cacheKey] = scraped;
     tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
     gdWriteStock(d.ticker, { [cacheKey]: scraped, [`${cacheKey}Updated`]: Date.now() });
-    return renderTwelveStatements(scraped, period, d.ticker, 'scraped');
+    return renderTwelveStatements(scraped, period, d.ticker, 'scraped', d);
   }
 
-  return renderTwelveStatements({ is:null, bs:null, cf:null }, period, d.ticker, 'none');
+  return renderTwelveStatements({ is:null, bs:null, cf:null }, period, d.ticker, 'none', d);
 }
 
 async function buildQuarterly(d){ return buildFinancials(d, 'quarterly'); }
 
-function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance') {
+function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', stockObj = null) {
   const { is, bs, cf } = data || {};
   const noData = (arr) => !arr || !arr.length;
   if (noData(is) && noData(bs) && noData(cf)) {
     return `<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">
       <div style="color:var(--amb);margin-bottom:6px">⚠ No ${period} financial data found for this stock.</div>
-      <div>All sources tried (Google Drive, scraping, Yahoo Finance). Connect Google Drive in ⚙ Settings to enable scraping &amp; cloud storage, or check the other tab.</div>
+      <div>All sources tried (Google Drive, Yahoo Finance Timeseries, scraping). Connect Google Drive in ⚙ Settings to enable cloud caching, or check the other tab.</div>
     </div>`;
   }
   function fmtSAR(v) {
@@ -2665,43 +2713,162 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance') 
     if (isNaN(n)) return '—';
     return (n / 1e9).toFixed(2) + 'B';
   }
+  function fmtPct(v) {
+    if (v == null || isNaN(v)) return '—';
+    return (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%';
+  }
+  function fmtRatio(v) {
+    if (v == null || isNaN(v)) return '—';
+    return v.toFixed(2) + 'x';
+  }
+  function yoyGrowth(arr, key) {
+    return arr.map((r, i) => {
+      if (i >= arr.length - 1) return null;
+      const cur = parseFloat(arr[i][key]), prv = parseFloat(arr[i + 1][key]);
+      if (isNaN(cur) || isNaN(prv) || prv === 0) return null;
+      return (cur - prv) / Math.abs(prv);
+    });
+  }
   function makeTable(title, rows, dates) {
     if (!dates || !dates.length) return '';
     return `<div style="margin-bottom:14px">
       <div style="font-family:var(--mono);font-size:9px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;padding-bottom:4px;border-bottom:1px solid var(--b1)">${title}</div>
       <div style="overflow-x:auto"><table class="ft">
         <thead><tr><th>Item</th>${dates.map(d=>`<th>${d}</th>`).join('')}</tr></thead>
-        <tbody>${rows.map(row=>`<tr><td>${row.label}</td>${row.vals.map(v=>`<td class="${v&&v.startsWith&&v.startsWith('-')?'ft-neg':v&&v!=='—'?'ft-pos':''}">${v||'—'}</td>`).join('')}</tr>`).join('')}</tbody>
+        <tbody>${rows.map(row => {
+          const isPct = row.type === 'pct';
+          const isRatio = row.type === 'ratio';
+          const isDim = row.type === 'dim';
+          const trStyle = isDim ? 'opacity:.7' : '';
+          const cells = row.vals.map(v => {
+            if (!v || v === '—') return `<td style="color:var(--tx3)">—</td>`;
+            if (isPct) {
+              const n = parseFloat(v);
+              const col = isNaN(n) ? 'var(--tx3)' : n > 5 ? 'var(--green)' : n > 0 ? 'var(--amb)' : 'var(--red)';
+              return `<td style="color:${col};font-size:9px">${v}</td>`;
+            }
+            if (isRatio) return `<td style="color:var(--tx2);font-size:9px">${v}</td>`;
+            return `<td class="${v.startsWith('-')?'ft-neg':'ft-pos'}">${v}</td>`;
+          }).join('');
+          return `<tr style="${trStyle}"><td style="${isDim?'color:var(--tx3);font-style:italic':''}">${row.label}</td>${cells}</tr>`;
+        }).join('')}</tbody>
       </table></div></div>`;
   }
-  const isRows = is ? [
-    {label:'Revenue',        vals: is.map(r => fmtSAR(r.revenue))},
-    {label:'Gross Profit',   vals: is.map(r => fmtSAR(r.gross_profit))},
-    {label:'EBITDA',         vals: is.map(r => fmtSAR(r.ebitda))},
-    {label:'Operating Inc.', vals: is.map(r => fmtSAR(r.operating_income))},
-    {label:'Net Income',     vals: is.map(r => fmtSAR(r.net_income))},
-    {label:'EPS (SAR)',      vals: is.map(r => r.eps != null && r.eps !== '' ? parseFloat(r.eps).toFixed(3) : '—')},
-  ] : [];
-  const bsRows = bs ? [
-    {label:'Total Assets',   vals: bs.map(r => fmtSAR(r.total_assets))},
-    {label:'Total Liab.',    vals: bs.map(r => fmtSAR(r.total_liabilities))},
-    {label:'Total Equity',   vals: bs.map(r => fmtSAR(r.total_equity))},
-    {label:'Cash & Equiv.',  vals: bs.map(r => fmtSAR(r.cash_and_equivalents))},
-    {label:'Long-term Debt', vals: bs.map(r => fmtSAR(r.long_term_debt))},
-  ] : [];
-  const cfRows = cf ? [
-    {label:'Operating CF',   vals: cf.map(r => fmtSAR(r.operating_activities))},
-    {label:'Investing CF',   vals: cf.map(r => fmtSAR(r.investing_activities))},
-    {label:'Financing CF',   vals: cf.map(r => fmtSAR(r.financing_activities))},
-    {label:'CapEx',          vals: cf.map(r => fmtSAR(r.capital_expenditure))},
-    {label:'Free Cashflow',  vals: cf.map(r => fmtSAR(r.free_cash_flow))},
-    {label:'Dividends Paid', vals: cf.map(r => fmtSAR(r.dividends_paid))},
-  ] : [];
   const pLabel = period === 'quarterly' ? (r => r.fiscal_date || '—') : (r => 'FY' + (r.fiscal_date || '—').slice(0, 4));
-  return makeTable(period === 'quarterly' ? 'Quarterly Income Statement' : '5-Year Income Statement', isRows, is?.map(pLabel) || [])
+
+  // ── Income Statement rows ──
+  const isRows = is ? (() => {
+    const revGrowth = yoyGrowth(is, 'revenue');
+    const niGrowth  = yoyGrowth(is, 'net_income');
+    const epsGrowth = yoyGrowth(is, 'eps');
+    return [
+      {label:'Revenue',          vals: is.map(r => fmtSAR(r.revenue))},
+      {label:'Rev Growth YoY',   vals: revGrowth.map(fmtPct), type:'pct'},
+      {label:'Gross Profit',     vals: is.map(r => fmtSAR(r.gross_profit))},
+      {label:'Gross Margin',     vals: is.map(r => {
+        const gm = parseFloat(r.gross_profit), rv = parseFloat(r.revenue);
+        return (!isNaN(gm) && !isNaN(rv) && rv !== 0) ? fmtPct(gm/rv) : '—';
+      }), type:'pct'},
+      {label:'EBITDA',           vals: is.map(r => fmtSAR(r.ebitda))},
+      {label:'Operating Inc.',   vals: is.map(r => fmtSAR(r.operating_income))},
+      {label:'Op. Margin',       vals: is.map(r => {
+        const oi = parseFloat(r.operating_income), rv = parseFloat(r.revenue);
+        return (!isNaN(oi) && !isNaN(rv) && rv !== 0) ? fmtPct(oi/rv) : '—';
+      }), type:'pct'},
+      {label:'Net Income',       vals: is.map(r => fmtSAR(r.net_income))},
+      {label:'Net Inc Growth',   vals: niGrowth.map(fmtPct), type:'pct'},
+      {label:'Net Margin',       vals: is.map(r => {
+        const ni = parseFloat(r.net_income), rv = parseFloat(r.revenue);
+        return (!isNaN(ni) && !isNaN(rv) && rv !== 0) ? fmtPct(ni/rv) : '—';
+      }), type:'pct'},
+      {label:'EPS (SAR)',        vals: is.map(r => r.eps != null && r.eps !== '' ? parseFloat(r.eps).toFixed(3) : '—')},
+      {label:'EPS Growth',       vals: epsGrowth.map(fmtPct), type:'pct'},
+    ];
+  })() : [];
+
+  // ── Balance Sheet rows ──
+  const bsRows = bs ? (() => {
+    // Get net income per BS date for ROA (match by year)
+    const niByYear = {};
+    if (is) is.forEach(r => { if (r.fiscal_date) niByYear[r.fiscal_date.slice(0,4)] = parseFloat(r.net_income); });
+    return [
+      {label:'Total Assets',     vals: bs.map(r => fmtSAR(r.total_assets))},
+      {label:'Total Liab.',      vals: bs.map(r => fmtSAR(r.total_liabilities))},
+      {label:'Total Equity',     vals: bs.map(r => fmtSAR(r.total_equity))},
+      {label:'D/E Ratio',        vals: bs.map(r => {
+        const tl = parseFloat(r.total_liabilities), te = parseFloat(r.total_equity);
+        return (!isNaN(tl) && !isNaN(te) && te !== 0) ? fmtRatio(tl/te) : '—';
+      }), type:'ratio'},
+      {label:'ROA',              vals: bs.map(r => {
+        const ta = parseFloat(r.total_assets);
+        const yr = (r.fiscal_date||'').slice(0,4);
+        const ni = niByYear[yr];
+        return (!isNaN(ta) && ta !== 0 && ni != null && !isNaN(ni)) ? fmtPct(ni/ta) : '—';
+      }), type:'pct'},
+      {label:'Cash & Equiv.',    vals: bs.map(r => fmtSAR(r.cash_and_equivalents))},
+      {label:'Long-term Debt',   vals: bs.map(r => fmtSAR(r.long_term_debt))},
+    ];
+  })() : [];
+
+  // ── Cash Flow rows ──
+  const cfRows = cf ? (() => {
+    const revByYear = {};
+    if (is) is.forEach(r => { if (r.fiscal_date) revByYear[r.fiscal_date.slice(0,4)] = parseFloat(r.revenue); });
+    return [
+      {label:'Operating CF',     vals: cf.map(r => fmtSAR(r.operating_activities))},
+      {label:'Investing CF',     vals: cf.map(r => fmtSAR(r.investing_activities))},
+      {label:'Financing CF',     vals: cf.map(r => fmtSAR(r.financing_activities))},
+      {label:'CapEx',            vals: cf.map(r => fmtSAR(r.capital_expenditure))},
+      {label:'Free Cashflow',    vals: cf.map(r => fmtSAR(r.free_cash_flow))},
+      {label:'FCF Margin',       vals: cf.map(r => {
+        const fcf = parseFloat(r.free_cash_flow);
+        const yr = (r.fiscal_date||'').slice(0,4);
+        const rv = revByYear[yr];
+        return (!isNaN(fcf) && rv != null && !isNaN(rv) && rv !== 0) ? fmtPct(fcf/rv) : '—';
+      }), type:'pct'},
+      {label:'Dividends Paid',   vals: cf.map(r => fmtSAR(r.dividends_paid))},
+    ];
+  })() : [];
+
+  // ── Data cross-check vs overview ──
+  let validationHtml = '';
+  if (stockObj && is?.length) {
+    const latestIS = is[0];
+    const checks = [];
+    // EPS check
+    if (stockObj.eps != null && latestIS.eps != null) {
+      const stmtEps = parseFloat(latestIS.eps), ovEps = parseFloat(stockObj.eps);
+      if (!isNaN(stmtEps) && !isNaN(ovEps)) {
+        const diff = Math.abs(stmtEps - ovEps) / Math.max(Math.abs(ovEps), 0.01);
+        const icon = diff < 0.15 ? '✓' : '⚠';
+        const col = diff < 0.15 ? 'var(--green)' : 'var(--amb)';
+        checks.push(`<span style="color:${col}">${icon} EPS: stmt ${stmtEps.toFixed(2)} SAR vs overview ${ovEps.toFixed(2)} SAR${diff >= 0.15 ? ' (diff >15% — possibly trailing vs FY)' : ''}</span>`);
+      }
+    }
+    // Net margin check
+    const rv = parseFloat(latestIS.revenue), ni = parseFloat(latestIS.net_income);
+    if (!isNaN(rv) && !isNaN(ni) && rv !== 0 && stockObj.npm != null) {
+      const stmtNpm = ni / rv, ovNpm = parseFloat(stockObj.npm);
+      if (!isNaN(ovNpm)) {
+        const diff = Math.abs(stmtNpm - ovNpm);
+        const icon = diff < 0.05 ? '✓' : '⚠';
+        const col = diff < 0.05 ? 'var(--green)' : 'var(--amb)';
+        checks.push(`<span style="color:${col}">${icon} Net margin: stmt ${(stmtNpm*100).toFixed(1)}% vs overview ${(ovNpm*100).toFixed(1)}%${diff >= 0.05 ? ' (>5pp diff)' : ''}</span>`);
+      }
+    }
+    if (checks.length) {
+      validationHtml = `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:7px 10px;margin-bottom:8px;font-family:var(--mono);font-size:9px;line-height:1.8">
+        <div style="color:var(--tx2);margin-bottom:3px;font-size:8px;text-transform:uppercase;letter-spacing:.07em">⚡ Data Cross-Check (Statement vs Overview)</div>
+        ${checks.join('<br>')}
+      </div>`;
+    }
+  }
+
+  return validationHtml
+       + makeTable(period === 'quarterly' ? 'Quarterly Income Statement' : '5-Year Income Statement', isRows, is?.map(pLabel) || [])
        + makeTable(period === 'quarterly' ? 'Quarterly Balance Sheet'    : '5-Year Balance Sheet',    bsRows, bs?.map(pLabel) || [])
        + makeTable(period === 'quarterly' ? 'Quarterly Cash Flow'        : '5-Year Cash Flow',        cfRows, cf?.map(pLabel) || [])
-       + `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Source: ${source} · SAR · B = Billions · Cached 7 days in browser</div>`;
+       + `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Source: ${source} · SAR · B = Billions · Growth rows: YoY vs prior period · Margins are % of Revenue</div>`;
 }
 
 async function buildAnnual(d){ return buildFinancials(d, 'annual'); }
@@ -3330,6 +3497,7 @@ function buildSectorPerf() {
       <button class="sp-btn" onclick="saveAVKey()">💾 Save Key</button>
       <button class="sp-btn sp-btn-sec" onclick="testAVKey()">▷ Test Key</button>
       <button class="sp-btn sp-btn-red" onclick="clearTwelveCache()">🗑 Clear Cache</button>
+      <button class="sp-btn sp-btn-sec" onclick="validateTickers()" title="Check first 15 tickers against Yahoo Finance to verify names">⚡ Validate Tickers</button>
     </div>
     <div class="sp-log" id="td-log">Status will appear here after saving or testing.</div>
 
