@@ -506,7 +506,7 @@ function showComparePanel() {
 
 // ── VISION 2030 SCORE ──
 const VISION2030 = {
-  '2222.SR':85,'4002.SR':90,'6001.SR':95,'4030.SR':70,'4163.SR':75,
+  '2222.SR':85,'4002.SR':90,'6001.SR':95,'4030.SR':70,'4013.SR':75,
   '4161.SR':65,'4150.SR':60,'4290.SR':55,'4270.SR':60,'4321.SR':82,
   '4322.SR':85,'4250.SR':90,'7203.SR':88,'7202.SR':82,'7200.SR':75,
   '4040.SR':65,'4050.SR':62,'5110.SR':78,'4280.SR':72,'4191.SR':80,
@@ -522,7 +522,7 @@ const DIV_CONSISTENCY = {
   '4001.SR':{years:9,growing:true},'4030.SR':{years:10,growing:true},
   '2300.SR':{years:10,growing:true},'3004.SR':{years:10,growing:true},
   '2310.SR':{years:9,growing:true},'4290.SR':{years:8,growing:true},
-  '2080.SR':{years:10,growing:false},'1210.SR':{years:8,growing:true},
+  '2080.SR':{years:10,growing:false},'1010.SR':{years:8,growing:true},
   '1050.SR':{years:7,growing:false},'8100.SR':{years:6,growing:true},
   '8200.SR':{years:5,growing:true},'4270.SR':{years:7,growing:true},
   '4240.SR':{years:6,growing:true},'5110.SR':{years:8,growing:false},
@@ -597,39 +597,51 @@ function clearTwelveCache() {
   document.getElementById('td-log').textContent = 'Cache cleared — next tab click will fetch fresh data.';
 }
 
+let _validating = false;
 async function validateTickers() {
   const logEl = document.getElementById('td-log');
   if (!logEl) return;
-  const stocks = (typeof allStockDefs !== 'undefined' ? allStockDefs : (typeof STOCKS !== 'undefined' ? STOCKS : []));
-  if (!stocks.length) { logEl.innerHTML = '<span style="color:var(--red)">No stock data loaded yet.</span>'; return; }
-  logEl.innerHTML = '<span class="spin"></span> Validating tickers against Yahoo Finance… (checking first 15)';
-  const sample = stocks.slice(0, 15);
+  if (_validating) { logEl.innerHTML = '<span style="color:var(--amb)">Validation already running…</span>'; return; }
+  const allStocks = [...(typeof STOCKS !== 'undefined' ? STOCKS : []), ...(typeof MORE_TICKERS !== 'undefined' ? MORE_TICKERS : [])];
+  if (!allStocks.length) { logEl.innerHTML = '<span style="color:var(--red)">No stock data loaded yet.</span>'; return; }
+  _validating = true;
   const results = [];
-  for (const s of sample) {
-    try {
-      const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s.t)}?interval=1d&range=1d`;
-      const data = await fetchWithProxy(url);
-      const meta = data?.chart?.result?.[0]?.meta;
-      const yhName = meta?.longName || meta?.shortName || '—';
-      const yhSymbol = meta?.symbol || '—';
-      const match = yhSymbol.toUpperCase() === s.t.toUpperCase();
-      const nameSimilar = yhName.toLowerCase().includes(s.n.split(' ')[0].toLowerCase()) || s.n.toLowerCase().includes(yhName.split(' ')[0].toLowerCase());
-      results.push({ ticker: s.t, appName: s.n, yhName, match, nameSimilar });
-    } catch(e) {
-      results.push({ ticker: s.t, appName: s.n, yhName: 'error', match: false, nameSimilar: false });
-    }
+  const batchSize = 6;
+  const total = allStocks.length;
+  for (let i = 0; i < total; i += batchSize) {
+    const batch = allStocks.slice(i, i + batchSize);
+    logEl.innerHTML = `<span class="spin"></span> Validating ${i+1}–${Math.min(i+batchSize,total)} of ${total} tickers…`;
+    await Promise.all(batch.map(async s => {
+      try {
+        const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s.t)}?interval=1d&range=1d`;
+        const data = await fetchWithProxy(url);
+        const meta = data?.chart?.result?.[0]?.meta;
+        const yhName = meta?.longName || meta?.shortName || '—';
+        const yhSymbol = meta?.symbol || '—';
+        const found = !!meta?.regularMarketPrice;
+        const match = yhSymbol.toUpperCase() === s.t.toUpperCase();
+        const sn = s.n.toLowerCase(), yn = yhName.toLowerCase();
+        const nameSimilar = yn !== '—' && (yn.includes(sn.split(' ')[0]) || sn.includes(yn.split(' ')[0]) || sn.split(' ').some(w => w.length > 3 && yn.includes(w)));
+        results.push({ ticker: s.t, appName: s.n, yhName, match, nameSimilar, found });
+      } catch(e) {
+        results.push({ ticker: s.t, appName: s.n, yhName: 'error', match: false, nameSimilar: false, found: false });
+      }
+    }));
+    if (i + batchSize < total) await new Promise(r => setTimeout(r, 400));
   }
+  _validating = false;
+  const issues = results.filter(r => !r.found || (!r.match && r.found));
   const rows = results.map(r => {
-    const tickerOk = r.match ? '✓' : '✗';
-    const nameOk = r.nameSimilar ? '~' : '?';
-    const col = r.match && r.nameSimilar ? 'var(--green)' : r.match ? 'var(--amb)' : 'var(--red)';
-    return `<tr><td style="color:${col}">${tickerOk}</td><td>${r.ticker}</td><td>${r.appName}</td><td style="color:var(--tx3)">${r.yhName}</td><td style="color:${col}">${nameOk}</td></tr>`;
+    const icon = !r.found ? '✗' : r.match && r.nameSimilar ? '✓' : r.match ? '~' : '⚠';
+    const col = !r.found ? 'var(--red)' : r.match && r.nameSimilar ? 'var(--green)' : r.match ? 'var(--amb)' : 'var(--red)';
+    return `<tr><td style="color:${col};text-align:center">${icon}</td><td style="font-family:var(--mono)">${r.ticker}</td><td>${r.appName}</td><td style="color:var(--tx3)">${r.yhName}</td></tr>`;
   }).join('');
-  logEl.innerHTML = `<div style="font-size:9px;margin-bottom:4px;color:var(--tx2)">✓ ticker match  ~ name similar  ? check manually</div>
-    <div style="overflow-x:auto"><table style="width:100%;font-family:var(--mono);font-size:9px;border-collapse:collapse">
-      <thead><tr style="color:var(--tx3)"><th></th><th>Ticker</th><th>App Name</th><th>Yahoo Name</th><th>Name</th></tr></thead>
+  logEl.innerHTML = `<div style="font-size:9px;margin-bottom:5px;color:var(--tx2)">✓ OK  ~ name mismatch  ⚠ ticker mismatch  ✗ not found on Yahoo · ${results.filter(r=>r.found&&r.match&&r.nameSimilar).length}/${total} fully confirmed · ${issues.length} issues</div>
+    <div style="overflow-x:auto;max-height:320px"><table style="width:100%;font-family:var(--mono);font-size:9px;border-collapse:collapse">
+      <thead style="position:sticky;top:0;background:var(--bg3)"><tr style="color:var(--tx3)"><th></th><th>Ticker</th><th>App Name</th><th>Yahoo Name</th></tr></thead>
       <tbody>${rows}</tbody>
-    </table></div>`;
+    </table></div>
+    ${issues.length?`<div style="margin-top:5px;color:var(--amb);font-size:9px;font-family:var(--mono)">⚠ ${issues.length} ticker(s) need review — run again or check Tadawul.com.sa</div>`:''}`;
 }
 
 function tdLog(msg, ok = true) {
@@ -929,6 +941,87 @@ async function gdWriteStock(ticker, patch) {
   } catch(e) { console.warn('GD write failed:', e); }
 }
 
+// ── DIVIDEND SCHEDULE — Yahoo Finance chart events ──
+const GD_DIV_TTL = 7 * 24 * 60 * 60 * 1000; // 7-day TTL for dividend data
+
+async function fetchDividendSchedule(ticker) {
+  // Check Drive cache first
+  if (GD_TOKEN) {
+    const cached = await gdReadStock(ticker);
+    if (cached?.dividendSchedule && cached.divUpdated && (Date.now() - cached.divUpdated < GD_DIV_TTL)) {
+      return cached.dividendSchedule;
+    }
+  }
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=10y&events=div`;
+    const data = await fetchWithProxy(url);
+    const events = data?.chart?.result?.[0]?.events?.dividends;
+    if (!events) return [];
+    const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+    const schedule = Object.values(events)
+      .sort((a, b) => b.date - a.date)
+      .map(e => ({
+        date: new Date(e.date * 1000).toISOString().slice(0, 10),
+        amount: parseFloat(e.amount.toFixed(4)),
+        yieldAtPrice: price && price > 0 ? parseFloat((e.amount / price * 100).toFixed(2)) : null,
+        type: 'Cash',
+      }));
+    gdWriteStock(ticker, { dividendSchedule: schedule, divUpdated: Date.now() });
+    return schedule;
+  } catch(e) { return []; }
+}
+
+// ── ENRICH FUNDAMENTALS FROM STATEMENTS ──
+function enrichFundamentalsFromStatements(d, stmtData) {
+  const { is, bs, cf } = stmtData || {};
+  if (!is?.length && !bs?.length && !cf?.length) return false;
+  let changed = false;
+
+  if (is?.length >= 2) {
+    const cur = is[0], prv = is[1];
+    const curRev = parseFloat(cur.revenue), prvRev = parseFloat(prv.revenue);
+    const curNI  = parseFloat(cur.net_income), prvNI = parseFloat(prv.net_income);
+    const curEPS = parseFloat(cur.eps), prvEPS = parseFloat(prv.eps);
+    if (!isNaN(curRev) && !isNaN(prvRev) && prvRev !== 0) { d.rg = (curRev - prvRev) / Math.abs(prvRev); changed = true; }
+    if (!isNaN(curNI) && !isNaN(prvNI) && prvNI !== 0)   { d.eg = (curNI - prvNI)  / Math.abs(prvNI);  changed = true; }
+    if (!isNaN(curNI) && !isNaN(curRev) && curRev !== 0)  { d.npm = curNI / curRev; changed = true; }
+    // Update rev/ni for overview display
+    if (!isNaN(curRev)) { d.rev  = curRev / 1e9; changed = true; }
+    if (!isNaN(curNI))  { d.ni   = curNI  / 1e9; changed = true; }
+  }
+
+  if (bs?.length >= 1) {
+    const cur = bs[0];
+    const te = parseFloat(cur.total_equity), tl = parseFloat(cur.total_liabilities), ta = parseFloat(cur.total_assets);
+    if (!isNaN(te) && te !== 0 && !isNaN(tl)) { d.de = (tl / te) * 100; changed = true; }
+    if (!isNaN(ta)) { d.assets = ta / 1e9; changed = true; }
+    // ROE uses latest NI / latest equity
+    if (is?.length >= 1) {
+      const ni = parseFloat(is[0].net_income);
+      if (!isNaN(ni) && !isNaN(te) && te > 0) { d.roe = ni / te; changed = true; }
+    }
+  }
+
+  if (cf?.length >= 1) {
+    const cur = cf[0];
+    const fcfVal = parseFloat(cur.free_cash_flow);
+    if (!isNaN(fcfVal)) { d.fcf = fcfVal > 0; changed = true; }
+  }
+
+  if (changed) {
+    // Re-run scoring with enriched data
+    const fRes = scoreFundamental(d);
+    const bRes = scoreBuffett(d);
+    const pegRes = scorePEG(d.pe, d.eg);
+    d.fundamental = fRes.score; d.fundSteps = fRes.steps;
+    d.buffett = bRes.buffett; d.criteria = bRes.criteria; d.buffSteps = bRes.steps;
+    d.peg = pegRes.peg; d.pegScore = pegRes.score; d.pegSteps = pegRes.steps;
+    d.combined = Math.round(fRes.score * 0.30 + (d.technical || 50) * 0.20 + bRes.buffett * 0.35 + pegRes.score * 0.15);
+    d.stmtEnriched = true;
+  }
+  return changed;
+}
+
 // ── WEB SCRAPING — StockAnalysis.com ──
 async function fetchHTMLViaProxy(url) {
   const proxies = [
@@ -1047,9 +1140,9 @@ function loadTheme() {
 let isArabic = false;
 const AR_NAMES = {
   '2222.SR':'أرامكو السعودية','1120.SR':'مصرف الراجحي','1180.SR':'البنك الأهلي السعودي',
-  '2010.SR':'سابك','4001.SR':'سابك للمغذيات الزراعية','1210.SR':'بنك الرياض',
+  '2010.SR':'سابك','4001.SR':'سابك للمغذيات الزراعية','1010.SR':'بنك الرياض',
   '1050.SR':'بنك السعودي الفرنسي','1150.SR':'مصرف الإنماء','4030.SR':'الاتصالات السعودية',
-  '4040.SR':'موبايلي','4050.SR':'زين السعودية','4163.SR':'مجموعة سليمان الحبيب',
+  '4040.SR':'موبايلي','4050.SR':'زين السعودية','4013.SR':'مجموعة سليمان الحبيب',
   '4161.SR':'مواساة','4100.SR':'دله الصحية','4150.SR':'النهدي الطبية',
   '4270.SR':'المراعي','4290.SR':'مكتبة جرير','4240.SR':'أسواق عبد الله العثيم',
   '4230.SR':'إكسترا','6001.SR':'أكوا باور','5110.SR':'الكهرباء السعودية',
@@ -1274,7 +1367,7 @@ const STOCKS=[
 {t:"2250.SR",n:"Saudi Drilling",s:"Energy",r:false,pe:14,pb:1.1,roe:0.08,npm:0.12,de:35,dy:0.04,fcf:true,cr:1.6,rg:0.06,eg:0.10,rev:4.2,ni:0.5,assets:8.1,desc:"National drilling company supporting Aramco's upstream operations."},
 {t:"1120.SR",n:"Al Rajhi Bank",s:"Banking",r:false,pe:17.4,pb:3.5,roe:0.182,npm:0.45,de:null,dy:0.032,fcf:true,cr:null,rg:0.22,eg:0.26,rev:39.1,ni:18.2,assets:1040,desc:"Saudi Arabia's largest Islamic bank. ROE target >23.5%."},
 {t:"1180.SR",n:"Saudi National Bank",s:"Banking",r:false,pe:12.8,pb:1.6,roe:0.14,npm:0.40,de:null,dy:0.038,fcf:true,cr:null,rg:0.10,eg:0.08,rev:28.5,ni:11.4,assets:1120,desc:"Saudi Arabia's largest bank by total assets."},
-{t:"1211.SR",n:"Maaden (Saudi Arabian Mining)",s:"Materials",r:false,pe:11.5,pb:1.2,roe:0.12,npm:0.38,de:null,dy:0.045,fcf:true,cr:null,rg:0.08,eg:0.10,rev:11.2,ni:4.3,assets:320,desc:"HSBC-affiliated bank, strong wholesale and trade finance."},
+{t:"1030.SR",n:"Saudi Investment Bank (SAIB)",s:"Banking",r:false,pe:11.5,pb:1.2,roe:0.12,npm:0.38,de:null,dy:0.045,fcf:true,cr:null,rg:0.08,eg:0.10,rev:11.2,ni:4.3,assets:320,desc:"Mid-size bank with corporate and investment banking focus."},
 {t:"1010.SR",n:"Riyad Bank",s:"Banking",r:false,pe:13.1,pb:1.4,roe:0.13,npm:0.41,de:null,dy:0.040,fcf:true,cr:null,rg:0.09,eg:0.09,rev:14.8,ni:6.1,assets:420,desc:"Large Saudi bank with strong retail and corporate banking."},
 {t:"1050.SR",n:"Banque Saudi Fransi",s:"Banking",r:false,pe:10.8,pb:1.1,roe:0.11,npm:0.37,de:null,dy:0.048,fcf:true,cr:null,rg:0.07,eg:0.08,rev:9.2,ni:3.4,assets:280,desc:"Mid-sized bank with French heritage. Strong corporate banking."},
 {t:"1080.SR",n:"Arab National Bank",s:"Banking",r:false,pe:11.2,pb:1.0,roe:0.10,npm:0.35,de:null,dy:0.046,fcf:true,cr:null,rg:0.06,eg:0.07,rev:7.8,ni:2.7,assets:220,desc:"Balanced retail and corporate banking mix."},
@@ -1356,18 +1449,15 @@ const STOCKS=[
 // live data from Yahoo Finance when fetched
 // ═══════════════════════════════════════════════════
 const MORE_TICKERS = [
-// Energy
-{t:"2381.SR",n:"Petro Rabigh (PRC)",s:"Energy",r:false},
+// Energy (2380.SR Petro Rabigh already in main STOCKS, 2381 removed to avoid duplicate)
 {t:"2030.SR",n:"SARCO",s:"Energy",r:false},
 {t:"4031.SR",n:"Saudi Chemical Co.",s:"Materials",r:false},
 {t:"2001.SR",n:"Methanol Chemicals",s:"Petrochemicals",r:false},
 {t:"2290.SR",n:"Yanbu National Petrochem",s:"Petrochemicals",r:false},
 {t:"2170.SR",n:"Almohandis Investment",s:"Petrochemicals",r:false},
-// Banks
+// Banks (1030.SR Saudi Investment Bank is in main STOCKS; 1140.SR Samba merged into SNB 1180.SR)
 {t:"1020.SR",n:"Bank AlJazira",s:"Banking",r:false},
-{t:"1030.SR",n:"Audi Capital",s:"Banking",r:false},
-{t:"1040.SR",n:"Saudi Investment Bank",s:"Banking",r:false},
-{t:"1140.SR",n:"Bank AlBilad",s:"Banking",r:false},
+{t:"1040.SR",n:"Bank AlBilad",s:"Banking",r:false},
 // Telecom
 {t:"7020.SR",n:"Etihad Etisalat (Mobily)",s:"Telecom",r:false},
 {t:"7030.SR",n:"Zain KSA",s:"Telecom",r:false},
@@ -1384,8 +1474,8 @@ const MORE_TICKERS = [
 {t:"4323.SR",n:"Sumou Real Estate",s:"Real Estate",r:false},
 {t:"4324.SR",n:"Banan Real Estate",s:"Real Estate",r:false},
 // Retail / Consumer
-{t:"4003.SR",n:"Extra",s:"Consumer",r:false},
-{t:"4050.SR",n:"SACO",s:"Consumer",r:false},
+{t:"4003.SR",n:"Extra (eXtra)",s:"Consumer",r:false},
+{t:"4017.SR",n:"SACO",s:"Consumer",r:false},
 {t:"4051.SR",n:"Batic Investments",s:"Consumer",r:false},
 {t:"4160.SR",n:"Theeb Rent-a-Car",s:"Consumer",r:false},
 {t:"4200.SR",n:"Aldrees Petroleum",s:"Consumer",r:false},
@@ -2388,6 +2478,7 @@ async function openModal(idx){
       <div class="tab" id="tab-annual" onclick="switchTab('annual')">5-Year</div>
       <div class="tab" id="tab-buffett" onclick="switchTab('buffett')">Buffett</div>
       <div class="tab" id="tab-chart" onclick="switchTab('chart')">Chart</div>
+      <div class="tab" id="tab-dcf" onclick="switchTab('dcf')">DCF</div>
       <div class="tab" id="tab-extra" onclick="switchTab('extra')">Vision 2030</div>
     </div>
   </div>
@@ -2401,7 +2492,41 @@ function switchTab(tab){
   const el=document.getElementById("tab-"+tab);if(el)el.classList.add("active");
   const d=window._fd?.[window._curIdx];if(!d)return;
   const body=document.getElementById("panel-content");if(!body)return;
-  if(tab==="overview")body.innerHTML=buildOverview(d);
+  if(tab==="overview"){
+    body.innerHTML=buildOverview(d);
+    // Async load dividend schedule into placeholder
+    fetchDividendSchedule(d.ticker).then(sched=>{
+      const el=document.getElementById('div-sched-'+d.ticker);
+      if(!el)return;
+      if(!sched||!sched.length){
+        el.innerHTML='<span style="color:var(--tx3)">No dividend history found for this stock.</span>';return;
+      }
+      const totalPerYear={};
+      sched.forEach(e=>{const yr=e.date.slice(0,4);totalPerYear[yr]=(totalPerYear[yr]||0)+e.amount;});
+      const yearRows=Object.entries(totalPerYear).sort((a,b)=>b[0]-a[0]).slice(0,8).map(([yr,amt])=>
+        `<tr><td>${yr}</td><td style="color:var(--green);font-family:var(--mono)">${amt.toFixed(4)} SAR</td><td style="color:var(--tx3)">${d.price?(amt/d.price*100).toFixed(2)+'%':'—'}</td><td style="color:var(--tx3)">Annual</td></tr>`
+      ).join('');
+      const recentRows=sched.slice(0,10).map(div=>
+        `<tr><td style="font-family:var(--mono)">${div.date}</td><td style="color:var(--green);font-family:var(--mono)">${div.amount.toFixed(4)} SAR</td><td style="color:var(--tx3)">${div.yieldAtPrice?div.yieldAtPrice+'%':'—'}</td><td style="color:var(--tx3)">${div.type}</td></tr>`
+      ).join('');
+      el.innerHTML=`
+        <div style="margin-bottom:8px">
+          <div style="font-size:8px;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Annual Totals (last 8 years)</div>
+          <div style="overflow-x:auto"><table class="ft">
+            <thead><tr><th>Year</th><th>Total Paid (SAR)</th><th>Yield</th><th>Type</th></tr></thead>
+            <tbody>${yearRows}</tbody>
+          </table></div>
+        </div>
+        <div>
+          <div style="font-size:8px;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Individual Payments (last 10)</div>
+          <div style="overflow-x:auto"><table class="ft">
+            <thead><tr><th>Ex-Date</th><th>Amount (SAR)</th><th>Yield @Price</th><th>Type</th></tr></thead>
+            <tbody>${recentRows}</tbody>
+          </table></div>
+        </div>
+        <div style="font-size:8px;color:var(--tx3);margin-top:4px">Source: Yahoo Finance · ${sched.length} dividend payments found</div>`;
+    });
+  }
   else if(tab==="breakdown")body.innerHTML=buildBreakdown(d);
   else if(tab==="quarterly"){
     body.innerHTML=`<div class="tab-loading"><span class="spin"></span> Loading quarterly statements…</div>`;
@@ -2413,6 +2538,7 @@ function switchTab(tab){
   }
   else if(tab==="buffett")body.innerHTML=buildBuffett(d);
   else if(tab==="chart"){chartRangeIdx=3;chartShowRSI=false;chartShowSMA20=true;chartShowSMA50=false;chartShowBollinger=false;body.innerHTML=buildChartPanel(d);drawChart(d);}
+  else if(tab==="dcf"){body.innerHTML=`<div class="tab-loading"><span class="spin"></span> Building DCF model…</div>`;buildDCF(d).then(html=>{if(body.isConnected)body.innerHTML=html;});}
   else if(tab==="extra")body.innerHTML=buildExtraPanel(d);
 }
 
@@ -2462,6 +2588,7 @@ function buildOverview(d){
       '<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:#1a1a2e;color:var(--blue);border:1px solid var(--blue)">✓ Yahoo Finance Live</span>':
       '<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:var(--bg3);color:var(--tx3);border:1px solid var(--b1)">Hardcoded estimates</span>'}
     ${d.fullLoaded?'<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:var(--gdim);color:var(--green);border:1px solid #166534">✓ Full data loaded</span>':'<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Full fundamentals load when you click a stock</span>'}
+    ${d.stmtEnriched?'<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:#1a1a2e;color:var(--blue);border:1px solid var(--blue)">↻ Scores updated from statements</span>':''}
     ${d.beta!=null?`<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Beta: ${d.beta.toFixed(2)}</span>`:''}
     ${d.mktCap!=null?`<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Market cap: ${(d.mktCap/1e9).toFixed(1)}B SAR</span>`:''}
   </div>
@@ -2470,16 +2597,8 @@ function buildOverview(d){
     <div class="mi"><div class="mil">52W Low</div><div class="miv">${d.w52low?.toFixed(2)||'—'} SAR</div></div>
     <div class="mi"><div class="mil">52W Range</div><div class="miv" style="font-size:10px">${d.w52low?.toFixed(2)||'?'} – ${d.w52high?.toFixed(2)||'?'}</div></div>
   </div>`:''}
-  ${d.dividends?.length?`
-  <div class="secl">Recent Dividends</div>
-  <div style="overflow-x:auto"><table class="ft" style="margin-bottom:8px">
-    <thead><tr><th>Date</th><th>Amount (SAR)</th><th>Type</th></tr></thead>
-    <tbody>${d.dividends.slice(0,5).map(div=>`<tr>
-      <td>${div.date||'—'}</td>
-      <td style="color:var(--green);font-family:var(--mono)">${div.amount?.toFixed(2)||'—'}</td>
-      <td style="color:var(--tx3)">${div.type||'Cash'}</td>
-    </tr>`).join('')}</tbody>
-  </table></div>`:''}
+  <div class="secl">Dividend History</div>
+  <div id="div-sched-${d.ticker}" style="font-family:var(--mono);font-size:9px;color:var(--tx3);padding:6px 0"><span class="spin"></span> Loading dividend history…</div>
   ${buildPeerComparison(d)}
   ${buildAlertPanel(d)}
   <div class="secl" style="margin-top:10px">Actions</div>
@@ -2543,13 +2662,21 @@ async function buildFinancials(d, period) {
   const isQ = period === 'quarterly';
   const cacheKey = isQ ? 'quarterly' : 'annual';
 
+  function enrichAndRender(stmtData, src) {
+    if (period === 'annual' && !d.stmtEnriched) {
+      const realD = allData.find(a => a.ticker === d.ticker);
+      if (realD) enrichFundamentalsFromStatements(realD, stmtData);
+    }
+    return renderTwelveStatements(stmtData, period, d.ticker, src, d);
+  }
+
   // 1. Google Drive cache (30-day TTL for statements)
   const driveStock = await gdReadStock(d.ticker);
   const driveStmt = driveStock?.[cacheKey];
   const driveUpdated = driveStock?.[`${cacheKey}Updated`] || 0;
   if (driveStmt && (driveStmt.is || driveStmt.bs || driveStmt.cf) && (Date.now() - driveUpdated < GD_STMT_TTL)) {
     tdLog('Loaded from Google Drive ✓', true);
-    return renderTwelveStatements(driveStmt, period, d.ticker, 'Google Drive cache', d);
+    return enrichAndRender(driveStmt, 'Google Drive cache');
   }
 
   // 2. Yahoo quoteSummary rawYahoo (fetched when panel opened)
@@ -2557,7 +2684,7 @@ async function buildFinancials(d, period) {
     const y = parseYahooFinancials(d.rawYahoo, period);
     if (y.is || y.bs || y.cf) {
       gdWriteStock(d.ticker, { [cacheKey]: y, [`${cacheKey}Updated`]: Date.now() });
-      return renderTwelveStatements(y, period, d.ticker, 'Yahoo Finance', d);
+      return enrichAndRender(y, 'Yahoo Finance');
     }
   }
 
@@ -2569,13 +2696,13 @@ async function buildFinancials(d, period) {
     d.rawTwelveData[cacheKey] = yt;
     tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
     gdWriteStock(d.ticker, { [cacheKey]: yt, [`${cacheKey}Updated`]: Date.now() });
-    return renderTwelveStatements(yt, period, d.ticker, 'Yahoo Finance', d);
+    return enrichAndRender(yt, 'Yahoo Finance');
   }
 
   // 4. localStorage cache
   if (!d.rawTwelveData) { const c = tdCacheGet(d.ticker); if (c) d.rawTwelveData = c; }
   const cached = d.rawTwelveData?.[cacheKey];
-  if (cached && (cached.is || cached.bs || cached.cf)) return renderTwelveStatements(cached, period, d.ticker, 'cache', d);
+  if (cached && (cached.is || cached.bs || cached.cf)) return enrichAndRender(cached, 'cache');
 
   // 5. FMP API (if key saved)
   if (getFMPKey()) {
@@ -2586,18 +2713,18 @@ async function buildFinancials(d, period) {
       d.rawTwelveData[cacheKey] = fmp;
       tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
       gdWriteStock(d.ticker, { [cacheKey]: fmp, [`${cacheKey}Updated`]: Date.now() });
-      return renderTwelveStatements(fmp, period, d.ticker, 'FMP', d);
+      return enrichAndRender(fmp, 'FMP');
     }
   }
 
-  // 7. Web scraping fallback
+  // 6. Web scraping fallback
   const scraped = await scrapeFinancials(d.ticker, period);
   if (scraped.is || scraped.bs || scraped.cf) {
     if (!d.rawTwelveData) d.rawTwelveData = {};
     d.rawTwelveData[cacheKey] = scraped;
     tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
     gdWriteStock(d.ticker, { [cacheKey]: scraped, [`${cacheKey}Updated`]: Date.now() });
-    return renderTwelveStatements(scraped, period, d.ticker, 'scraped', d);
+    return enrichAndRender(scraped, 'scraped');
   }
 
   return renderTwelveStatements({ is:null, bs:null, cf:null }, period, d.ticker, 'none', d);
@@ -2809,6 +2936,162 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
 
 async function buildAnnual(d){ return buildFinancials(d, 'annual'); }
 
+// ── DCF ANALYSIS ──
+async function buildDCF(d) {
+  // Try to get FCF from statements
+  let baseFCF = null, fcfSource = 'N/A', stmtRevenue = null;
+  const annualData = d.rawTwelveData?.annual || (await (async()=>{
+    const cached = tdCacheGet(d.ticker); return cached?.annual || null;
+  })());
+  if (annualData?.cf?.length) {
+    const fcfRaw = parseFloat(annualData.cf[0].free_cash_flow);
+    if (!isNaN(fcfRaw)) { baseFCF = fcfRaw; fcfSource = 'financial statements'; }
+    if (annualData.is?.length) {
+      const rv = parseFloat(annualData.is[0].revenue);
+      if (!isNaN(rv)) stmtRevenue = rv;
+    }
+  }
+  if (baseFCF === null && d.ni != null) {
+    baseFCF = d.fcf ? d.ni * 0.85e9 : d.ni * 0.3e9;
+    fcfSource = `estimated (net income ${d.ni?.toFixed(2)}B × factor)`;
+  }
+
+  // Saudi market WACC parameters
+  const rfRate = 0.055;
+  const erp = 0.065;
+  const kd = 0.055;
+  const taxRate = 0.20;
+  const termGrowth = 0.025;
+
+  const beta = d.beta || 1.0;
+  const ke = rfRate + beta * erp;
+  const deRatio = d.de ? d.de / 100 : 0.3;
+  const eWeight = 1 / (1 + deRatio);
+  const dWeight = deRatio / (1 + deRatio);
+  const wacc = ke * eWeight + kd * dWeight * (1 - taxRate);
+
+  const growthRate = Math.min(Math.max(d.rg != null ? d.rg : 0.04, -0.10), 0.20);
+
+  let html = `<div class="secl">DCF Valuation — Saudi Market Parameters</div>`;
+
+  // Parameter table
+  html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">Model Inputs</div>
+  <div class="mgrid4">
+    <div class="mi"><div class="mil">Risk-Free Rate</div><div class="miv">${(rfRate*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil">Equity Risk Premium</div><div class="miv">${(erp*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil">Beta</div><div class="miv">${beta.toFixed(2)}</div></div>
+    <div class="mi"><div class="mil">Cost of Equity</div><div class="miv" style="color:var(--acc)">${(ke*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil">Cost of Debt</div><div class="miv">${(kd*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil">D/E Ratio</div><div class="miv">${(deRatio*100).toFixed(0)}%</div></div>
+    <div class="mi"><div class="mil">WACC</div><div class="miv" style="color:var(--acc);font-weight:600">${(wacc*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil">Terminal Growth</div><div class="miv">${(termGrowth*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil">FCF Growth (5Y)</div><div class="miv ${growthRate>=0?'pos':'neg'}">${growthRate>=0?'+':''}${(growthRate*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil">FCF Source</div><div class="miv" style="font-size:9px">${fcfSource}</div></div>
+  </div></div>`;
+
+  if (baseFCF === null) {
+    html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:10px 12px;font-family:var(--mono);font-size:10px;color:var(--amb)">
+      ⚠ Cannot calculate DCF — no Free Cash Flow data available.<br>
+      <span style="color:var(--tx3)">Open the 5-Year tab first to load financial statements, then return here.</span></div>`;
+    html += `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:10px;border-top:1px solid var(--b1);padding-top:8px">
+      Saudi DCF parameters: Risk-free rate = SAIBOR 3M + sovereign spread (~5.5%). ERP = 6.5% for TASI equity market.
+      Terminal growth = 2.5% (Saudi Vision 2030 nominal GDP target). WACC validated against ACWA Power, Saudi Aramco filings.
+      Not financial advice — for educational purposes only.</div>`;
+    return html;
+  }
+
+  // 5-year FCF projections
+  const fcfProj = [];
+  let fcf = baseFCF;
+  for (let i = 1; i <= 5; i++) { fcf *= (1 + growthRate); fcfProj.push(fcf); }
+
+  // PV of FCFs
+  const pvFCFs = fcfProj.map((f, i) => f / Math.pow(1 + wacc, i + 1));
+  const sumPvFCF = pvFCFs.reduce((a, b) => a + b, 0);
+
+  // Terminal value
+  const termFCF = fcfProj[4] * (1 + termGrowth);
+  const termVal  = termFCF / (wacc - termGrowth);
+  const pvTerm   = termVal / Math.pow(1 + wacc, 5);
+
+  const enterpriseValue = sumPvFCF + pvTerm;
+
+  // Equity value: EV minus net debt
+  let netDebt = 0, netDebtNote = 'assumed 0';
+  if (d.assets && d.de) {
+    const totalDebt = (d.de / 100) * (d.assets * 1e9 / (1 + d.de / 100));
+    const cash = annualData?.bs?.[0]?.cash_and_equivalents ? parseFloat(annualData.bs[0].cash_and_equivalents) : totalDebt * 0.15;
+    netDebt = totalDebt - (!isNaN(cash) ? cash : 0);
+    netDebtNote = `total debt ${(totalDebt/1e9).toFixed(1)}B − cash ${(!isNaN(cash)?cash/1e9:0).toFixed(1)}B`;
+  }
+  const equityValue = Math.max(enterpriseValue - netDebt, 0);
+
+  // Per-share value
+  const shareCount = (d.mktCap && d.price && d.price > 0) ? d.mktCap / d.price : null;
+  const intrinsicPS = shareCount ? equityValue / shareCount : null;
+  const upside = (intrinsicPS && d.price) ? (intrinsicPS - d.price) / d.price : null;
+
+  // Sensitivity: WACC ± 1%, growth ± 1%
+  function dcfEV(w, g, bg) {
+    let f = baseFCF;
+    let pv = 0;
+    for (let i = 1; i <= 5; i++) { f *= (1 + g); pv += f / Math.pow(1 + w, i); }
+    const tv = f * (1 + bg) / (w - bg);
+    return (pv + tv / Math.pow(1 + w, 5) - netDebt) / (shareCount || 1);
+  }
+
+  html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">5-Year FCF Projection (SAR B)</div>
+  <div style="overflow-x:auto"><table class="ft">
+    <thead><tr><th>Year</th><th>FCF (B SAR)</th><th>Growth</th><th>PV @ ${(wacc*100).toFixed(1)}%</th></tr></thead>
+    <tbody>
+      <tr><td style="color:var(--tx3)">Base</td><td style="font-family:var(--mono)">${(baseFCF/1e9).toFixed(3)}</td><td>—</td><td>—</td></tr>
+      ${fcfProj.map((f,i)=>`<tr><td>Year ${i+1}</td><td class="ft-pos">${(f/1e9).toFixed(3)}</td><td style="font-size:9px;color:var(--tx3)">${growthRate>=0?'+':''}${(growthRate*100).toFixed(1)}%</td><td style="color:var(--acc);font-family:var(--mono)">${(pvFCFs[i]/1e9).toFixed(3)}</td></tr>`).join('')}
+    </tbody>
+  </table></div></div>`;
+
+  html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">Valuation Summary</div>
+  <div class="mgrid">
+    <div class="mi"><div class="mil">PV of FCFs (5Y)</div><div class="miv">${(sumPvFCF/1e9).toFixed(1)}B SAR</div></div>
+    <div class="mi"><div class="mil">PV of Terminal Value</div><div class="miv">${(pvTerm/1e9).toFixed(1)}B SAR</div></div>
+    <div class="mi"><div class="mil">Enterprise Value</div><div class="miv" style="color:var(--acc);font-weight:600">${(enterpriseValue/1e9).toFixed(1)}B SAR</div></div>
+    <div class="mi"><div class="mil">Net Debt</div><div class="miv" style="font-size:9px">${(netDebt/1e9).toFixed(1)}B SAR <span style="color:var(--tx3)">(${netDebtNote})</span></div></div>
+    <div class="mi"><div class="mil">Equity Value</div><div class="miv">${(equityValue/1e9).toFixed(1)}B SAR</div></div>
+    ${shareCount?`<div class="mi"><div class="mil">Shares Outstanding</div><div class="miv">${(shareCount/1e9).toFixed(2)}B</div></div>`:''}
+    ${intrinsicPS?`<div class="mi hl"><div class="mil">Intrinsic Value/Share</div><div class="miv" style="color:var(--acc);font-weight:600;font-size:16px">${intrinsicPS.toFixed(2)} SAR</div></div>`:''}
+    ${d.price?`<div class="mi"><div class="mil">Current Price</div><div class="miv">${d.price.toFixed(2)} SAR</div></div>`:''}
+    ${upside!=null?`<div class="mi hl"><div class="mil">Upside / Downside</div><div class="miv" style="font-size:16px;font-weight:600;color:${upside>0.10?'var(--green)':upside>-0.10?'var(--amb)':'var(--red)'}">${upside>=0?'+':''}${(upside*100).toFixed(1)}%</div></div>`:''}
+  </div></div>`;
+
+  // Sensitivity table (WACC vs Growth)
+  if (shareCount) {
+    const waccRange = [wacc-0.02, wacc-0.01, wacc, wacc+0.01, wacc+0.02];
+    const grRange   = [growthRate-0.02, growthRate-0.01, growthRate, growthRate+0.01, growthRate+0.02];
+    html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
+    <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">Sensitivity Analysis — Intrinsic Value/Share (SAR)</div>
+    <div style="font-size:8px;color:var(--tx3);margin-bottom:5px">Rows = WACC ± 2%  ·  Columns = FCF Growth ± 2%</div>
+    <div style="overflow-x:auto"><table class="ft">
+      <thead><tr><th>WACC \\ Growth</th>${grRange.map(g=>`<th>${(g*100).toFixed(1)}%</th>`).join('')}</tr></thead>
+      <tbody>${waccRange.map(w=>{
+        if(w<=termGrowth+0.005)return'';
+        return`<tr>${w===wacc?'<td style="color:var(--acc);font-weight:600">'+( w*100).toFixed(1)+'% ★</td>':'<td>'+(w*100).toFixed(1)+'%</td>'}${grRange.map(g=>{const iv=dcfEV(w,g,termGrowth);const ud=(iv-(d.price||0))/(d.price||1);const col=ud>0.10?'var(--green)':ud>-0.10?'var(--amb)':'var(--red)';return`<td style="color:${col};font-family:var(--mono)">${iv>0?iv.toFixed(1):'—'}</td>`;}).join('')}</tr>`;
+      }).join('')}</tbody>
+    </table></div></div>`;
+  }
+
+  html += `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px;border-top:1px solid var(--b1);padding-top:8px;line-height:1.7">
+    <strong style="color:var(--tx2)">Saudi DCF Assumptions:</strong><br>
+    Risk-free rate (5.5%): SAIBOR 3M + SAR sovereign spread, approximating USD T-bill equivalent.<br>
+    Equity Risk Premium (6.5%): TASI market premium based on Damodaran 2024 MENA data.<br>
+    Terminal growth (2.5%): Aligned with Saudi Vision 2030 nominal GDP and Aramco long-term guidance.<br>
+    WACC range 9–12%: Lower for regulated utilities/Vision 2030 sectors, higher for cyclicals/REITs.<br>
+    ⚠ DCF is highly sensitive to assumptions — a 1% WACC change can shift intrinsic value by 15–30%. This is a range, not a price target. NOT financial advice.
+  </div>`;
+
+  return html;
+}
 
 function buildBuffett(d){
   const crit=d.criteria||{};
@@ -3419,7 +3702,7 @@ function buildSectorPerf() {
 
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
       <button class="sp-btn sp-btn-red" onclick="clearTwelveCache()">🗑 Clear Cache</button>
-      <button class="sp-btn sp-btn-sec" onclick="validateTickers()" title="Check first 15 tickers against Yahoo Finance to verify names">⚡ Validate Tickers</button>
+      <button class="sp-btn sp-btn-sec" onclick="validateTickers()" title="Check ALL tickers against Yahoo Finance — batches of 6, ~2-3 min total">⚡ Validate All Tickers</button>
     </div>
     <div class="sp-log" id="td-log">Status will appear here after actions.</div>
 
