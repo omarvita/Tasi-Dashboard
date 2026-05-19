@@ -2596,7 +2596,7 @@ async function openModal(idx){
             realD.technical=tRes.score; realD.techSteps=tRes.steps;
             realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
             realD.combined=calcCombined(realD);
-            if(window._fd?.[idx]) Object.assign(window._fd[idx], realD);
+            const _e=window._fd?.find(f=>f.ticker===realD.ticker);if(_e)Object.assign(_e,realD);
             usedDriveCache = true;
           }
         }
@@ -2634,7 +2634,7 @@ async function openModal(idx){
           realD.technical=tRes.score; realD.techSteps=tRes.steps;
           realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
           realD.combined=calcCombined(realD);
-          if(window._fd?.[idx]) Object.assign(window._fd[idx], realD);
+          const _e2=window._fd?.find(f=>f.ticker===realD.ticker);if(_e2)Object.assign(_e2,realD);
         }
       }
     }catch(e){ console.warn('Full data fetch failed:', e); }
