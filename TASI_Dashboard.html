@@ -6,6 +6,7 @@
 <title>TASI Stock Screener — Tadawul Full Market Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://accounts.google.com/gsi/client" async></script>
 <style>
 :root{--bg:#0a0c0f;--bg2:#111418;--bg3:#181c22;--b1:#232830;--b2:#2d3440;--tx:#e8eaed;--tx2:#8a9ab5;--tx3:#4a5568;--green:#22c55e;--gdim:#14532d;--red:#ef4444;--rdim:#7f1d1d;--amb:#f59e0b;--adim:#78350f;--blue:#60a5fa;--pur:#a855f7;--pdim:#3b0764;--acc:#00d4aa;--adm:#003d30;--mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans Arabic',sans-serif}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -549,9 +550,12 @@ function getFMPKey() { return localStorage.getItem('TASI_fmp_key') || ''; }
 function showSettings() {
   const ov = document.getElementById('settings-overlay');
   if (!ov) return;
-  const inp = document.getElementById('fmp-key-input');
-  if (inp) inp.value = getFMPKey();
+  const fmpInp = document.getElementById('fmp-key-input');
+  if (fmpInp) fmpInp.value = getFMPKey();
+  const gdInp = document.getElementById('gd-clientid-input');
+  if (gdInp) gdInp.value = getGDClientId();
   document.getElementById('td-log').innerHTML = '';
+  updateGDStatus();
   ov.style.display = 'flex';
 }
 
@@ -709,6 +713,198 @@ function parseYahooFinancials(summary, period) {
       dividends_paid:       r.dividendsPaid?.raw ?? null,
     };
   }) : null;
+  return { is, bs, cf };
+}
+
+// ── GOOGLE DRIVE STORAGE ──
+let GD_TOKEN = null;
+const GD_FILE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+function getGDClientId() { return localStorage.getItem('TASI_gd_clientid') || ''; }
+function initGDToken() { const t = sessionStorage.getItem('TASI_gd_token'); if (t) GD_TOKEN = t; }
+
+function connectGoogleDrive() {
+  const cid = getGDClientId();
+  const logEl = document.getElementById('td-log');
+  if (!cid) { if (logEl) logEl.innerHTML = '<span style="color:var(--red)">Enter your Google Client ID first, then click Save.</span>'; return; }
+  if (typeof google === 'undefined' || !google?.accounts?.oauth2) {
+    if (logEl) logEl.innerHTML = '<span style="color:var(--red)">Google library not loaded yet, please wait a moment and try again.</span>'; return;
+  }
+  try {
+    google.accounts.oauth2.initTokenClient({
+      client_id: cid,
+      scope: 'https://www.googleapis.com/auth/drive.file',
+      callback: resp => {
+        if (resp.error) { if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ ${resp.error}: ${resp.error_description || ''}</span>`; return; }
+        GD_TOKEN = resp.access_token;
+        sessionStorage.setItem('TASI_gd_token', GD_TOKEN);
+        updateGDStatus();
+        showToast('✓ Google Drive connected');
+        if (logEl) logEl.innerHTML = '<span style="color:var(--green)">✓ Connected — financial statements will now be cached in your Drive.</span>';
+      }
+    }).requestAccessToken();
+  } catch(e) { if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ ${e.message}</span>`; }
+}
+
+function disconnectGoogleDrive() {
+  GD_TOKEN = null;
+  sessionStorage.removeItem('TASI_gd_token');
+  updateGDStatus();
+  showToast('Google Drive disconnected');
+}
+
+function updateGDStatus() {
+  const el = document.getElementById('gd-status');
+  if (el) el.innerHTML = GD_TOKEN
+    ? '<span style="color:var(--green)">● Connected</span>'
+    : '<span style="color:var(--tx3)">● Not connected</span>';
+}
+
+function saveGDClientId() {
+  const k = document.getElementById('gd-clientid-input').value.trim();
+  if (k) localStorage.setItem('TASI_gd_clientid', k); else localStorage.removeItem('TASI_gd_clientid');
+  showToast(k ? '✓ Client ID saved' : 'Client ID cleared');
+}
+
+async function gdFindFile(ticker) {
+  if (!GD_TOKEN) return null;
+  const name = `TASI_fin_${ticker.replace(/\./g,'_')}.json`;
+  try {
+    const r = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=name%3D%27${encodeURIComponent(name)}%27+and+trashed%3Dfalse&fields=files(id,modifiedTime)`,
+      { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(8000) }
+    );
+    const d = await r.json();
+    return d.files?.[0] || null;
+  } catch(e) { return null; }
+}
+
+async function gdReadFinancials(ticker) {
+  if (!GD_TOKEN) return null;
+  try {
+    const file = await gdFindFile(ticker);
+    if (!file) return null;
+    if (Date.now() - new Date(file.modifiedTime).getTime() > GD_FILE_TTL) return null;
+    const r = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
+      { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(10000) }
+    );
+    return await r.json();
+  } catch(e) { return null; }
+}
+
+async function gdWriteFinancials(ticker, payload) {
+  if (!GD_TOKEN) return;
+  const name = `TASI_fin_${ticker.replace(/\./g,'_')}.json`;
+  const body = JSON.stringify(payload);
+  try {
+    const existing = await gdFindFile(ticker);
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify({ name })], { type: 'application/json' }));
+    form.append('file', new Blob([body], { type: 'application/json' }));
+    const url = existing
+      ? `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=multipart`
+      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+    await fetch(url, { method: existing ? 'PATCH' : 'POST', headers: { Authorization: `Bearer ${GD_TOKEN}` }, body: form, signal: AbortSignal.timeout(15000) });
+    tdLog('Saved to Google Drive ✓', true);
+  } catch(e) { console.warn('GD write failed:', e); }
+}
+
+// ── WEB SCRAPING — StockAnalysis.com ──
+async function fetchHTMLViaProxy(url) {
+  const proxies = [
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+  ];
+  for (const p of proxies) {
+    try {
+      const r = await fetch(p, { signal: AbortSignal.timeout(20000) });
+      if (r.ok) { const t = await r.text(); if (t.length > 1000) return t; }
+    } catch(e) { continue; }
+  }
+  return null;
+}
+
+function parseStockAnalysisAmt(v) {
+  if (v == null || v === '-' || v === '--' || v === '' || v === 'N/A') return null;
+  const s = String(v).replace(/,/g, '').trim();
+  const m = s.match(/^([+-]?\d+\.?\d*)([BKMTQ]?)$/);
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  const mult = { B: 1e9, M: 1e6, K: 1e3, T: 1e12 }[m[2]] || 1;
+  return isNaN(n) ? null : n * mult;
+}
+
+function extractNextData(html) {
+  if (!html) return null;
+  const m = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
+  if (!m) return null;
+  try { return JSON.parse(m[1]); } catch(e) { return null; }
+}
+
+function mapSARows(nextData, period, fieldMap) {
+  if (!nextData) return null;
+  const pp = nextData?.props?.pageProps;
+  if (!pp) return null;
+  // StockAnalysis stores data under multiple possible paths
+  const fin = pp.financials || pp.data?.financials || pp.statement;
+  if (!fin) return null;
+  const dataset = period === 'quarterly'
+    ? (fin.quarterly || fin.Q || fin.TTM)
+    : (fin.annual || fin.A || fin);
+  const rows = Array.isArray(dataset) ? dataset
+    : Array.isArray(dataset?.data) ? dataset.data : null;
+  if (!rows || !rows.length) return null;
+  return rows.map(row => {
+    const entry = { fiscal_date: row.date || row.Date || row.period || row.calendarYear || '—' };
+    for (const [key, aliases] of Object.entries(fieldMap)) {
+      for (const alias of aliases) {
+        if (row[alias] !== undefined && row[alias] !== null) { entry[key] = parseStockAnalysisAmt(row[alias]); break; }
+      }
+    }
+    return entry;
+  });
+}
+
+async function scrapeFinancials(ticker, period) {
+  const pq = period === 'quarterly' ? '?p=quarterly' : '';
+  const base = `https://stockanalysis.com/stocks/${encodeURIComponent(ticker)}`;
+  tdLog('Scraping StockAnalysis.com…', true);
+  const [isHtml, bsHtml, cfHtml] = await Promise.all([
+    fetchHTMLViaProxy(`${base}/financials/${pq}`),
+    fetchHTMLViaProxy(`${base}/financials/balance-sheet/${pq}`),
+    fetchHTMLViaProxy(`${base}/financials/cash-flow-statement/${pq}`),
+  ]);
+  const isMap = {
+    revenue:          ['Revenue','revenue','totalRevenue'],
+    gross_profit:     ['Gross Profit','grossProfit'],
+    ebitda:           ['EBITDA','ebitda'],
+    operating_income: ['Operating Income','operatingIncome','EBIT','ebit'],
+    net_income:       ['Net Income','netIncome'],
+    eps:              ['EPS','eps','basicEPS','EPS (Diluted)'],
+  };
+  const bsMap = {
+    total_assets:         ['Total Assets','totalAssets'],
+    total_liabilities:    ['Total Liabilities','totalLiabilities'],
+    total_equity:         ['Total Equity','totalEquity','stockholdersEquity',"Shareholders' Equity"],
+    cash_and_equivalents: ['Cash & Equivalents','cashAndEquivalents','cash','Cash On Hand'],
+    long_term_debt:       ['Long-Term Debt','longTermDebt'],
+  };
+  const cfMap = {
+    operating_activities: ['Operating Cash Flow','operatingCashFlow'],
+    investing_activities: ['Investing Cash Flow','investingCashFlow'],
+    financing_activities: ['Financing Cash Flow','financingCashFlow'],
+    capital_expenditure:  ['Capital Expenditures','capitalExpenditures','capex','CapEx'],
+    free_cash_flow:       ['Free Cash Flow','freeCashFlow'],
+    dividends_paid:       ['Dividends Paid','dividendsPaid'],
+  };
+  const is = mapSARows(extractNextData(isHtml), period, isMap);
+  const bs = mapSARows(extractNextData(bsHtml), period, bsMap);
+  const cf = mapSARows(extractNextData(cfHtml), period, cfMap);
+  tdLog('Income statement: ' + (is ? 'ok' : 'no data'), !!is);
+  tdLog('Balance sheet: '    + (bs ? 'ok' : 'no data'), !!bs);
+  tdLog('Cash flow: '        + (cf ? 'ok' : 'no data'), !!cf);
   return { is, bs, cf };
 }
 
@@ -2196,60 +2392,78 @@ function buildBreakdown(d){
   ${renderSteps(pegSteps,pegScore,"PEG Score","#22c55e")}`;
 }
 
-async function buildQuarterly(d){
-  // 1. Use already-fetched Yahoo data if it has content
-  if (d.rawYahoo) {
-    const q = parseYahooFinancials(d.rawYahoo, 'quarterly');
-    if (q.is || q.bs || q.cf) return renderTwelveStatements(q, 'quarterly', d.ticker, 'Yahoo Finance');
+async function buildFinancials(d, period) {
+  const isQ = period === 'quarterly';
+  const cacheKey = isQ ? 'quarterly' : 'annual';
+
+  // 1. Google Drive cache (if connected)
+  const driveData = await gdReadFinancials(`${d.ticker}_${cacheKey}`);
+  if (driveData && (driveData.is || driveData.bs || driveData.cf)) {
+    tdLog('Loaded from Google Drive ✓', true);
+    return renderTwelveStatements(driveData, period, d.ticker, 'Google Drive cache');
   }
-  // 2. Check cache (skip if all null)
+
+  // 2. Yahoo rawYahoo (already fetched when panel opened)
+  if (d.rawYahoo) {
+    const y = parseYahooFinancials(d.rawYahoo, period);
+    if (y.is || y.bs || y.cf) return renderTwelveStatements(y, period, d.ticker, 'Yahoo Finance');
+  }
+
+  // 3. localStorage cache
   if (!d.rawTwelveData) { const c = tdCacheGet(d.ticker); if (c) d.rawTwelveData = c; }
-  const cq = d.rawTwelveData?.quarterly;
-  if (cq && (cq.is || cq.bs || cq.cf)) return renderTwelveStatements(cq, 'quarterly', d.ticker, 'FMP');
-  // 3. Fetch — FMP first (covers Saudi stocks), then Yahoo Finance fallback
+  const cached = d.rawTwelveData?.[cacheKey];
+  if (cached && (cached.is || cached.bs || cached.cf)) return renderTwelveStatements(cached, period, d.ticker, 'cache');
+
+  // 4. FMP API (if key saved)
   if (getFMPKey()) {
-    tdLog('Fetching quarterly statements from FMP…', true);
-    const quarterly = await fetchFMPStatements(d.ticker, 'quarterly');
-    tdLog('Income statement: ' + (quarterly.is ? 'ok' : 'no data'), !!quarterly.is);
-    tdLog('Balance sheet: '    + (quarterly.bs ? 'ok' : 'no data'), !!quarterly.bs);
-    tdLog('Cash flow: '        + (quarterly.cf ? 'ok' : 'no data'), !!quarterly.cf);
-    if (quarterly.is || quarterly.bs || quarterly.cf) {
+    tdLog(`Fetching ${period} statements from FMP…`, true);
+    const fmp = await fetchFMPStatements(d.ticker, period);
+    tdLog('Income: '+(fmp.is?'ok':'no data'), !!fmp.is);
+    tdLog('Balance: '+(fmp.bs?'ok':'no data'), !!fmp.bs);
+    tdLog('Cash flow: '+(fmp.cf?'ok':'no data'), !!fmp.cf);
+    if (fmp.is || fmp.bs || fmp.cf) {
       if (!d.rawTwelveData) d.rawTwelveData = {};
-      d.rawTwelveData.quarterly = quarterly;
-      tdCacheSet(d.ticker, quarterly, d.rawTwelveData?.annual || null);
-      return renderTwelveStatements(quarterly, 'quarterly', d.ticker, 'FMP');
+      d.rawTwelveData[cacheKey] = fmp;
+      tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
+      await gdWriteFinancials(`${d.ticker}_${cacheKey}`, fmp);
+      return renderTwelveStatements(fmp, period, d.ticker, 'FMP');
     }
   }
-  // 4. Yahoo Finance fallback
-  tdLog('Trying Yahoo Finance…', true);
-  const summary = await fetchYahooFinancials(d.ticker);
-  const quarterly = parseYahooFinancials(summary, 'quarterly');
-  tdLog('Income statement: ' + (quarterly.is ? 'ok' : 'no data'), !!quarterly.is);
-  tdLog('Balance sheet: '    + (quarterly.bs ? 'ok' : 'no data'), !!quarterly.bs);
-  tdLog('Cash flow: '        + (quarterly.cf ? 'ok' : 'no data'), !!quarterly.cf);
-  if (quarterly.is || quarterly.bs || quarterly.cf) {
+
+  // 5. Web scraping (StockAnalysis.com) + save to Google Drive
+  const scraped = await scrapeFinancials(d.ticker, period);
+  if (scraped.is || scraped.bs || scraped.cf) {
     if (!d.rawTwelveData) d.rawTwelveData = {};
-    d.rawTwelveData.quarterly = quarterly;
-    tdCacheSet(d.ticker, quarterly, d.rawTwelveData?.annual || null);
+    d.rawTwelveData[cacheKey] = scraped;
+    tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
+    await gdWriteFinancials(`${d.ticker}_${cacheKey}`, scraped);
+    return renderTwelveStatements(scraped, period, d.ticker, 'StockAnalysis.com');
   }
-  // 5. No key prompt
-  if (!getFMPKey() && !quarterly.is && !quarterly.bs && !quarterly.cf) {
-    return `<div style="padding:18px;font-family:var(--mono);font-size:11px;text-align:center">
-      <div style="color:var(--amb);margin-bottom:8px;font-size:13px">⚙ API Key Recommended</div>
-      <div style="color:var(--tx3);margin-bottom:12px;line-height:1.65">Yahoo Finance has limited coverage for Saudi stocks.<br>Add a free <strong>Financial Modeling Prep (FMP)</strong> key for full quarterly statements.<br>Free tier: 250 calls/day, no credit card needed — register at <strong>financialmodelingprep.com</strong>.</div>
-      <button class="sp-btn" onclick="showSettings()">⚙ Open Settings to add FMP key</button>
-    </div>`;
+
+  // 6. Yahoo Finance API fallback
+  tdLog('Trying Yahoo Finance API…', true);
+  const summary = await fetchYahooFinancials(d.ticker);
+  const yf = parseYahooFinancials(summary, period);
+  if (yf.is || yf.bs || yf.cf) {
+    if (!d.rawTwelveData) d.rawTwelveData = {};
+    d.rawTwelveData[cacheKey] = yf;
+    tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
+    await gdWriteFinancials(`${d.ticker}_${cacheKey}`, yf);
+    return renderTwelveStatements(yf, period, d.ticker, 'Yahoo Finance');
   }
-  return renderTwelveStatements(quarterly, 'quarterly', d.ticker, 'Yahoo Finance');
+
+  return renderTwelveStatements({ is:null, bs:null, cf:null }, period, d.ticker, 'none');
 }
+
+async function buildQuarterly(d){ return buildFinancials(d, 'quarterly'); }
 
 function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance') {
   const { is, bs, cf } = data || {};
   const noData = (arr) => !arr || !arr.length;
   if (noData(is) && noData(bs) && noData(cf)) {
     return `<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">
-      <div style="color:var(--amb);margin-bottom:6px">⚠ No ${period} data available for this stock on Yahoo Finance.</div>
-      <div>Some Saudi stocks may have limited coverage on Yahoo Finance. Try the other tab or clear the cache in ⚙ Settings.</div>
+      <div style="color:var(--amb);margin-bottom:6px">⚠ No ${period} financial data found for this stock.</div>
+      <div>All sources tried (Google Drive, scraping, Yahoo Finance). Connect Google Drive in ⚙ Settings to enable scraping &amp; cloud storage, or check the other tab.</div>
     </div>`;
   }
   function fmtSAR(v) {
@@ -2297,52 +2511,7 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance') 
        + `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Source: ${source} · SAR · B = Billions · Cached 7 days in browser</div>`;
 }
 
-async function buildAnnual(d){
-  // 1. Use already-fetched Yahoo data if it has content
-  if (d.rawYahoo) {
-    const a = parseYahooFinancials(d.rawYahoo, 'annual');
-    if (a.is || a.bs || a.cf) return renderTwelveStatements(a, 'annual', d.ticker, 'Yahoo Finance');
-  }
-  // 2. Check cache (skip if all null)
-  if (!d.rawTwelveData) { const c = tdCacheGet(d.ticker); if (c) d.rawTwelveData = c; }
-  const ca = d.rawTwelveData?.annual;
-  if (ca && (ca.is || ca.bs || ca.cf)) return renderTwelveStatements(ca, 'annual', d.ticker, 'FMP');
-  // 3. Fetch — FMP first, then Yahoo Finance fallback
-  if (getFMPKey()) {
-    tdLog('Fetching annual statements from FMP…', true);
-    const annual = await fetchFMPStatements(d.ticker, 'annual');
-    tdLog('Income statement: ' + (annual.is ? 'ok' : 'no data'), !!annual.is);
-    tdLog('Balance sheet: '    + (annual.bs ? 'ok' : 'no data'), !!annual.bs);
-    tdLog('Cash flow: '        + (annual.cf ? 'ok' : 'no data'), !!annual.cf);
-    if (annual.is || annual.bs || annual.cf) {
-      if (!d.rawTwelveData) d.rawTwelveData = {};
-      d.rawTwelveData.annual = annual;
-      tdCacheSet(d.ticker, d.rawTwelveData?.quarterly || null, annual);
-      return renderTwelveStatements(annual, 'annual', d.ticker, 'FMP');
-    }
-  }
-  // 4. Yahoo Finance fallback
-  tdLog('Trying Yahoo Finance…', true);
-  const summary = await fetchYahooFinancials(d.ticker);
-  const annual = parseYahooFinancials(summary, 'annual');
-  tdLog('Income statement: ' + (annual.is ? 'ok' : 'no data'), !!annual.is);
-  tdLog('Balance sheet: '    + (annual.bs ? 'ok' : 'no data'), !!annual.bs);
-  tdLog('Cash flow: '        + (annual.cf ? 'ok' : 'no data'), !!annual.cf);
-  if (annual.is || annual.bs || annual.cf) {
-    if (!d.rawTwelveData) d.rawTwelveData = {};
-    d.rawTwelveData.annual = annual;
-    tdCacheSet(d.ticker, d.rawTwelveData?.quarterly || null, annual);
-  }
-  // 5. No key prompt
-  if (!getFMPKey() && !annual.is && !annual.bs && !annual.cf) {
-    return `<div style="padding:18px;font-family:var(--mono);font-size:11px;text-align:center">
-      <div style="color:var(--amb);margin-bottom:8px;font-size:13px">⚙ API Key Recommended</div>
-      <div style="color:var(--tx3);margin-bottom:12px;line-height:1.65">Yahoo Finance has limited coverage for Saudi stocks.<br>Add a free <strong>Financial Modeling Prep (FMP)</strong> key for full annual statements.<br>Free tier: 250 calls/day, no credit card needed — register at <strong>financialmodelingprep.com</strong>.</div>
-      <button class="sp-btn" onclick="showSettings()">⚙ Open Settings to add FMP key</button>
-    </div>`;
-  }
-  return renderTwelveStatements(annual, 'annual', d.ticker, 'Yahoo Finance');
-}
+async function buildAnnual(d){ return buildFinancials(d, 'annual'); }
 
 
 function buildBuffett(d){
@@ -2930,6 +3099,7 @@ function buildSectorPerf() {
 
   // Step 2: Open DB async in background, then check cache, then fetch prices
   restoreUIState();
+  initGDToken();
   // Fetch TASI market summary
   fetchMarketSummary();
 
@@ -2949,27 +3119,47 @@ function buildSectorPerf() {
 <div class="settings-overlay" id="settings-overlay" style="display:none" onclick="if(event.target===this)hideSettings()">
   <div class="settings-panel">
     <div class="sp-close" onclick="hideSettings()">×</div>
-    <div class="sp-title">⚙ API Settings</div>
-    <div class="sp-desc">
-      Financial statements use <strong>Financial Modeling Prep (FMP)</strong> — the only free API with full Saudi (TADAWUL) coverage.<br>
-      Free tier: <strong>250 calls/day</strong>, no credit card needed. Statements are cached 7 days so each stock only uses 3 calls once.<br>
-      Get your free key at <strong>financialmodelingprep.com</strong> → Sign Up → copy your API key.
+    <div class="sp-title">⚙ Settings</div>
+
+    <!-- Google Drive Section -->
+    <div style="font-family:var(--mono);font-size:10px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Google Drive Storage</div>
+    <div class="sp-desc" style="margin-bottom:8px">
+      Financial statements are scraped from <strong>StockAnalysis.com</strong> and stored in your Google Drive — so each stock is only scraped once (cached 30 days).<br>
+      <strong>Setup (5 min, free):</strong><br>
+      1. Go to <strong>console.cloud.google.com</strong> → New Project<br>
+      2. APIs &amp; Services → Enable <strong>Google Drive API</strong><br>
+      3. Credentials → Create → OAuth 2.0 Client ID → Web app<br>
+      4. Add <strong>https://omarvita.github.io</strong> as authorized JavaScript origin<br>
+      5. Copy the Client ID below and click Save, then Connect.
     </div>
-    <hr class="sp-divider">
-    <label class="sp-label">Financial Modeling Prep API Key</label>
+    <label class="sp-label">Google OAuth2 Client ID</label>
     <div class="sp-row">
-      <input class="sp-input" id="fmp-key-input" type="text" placeholder="Paste your FMP API key here…" autocomplete="off" spellcheck="false">
+      <input class="sp-input" id="gd-clientid-input" type="text" placeholder="Paste your OAuth2 Client ID here…" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="sp-row" style="align-items:center;gap:10px">
+      <button class="sp-btn" onclick="saveGDClientId()">💾 Save ID</button>
+      <button class="sp-btn sp-btn-sec" onclick="connectGoogleDrive()">🔗 Connect Drive</button>
+      <button class="sp-btn" onclick="disconnectGoogleDrive()" style="font-size:9px">Disconnect</button>
+      <span id="gd-status" style="font-family:var(--mono);font-size:9px;color:var(--tx3)">● Not connected</span>
+    </div>
+
+    <hr class="sp-divider">
+
+    <!-- FMP Section (optional fallback) -->
+    <div style="font-family:var(--mono);font-size:10px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">FMP API Key (optional)</div>
+    <div class="sp-desc" style="margin-bottom:8px">Alternative source — free at <strong>financialmodelingprep.com</strong> but Saudi data requires a paid plan.</div>
+    <div class="sp-row">
+      <input class="sp-input" id="fmp-key-input" type="text" placeholder="Paste FMP API key here…" autocomplete="off" spellcheck="false">
     </div>
     <div class="sp-row">
       <button class="sp-btn" onclick="saveFMPKey()">💾 Save Key</button>
       <button class="sp-btn sp-btn-sec" onclick="testFMPKey()">▷ Test Key</button>
       <button class="sp-btn sp-btn-red" onclick="clearTwelveCache()">🗑 Clear Cache</button>
     </div>
-    <div class="sp-log" id="td-log">Status will appear here after saving or testing.</div>
+    <div class="sp-log" id="td-log">Status will appear here.</div>
     <hr class="sp-divider">
     <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);line-height:1.65">
-      Your API key is stored only in this browser's localStorage and never sent anywhere except FMP's servers.<br>
-      Price charts and scores use Yahoo Finance (no key needed).
+      All keys and tokens are stored in your browser only. Price charts use Yahoo Finance (no key needed).
     </div>
   </div>
 </div>
