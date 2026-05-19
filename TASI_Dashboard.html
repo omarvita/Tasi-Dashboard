@@ -552,6 +552,8 @@ function showSettings() {
   if (!ov) return;
   const fmpInp = document.getElementById('fmp-key-input');
   if (fmpInp) fmpInp.value = getFMPKey();
+  const avInp = document.getElementById('av-key-input');
+  if (avInp) avInp.value = getAVKey();
   const gdInp = document.getElementById('gd-clientid-input');
   if (gdInp) gdInp.value = getGDClientId();
   document.getElementById('td-log').innerHTML = '';
@@ -668,6 +670,82 @@ async function fetchYahooFinancials(ticker) {
     const data = await fetchWithProxy(url);
     return data?.quoteSummary?.result?.[0] || null;
   } catch(e) { return null; }
+}
+
+// ── ALPHA VANTAGE — free tier, 500 calls/day, covers Saudi stocks ──
+function getAVKey() { return localStorage.getItem('TASI_av_key') || ''; }
+
+async function testAVKey() {
+  const key = getAVKey();
+  const logEl = document.getElementById('td-log');
+  if (!key) { if (logEl) logEl.innerHTML = '<span style="color:var(--red)">No key saved. Paste your key and click Save first.</span>'; return; }
+  if (logEl) logEl.innerHTML = '<span class="spin"></span> Testing with Al Rajhi Bank (1120.SR)…';
+  try {
+    const r = await fetch(`https://www.alphavantage.co/query?function=INCOME_STATEMENT&symbol=1120.SR&apikey=${key}`, { signal: AbortSignal.timeout(12000) });
+    const d = await r.json();
+    const rows = d?.annualReports || d?.quarterlyReports;
+    if (d?.Information) {
+      if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ ${d.Information}</span>`;
+    } else if (!rows?.length) {
+      if (logEl) logEl.innerHTML = `<span style="color:var(--amb)">⚠ Key valid but no Saudi data returned. Try Aramco (2222.SR) manually.</span>`;
+    } else {
+      if (logEl) logEl.innerHTML = `<span style="color:var(--green)">✓ Key works! Got ${rows.length} periods for Al Rajhi Bank.</span>`;
+    }
+  } catch(e) { if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ Network error: ${e.message}</span>`; }
+}
+
+function saveAVKey() {
+  const k = document.getElementById('av-key-input').value.trim();
+  if (k) localStorage.setItem('TASI_av_key', k); else localStorage.removeItem('TASI_av_key');
+  showToast(k ? '✓ Alpha Vantage key saved' : 'Key cleared');
+}
+
+async function fetchAlphaVantageStatements(ticker, period) {
+  const key = getAVKey();
+  if (!key) return { is: null, bs: null, cf: null };
+  const reportKey = period === 'quarterly' ? 'quarterlyReports' : 'annualReports';
+  const limit = 5;
+  try {
+    const [isR, bsR, cfR] = await Promise.all([
+      fetch(`https://www.alphavantage.co/query?function=INCOME_STATEMENT&symbol=${ticker}&apikey=${key}`, { signal: AbortSignal.timeout(15000) }),
+      fetch(`https://www.alphavantage.co/query?function=BALANCE_SHEET&symbol=${ticker}&apikey=${key}`,   { signal: AbortSignal.timeout(15000) }),
+      fetch(`https://www.alphavantage.co/query?function=CASH_FLOW&symbol=${ticker}&apikey=${key}`,       { signal: AbortSignal.timeout(15000) }),
+    ]);
+    const [isD, bsD, cfD] = await Promise.all([isR.json(), bsR.json(), cfR.json()]);
+    const n = v => { const x = parseFloat(v); return isNaN(x) ? null : x; };
+    const is = isD[reportKey]?.slice(0, limit).map(r => ({
+      fiscal_date:      r.fiscalDateEnding,
+      revenue:          n(r.totalRevenue),
+      gross_profit:     n(r.grossProfit),
+      ebitda:           n(r.ebitda),
+      operating_income: n(r.operatingIncome || r.ebit),
+      net_income:       n(r.netIncome),
+      eps:              n(r.reportedEPS || r.basicEPS),
+    })) || null;
+    const bs = bsD[reportKey]?.slice(0, limit).map(r => ({
+      fiscal_date:          r.fiscalDateEnding,
+      total_assets:         n(r.totalAssets),
+      total_liabilities:    n(r.totalLiabilities),
+      total_equity:         n(r.totalShareholderEquity),
+      cash_and_equivalents: n(r.cashAndCashEquivalentsAtCarryingValue || r.cash),
+      long_term_debt:       n(r.longTermDebtNoncurrent || r.longTermDebt),
+    })) || null;
+    const cf = cfD[reportKey]?.slice(0, limit).map(r => ({
+      fiscal_date:          r.fiscalDateEnding,
+      operating_activities: n(r.operatingCashflow),
+      investing_activities: n(r.cashflowFromInvestment),
+      financing_activities: n(r.cashflowFromFinancing),
+      capital_expenditure:  n(r.capitalExpenditures),
+      free_cash_flow:       (n(r.operatingCashflow) != null && n(r.capitalExpenditures) != null) ? n(r.operatingCashflow) - Math.abs(n(r.capitalExpenditures)) : null,
+      dividends_paid:       n(r.dividendPayout),
+    })) || null;
+    // Nullify if empty arrays returned
+    return {
+      is: is?.length ? is : null,
+      bs: bs?.length ? bs : null,
+      cf: cf?.length ? cf : null,
+    };
+  } catch(e) { return { is: null, bs: null, cf: null }; }
 }
 
 function parseYahooFinancials(summary, period) {
@@ -867,45 +945,37 @@ function mapSARows(nextData, period, fieldMap) {
   });
 }
 
+// Scrape Wisesheets / Macrotrends as fallback — tries multiple Saudi-friendly sources
 async function scrapeFinancials(ticker, period) {
-  const pq = period === 'quarterly' ? '?p=quarterly' : '';
-  const base = `https://stockanalysis.com/stocks/${encodeURIComponent(ticker)}`;
-  tdLog('Scraping StockAnalysis.com…', true);
-  const [isHtml, bsHtml, cfHtml] = await Promise.all([
-    fetchHTMLViaProxy(`${base}/financials/${pq}`),
-    fetchHTMLViaProxy(`${base}/financials/balance-sheet/${pq}`),
-    fetchHTMLViaProxy(`${base}/financials/cash-flow-statement/${pq}`),
-  ]);
-  const isMap = {
-    revenue:          ['Revenue','revenue','totalRevenue'],
-    gross_profit:     ['Gross Profit','grossProfit'],
-    ebitda:           ['EBITDA','ebitda'],
-    operating_income: ['Operating Income','operatingIncome','EBIT','ebit'],
-    net_income:       ['Net Income','netIncome'],
-    eps:              ['EPS','eps','basicEPS','EPS (Diluted)'],
-  };
-  const bsMap = {
-    total_assets:         ['Total Assets','totalAssets'],
-    total_liabilities:    ['Total Liabilities','totalLiabilities'],
-    total_equity:         ['Total Equity','totalEquity','stockholdersEquity',"Shareholders' Equity"],
-    cash_and_equivalents: ['Cash & Equivalents','cashAndEquivalents','cash','Cash On Hand'],
-    long_term_debt:       ['Long-Term Debt','longTermDebt'],
-  };
-  const cfMap = {
-    operating_activities: ['Operating Cash Flow','operatingCashFlow'],
-    investing_activities: ['Investing Cash Flow','investingCashFlow'],
-    financing_activities: ['Financing Cash Flow','financingCashFlow'],
-    capital_expenditure:  ['Capital Expenditures','capitalExpenditures','capex','CapEx'],
-    free_cash_flow:       ['Free Cash Flow','freeCashFlow'],
-    dividends_paid:       ['Dividends Paid','dividendsPaid'],
-  };
-  const is = mapSARows(extractNextData(isHtml), period, isMap);
-  const bs = mapSARows(extractNextData(bsHtml), period, bsMap);
-  const cf = mapSARows(extractNextData(cfHtml), period, cfMap);
-  tdLog('Income statement: ' + (is ? 'ok' : 'no data'), !!is);
-  tdLog('Balance sheet: '    + (bs ? 'ok' : 'no data'), !!bs);
-  tdLog('Cash flow: '        + (cf ? 'ok' : 'no data'), !!cf);
-  return { is, bs, cf };
+  // Convert 1120.SR → 1120 for sites that use bare codes
+  const code = ticker.replace(/\.SR$/i, '');
+  const pq = period === 'quarterly' ? 'quarterly' : 'annual';
+
+  // Try Wisesheets (has Saudi stocks, server-rendered JSON in page)
+  tdLog('Scraping financial data…', true);
+  const html = await fetchHTMLViaProxy(
+    `https://wisesheets.io/financials?ticker=${encodeURIComponent(ticker)}&period=${pq}`
+  );
+  const nd = extractNextData(html);
+  if (nd) {
+    const rows = nd?.props?.pageProps?.data?.statements;
+    if (rows?.income?.length || rows?.balance?.length || rows?.cashflow?.length) {
+      const n = v => { const x = parseFloat(String(v).replace(/,/g,'')); return isNaN(x) ? null : x; };
+      const mapRows = (arr, fieldMap) => arr?.map(r => {
+        const e = { fiscal_date: r.date || r.period || '—' };
+        for (const [k, aliases] of Object.entries(fieldMap))
+          for (const a of aliases) if (r[a] != null) { e[k] = n(r[a]); break; }
+        return e;
+      }) || null;
+      return {
+        is: mapRows(rows.income, { revenue:['revenue','Revenue'], gross_profit:['grossProfit','Gross Profit'], ebitda:['ebitda','EBITDA'], operating_income:['operatingIncome','Operating Income'], net_income:['netIncome','Net Income'], eps:['eps','EPS'] }),
+        bs: mapRows(rows.balance, { total_assets:['totalAssets','Total Assets'], total_liabilities:['totalLiabilities','Total Liabilities'], total_equity:['totalEquity','Total Equity'], cash_and_equivalents:['cash','Cash'], long_term_debt:['longTermDebt','Long-Term Debt'] }),
+        cf: mapRows(rows.cashflow, { operating_activities:['operatingCashFlow','Operating CF'], investing_activities:['investingCashFlow','Investing CF'], financing_activities:['financingCashFlow','Financing CF'], capital_expenditure:['capex','CapEx'], free_cash_flow:['freeCashFlow','Free Cash Flow'], dividends_paid:['dividendsPaid','Dividends Paid'] }),
+      };
+    }
+  }
+  tdLog('Scraping: no data found from available sources', false);
+  return { is: null, bs: null, cf: null };
 }
 
 // ── DARK / LIGHT MODE ──
@@ -2414,13 +2484,26 @@ async function buildFinancials(d, period) {
   const cached = d.rawTwelveData?.[cacheKey];
   if (cached && (cached.is || cached.bs || cached.cf)) return renderTwelveStatements(cached, period, d.ticker, 'cache');
 
-  // 4. FMP API (if key saved)
+  // 4. Alpha Vantage (free, 500/day, covers Saudi stocks — recommended)
+  if (getAVKey()) {
+    tdLog(`Fetching ${period} statements from Alpha Vantage…`, true);
+    const av = await fetchAlphaVantageStatements(d.ticker, period);
+    tdLog('Income: '+(av.is?'ok':'no data'), !!av.is);
+    tdLog('Balance: '+(av.bs?'ok':'no data'), !!av.bs);
+    tdLog('Cash flow: '+(av.cf?'ok':'no data'), !!av.cf);
+    if (av.is || av.bs || av.cf) {
+      if (!d.rawTwelveData) d.rawTwelveData = {};
+      d.rawTwelveData[cacheKey] = av;
+      tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
+      await gdWriteFinancials(`${d.ticker}_${cacheKey}`, av);
+      return renderTwelveStatements(av, period, d.ticker, 'Alpha Vantage');
+    }
+  }
+
+  // 5. FMP API (if key saved)
   if (getFMPKey()) {
     tdLog(`Fetching ${period} statements from FMP…`, true);
     const fmp = await fetchFMPStatements(d.ticker, period);
-    tdLog('Income: '+(fmp.is?'ok':'no data'), !!fmp.is);
-    tdLog('Balance: '+(fmp.bs?'ok':'no data'), !!fmp.bs);
-    tdLog('Cash flow: '+(fmp.cf?'ok':'no data'), !!fmp.cf);
     if (fmp.is || fmp.bs || fmp.cf) {
       if (!d.rawTwelveData) d.rawTwelveData = {};
       d.rawTwelveData[cacheKey] = fmp;
@@ -2430,18 +2513,17 @@ async function buildFinancials(d, period) {
     }
   }
 
-  // 5. Web scraping (StockAnalysis.com) + save to Google Drive
+  // 6. Web scraping fallback + save to Google Drive
   const scraped = await scrapeFinancials(d.ticker, period);
   if (scraped.is || scraped.bs || scraped.cf) {
     if (!d.rawTwelveData) d.rawTwelveData = {};
     d.rawTwelveData[cacheKey] = scraped;
     tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
     await gdWriteFinancials(`${d.ticker}_${cacheKey}`, scraped);
-    return renderTwelveStatements(scraped, period, d.ticker, 'StockAnalysis.com');
+    return renderTwelveStatements(scraped, period, d.ticker, 'scraped');
   }
 
-  // 6. Yahoo Finance API fallback
-  tdLog('Trying Yahoo Finance API…', true);
+  // 7. Yahoo Finance API fallback
   const summary = await fetchYahooFinancials(d.ticker);
   const yf = parseYahooFinancials(summary, period);
   if (yf.is || yf.bs || yf.cf) {
@@ -3121,45 +3203,46 @@ function buildSectorPerf() {
     <div class="sp-close" onclick="hideSettings()">×</div>
     <div class="sp-title">⚙ Settings</div>
 
-    <!-- Google Drive Section -->
-    <div style="font-family:var(--mono);font-size:10px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Google Drive Storage</div>
+    <!-- Alpha Vantage — Recommended -->
+    <div style="font-family:var(--mono);font-size:10px;color:var(--green);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">★ Alpha Vantage — Recommended (Free)</div>
     <div class="sp-desc" style="margin-bottom:8px">
-      Financial statements are scraped from <strong>StockAnalysis.com</strong> and stored in your Google Drive — so each stock is only scraped once (cached 30 days).<br>
-      <strong>Setup (5 min, free):</strong><br>
-      1. Go to <strong>console.cloud.google.com</strong> → New Project<br>
-      2. APIs &amp; Services → Enable <strong>Google Drive API</strong><br>
-      3. Credentials → Create → OAuth 2.0 Client ID → Web app<br>
-      4. Add <strong>https://omarvita.github.io</strong> as authorized JavaScript origin<br>
-      5. Copy the Client ID below and click Save, then Connect.
+      The easiest way to get Saudi stock financial statements.<br>
+      <strong>Free tier: 500 calls/day, no credit card.</strong><br>
+      1. Go to <strong>alphavantage.co/support/#api-key</strong><br>
+      2. Enter your email → get key instantly<br>
+      3. Paste below and click Save.
     </div>
-    <label class="sp-label">Google OAuth2 Client ID</label>
     <div class="sp-row">
-      <input class="sp-input" id="gd-clientid-input" type="text" placeholder="Paste your OAuth2 Client ID here…" autocomplete="off" spellcheck="false">
+      <input class="sp-input" id="av-key-input" type="text" placeholder="Paste Alpha Vantage API key here…" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="sp-row">
+      <button class="sp-btn" onclick="saveAVKey()">💾 Save Key</button>
+      <button class="sp-btn sp-btn-sec" onclick="testAVKey()">▷ Test Key</button>
+      <button class="sp-btn sp-btn-red" onclick="clearTwelveCache()">🗑 Clear Cache</button>
+    </div>
+    <div class="sp-log" id="td-log">Status will appear here after saving or testing.</div>
+
+    <hr class="sp-divider">
+
+    <!-- Google Drive — Optional cloud cache -->
+    <div style="font-family:var(--mono);font-size:10px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Google Drive Storage (optional)</div>
+    <div class="sp-desc" style="margin-bottom:8px">
+      Cache financial data in your Google Drive (30 days) so it loads instantly across devices.<br>
+      Setup: <strong>console.cloud.google.com</strong> → New Project → Enable Drive API → Credentials → OAuth2 Client ID (Web app) → add <strong>https://omarvita.github.io</strong> as JS origin → copy Client ID below.
+    </div>
+    <div class="sp-row">
+      <input class="sp-input" id="gd-clientid-input" type="text" placeholder="Paste OAuth2 Client ID…" autocomplete="off" spellcheck="false">
     </div>
     <div class="sp-row" style="align-items:center;gap:10px">
       <button class="sp-btn" onclick="saveGDClientId()">💾 Save ID</button>
-      <button class="sp-btn sp-btn-sec" onclick="connectGoogleDrive()">🔗 Connect Drive</button>
+      <button class="sp-btn sp-btn-sec" onclick="connectGoogleDrive()">🔗 Connect</button>
       <button class="sp-btn" onclick="disconnectGoogleDrive()" style="font-size:9px">Disconnect</button>
       <span id="gd-status" style="font-family:var(--mono);font-size:9px;color:var(--tx3)">● Not connected</span>
     </div>
 
     <hr class="sp-divider">
-
-    <!-- FMP Section (optional fallback) -->
-    <div style="font-family:var(--mono);font-size:10px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">FMP API Key (optional)</div>
-    <div class="sp-desc" style="margin-bottom:8px">Alternative source — free at <strong>financialmodelingprep.com</strong> but Saudi data requires a paid plan.</div>
-    <div class="sp-row">
-      <input class="sp-input" id="fmp-key-input" type="text" placeholder="Paste FMP API key here…" autocomplete="off" spellcheck="false">
-    </div>
-    <div class="sp-row">
-      <button class="sp-btn" onclick="saveFMPKey()">💾 Save Key</button>
-      <button class="sp-btn sp-btn-sec" onclick="testFMPKey()">▷ Test Key</button>
-      <button class="sp-btn sp-btn-red" onclick="clearTwelveCache()">🗑 Clear Cache</button>
-    </div>
-    <div class="sp-log" id="td-log">Status will appear here.</div>
-    <hr class="sp-divider">
     <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);line-height:1.65">
-      All keys and tokens are stored in your browser only. Price charts use Yahoo Finance (no key needed).
+      All keys stored in your browser only. Price charts use Yahoo Finance (no key needed).
     </div>
   </div>
 </div>
