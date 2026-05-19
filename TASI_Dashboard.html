@@ -672,6 +672,70 @@ async function fetchYahooFinancials(ticker) {
   } catch(e) { return null; }
 }
 
+// ── YAHOO FINANCE TIMESERIES — dedicated fundamentals endpoint, better Saudi coverage ──
+async function fetchYahooTimeseries(ticker, period) {
+  const prefix = period === 'quarterly' ? 'quarterly' : 'annual';
+  const metrics = [
+    `${prefix}TotalRevenue`, `${prefix}GrossProfit`, `${prefix}Ebitda`,
+    `${prefix}OperatingIncome`, `${prefix}NetIncome`, `${prefix}BasicEPS`,
+    `${prefix}TotalAssets`, `${prefix}TotalLiabilitiesNetMinorityInterest`,
+    `${prefix}StockholdersEquity`, `${prefix}CashAndCashEquivalents`, `${prefix}LongTermDebt`,
+    `${prefix}OperatingCashFlow`, `${prefix}InvestingCashFlow`, `${prefix}FinancingCashFlow`,
+    `${prefix}CapitalExpenditure`, `${prefix}FreeCashFlow`, `${prefix}DividendsPaid`,
+  ].join(',');
+  const url = `https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(ticker)}?type=${metrics}&period1=1451606400&period2=1900000000`;
+  try {
+    const data = await fetchWithProxy(url);
+    return parseYahooTimeseries(data, period);
+  } catch(e) { return { is: null, bs: null, cf: null }; }
+}
+
+function parseYahooTimeseries(data, period) {
+  const prefix = period === 'quarterly' ? 'quarterly' : 'annual';
+  const result = data?.timeseries?.result;
+  if (!result || !Array.isArray(result)) return { is: null, bs: null, cf: null };
+  const byDate = {};
+  for (const series of result) {
+    const metricKey = series?.meta?.type?.[0];
+    if (!metricKey) continue;
+    const entries = series[metricKey];
+    if (!Array.isArray(entries)) continue;
+    const stripped = metricKey.replace(new RegExp(`^${prefix}`, 'i'), '');
+    const fieldName = stripped.charAt(0).toLowerCase() + stripped.slice(1);
+    for (const entry of entries) {
+      if (!entry) continue;
+      const date = entry.asOfDate;
+      if (!date) continue;
+      if (!byDate[date]) byDate[date] = { fiscal_date: date };
+      byDate[date][fieldName] = entry.reportedValue?.raw ?? null;
+    }
+  }
+  const dates = Object.keys(byDate).sort().reverse().slice(0, period === 'quarterly' ? 8 : 5);
+  if (!dates.length) return { is: null, bs: null, cf: null };
+  const rows = dates.map(d => byDate[d]);
+  const is = rows.some(r => r.totalRevenue != null || r.netIncome != null) ? rows.map(r => ({
+    fiscal_date: r.fiscal_date, revenue: r.totalRevenue ?? null,
+    gross_profit: r.grossProfit ?? null, ebitda: r.ebitda ?? null,
+    operating_income: r.operatingIncome ?? null, net_income: r.netIncome ?? null,
+    eps: r.basicEPS ?? null,
+  })) : null;
+  const bs = rows.some(r => r.totalAssets != null) ? rows.map(r => ({
+    fiscal_date: r.fiscal_date, total_assets: r.totalAssets ?? null,
+    total_liabilities: r.totalLiabilitiesNetMinorityInterest ?? null,
+    total_equity: r.stockholdersEquity ?? null,
+    cash_and_equivalents: r.cashAndCashEquivalents ?? null,
+    long_term_debt: r.longTermDebt ?? null,
+  })) : null;
+  const cf = rows.some(r => r.operatingCashFlow != null) ? rows.map(r => ({
+    fiscal_date: r.fiscal_date, operating_activities: r.operatingCashFlow ?? null,
+    investing_activities: r.investingCashFlow ?? null,
+    financing_activities: r.financingCashFlow ?? null,
+    capital_expenditure: r.capitalExpenditure ?? null,
+    free_cash_flow: r.freeCashFlow ?? null, dividends_paid: r.dividendsPaid ?? null,
+  })) : null;
+  return { is, bs, cf };
+}
+
 // ── ALPHA VANTAGE — free tier, 500 calls/day, covers Saudi stocks ──
 function getAVKey() { return localStorage.getItem('TASI_av_key') || ''; }
 
@@ -796,7 +860,9 @@ function parseYahooFinancials(summary, period) {
 
 // ── GOOGLE DRIVE STORAGE ──
 let GD_TOKEN = null;
-const GD_FILE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days
+const GD_FUND_TTL = 24 * 60 * 60 * 1000;       // 1 day TTL for fundamentals
+const GD_STMT_TTL = 30 * 24 * 60 * 60 * 1000;  // 30 days TTL for financial statements
+const _gdCache = {};                              // in-memory per-ticker Drive cache
 
 function getGDClientId() { return localStorage.getItem('TASI_gd_clientid') || ''; }
 function initGDToken() { const t = sessionStorage.getItem('TASI_gd_token'); if (t) GD_TOKEN = t; }
@@ -818,7 +884,7 @@ function connectGoogleDrive() {
         sessionStorage.setItem('TASI_gd_token', GD_TOKEN);
         updateGDStatus();
         showToast('✓ Google Drive connected');
-        if (logEl) logEl.innerHTML = '<span style="color:var(--green)">✓ Connected — financial statements will now be cached in your Drive.</span>';
+        if (logEl) logEl.innerHTML = '<span style="color:var(--green)">✓ Connected — all stock data (statements + fundamentals) will be cached in your Drive.</span>';
       }
     }).requestAccessToken();
   } catch(e) { if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ ${e.message}</span>`; }
@@ -844,9 +910,11 @@ function saveGDClientId() {
   showToast(k ? '✓ Client ID saved' : 'Client ID cleared');
 }
 
+// One Drive file per stock: TASI_stock_{ticker}.json
+// Contains: { fundamentals, quarterly:{is,bs,cf}, annual:{is,bs,cf}, fundUpdated, quarterlyUpdated, annualUpdated }
 async function gdFindFile(ticker) {
   if (!GD_TOKEN) return null;
-  const name = `TASI_fin_${ticker.replace(/\./g,'_')}.json`;
+  const name = `TASI_stock_${ticker.replace(/\./g,'_')}.json`;
   try {
     const r = await fetch(
       `https://www.googleapis.com/drive/v3/files?q=name%3D%27${encodeURIComponent(name)}%27+and+trashed%3Dfalse&fields=files(id,modifiedTime)`,
@@ -857,34 +925,36 @@ async function gdFindFile(ticker) {
   } catch(e) { return null; }
 }
 
-async function gdReadFinancials(ticker) {
+async function gdReadStock(ticker) {
   if (!GD_TOKEN) return null;
+  if (_gdCache[ticker]) return _gdCache[ticker];
   try {
     const file = await gdFindFile(ticker);
     if (!file) return null;
-    if (Date.now() - new Date(file.modifiedTime).getTime() > GD_FILE_TTL) return null;
     const r = await fetch(
       `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
       { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(10000) }
     );
-    return await r.json();
+    const data = await r.json();
+    _gdCache[ticker] = data;
+    return data;
   } catch(e) { return null; }
 }
 
-async function gdWriteFinancials(ticker, payload) {
+async function gdWriteStock(ticker, patch) {
   if (!GD_TOKEN) return;
-  const name = `TASI_fin_${ticker.replace(/\./g,'_')}.json`;
-  const body = JSON.stringify(payload);
+  const name = `TASI_stock_${ticker.replace(/\./g,'_')}.json`;
+  const merged = Object.assign(_gdCache[ticker] || {}, patch);
+  _gdCache[ticker] = merged;
   try {
-    const existing = await gdFindFile(ticker);
+    const file = await gdFindFile(ticker);
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify({ name })], { type: 'application/json' }));
-    form.append('file', new Blob([body], { type: 'application/json' }));
-    const url = existing
-      ? `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=multipart`
+    form.append('file', new Blob([JSON.stringify(merged)], { type: 'application/json' }));
+    const url = file
+      ? `https://www.googleapis.com/upload/drive/v3/files/${file.id}?uploadType=multipart`
       : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-    await fetch(url, { method: existing ? 'PATCH' : 'POST', headers: { Authorization: `Bearer ${GD_TOKEN}` }, body: form, signal: AbortSignal.timeout(15000) });
-    tdLog('Saved to Google Drive ✓', true);
+    await fetch(url, { method: file ? 'PATCH' : 'POST', headers: { Authorization: `Bearer ${GD_TOKEN}` }, body: form, signal: AbortSignal.timeout(15000) });
   } catch(e) { console.warn('GD write failed:', e); }
 }
 
@@ -1980,6 +2050,17 @@ async function fetchStockFull(stock) {
         cashflowStatementHistory:qs.cashflowStatementHistory,
         cashflowStatementHistoryQuarterly:qs.cashflowStatementHistoryQuarterly,
       };
+      // Save fundamentals to Google Drive (fire-and-forget, 1-day TTL)
+      gdWriteStock(ticker, {
+        fundamentals: {
+          pe: result.pe, pb: result.pb, roe: result.roe, npm: result.npm,
+          de: result.de, dy: result.dy, fcf: result.fcf, cr: result.cr,
+          rg: result.rg, eg: result.eg, beta: result.beta,
+          w52high: result.w52high, w52low: result.w52low, w52change: result.w52change,
+          mktCap: result.mktCap, eps: result.eps, fwdEps: result.fwdEps, dataDate: result.dataDate,
+        },
+        fundUpdated: Date.now(),
+      });
     }
     // Also get longer chart data for 2-year history
     const meta = raw.chart?.chart?.result?.[0]?.meta;
@@ -2250,45 +2331,70 @@ function setSector(sec){
 async function openModal(idx){
   window._curIdx=idx;
   const d=window._fd?.[idx];if(!d)return;
-  // Lazy-load full Yahoo Finance data (fundamentals + statements) on first open
+  // Lazy-load full data on first open — try Google Drive cache first, then Yahoo Finance
   if(!d.fullLoaded){
     try{
-      const full = await fetchStockFull(d);
-      const realD = allData.find(a=>a.ticker===d.ticker);
-      if(realD && full){
-        // Update with live fundamentals
-        if(full.pe) realD.pe=full.pe;
-        if(full.pb) realD.pb=full.pb;
-        if(full.roe!=null) realD.roe=full.roe;
-        if(full.npm!=null) realD.npm=full.npm;
-        if(full.de!=null) realD.de=full.de;
-        if(full.dy!=null) realD.dy=full.dy;
-        if(full.cr!=null) realD.cr=full.cr;
-        if(full.rg!=null) realD.rg=full.rg;
-        if(full.eg!=null) realD.eg=full.eg;
-        if(full.fcf!=null) realD.fcf=full.fcf;
-        if(full.w52high) realD.w52high=full.w52high;
-        if(full.w52low) realD.w52low=full.w52low;
-        if(full.mktCap) realD.mktCap=full.mktCap;
-        if(full.beta) realD.beta=full.beta;
-        if(full.eps) realD.eps=full.eps;
-        if(full.dataDate) realD.dataDate=full.dataDate;
-        if(full.closes?.length>realD.closes.length){ realD.closes=full.closes; realD.timestamps=full.timestamps; }
-        if(full.rawYahoo) realD.rawData = full.rawYahoo;
-        realD.fullLoaded = true;
-        // Rescore with fresh fundamentals
-        const fRes = scoreFundamental(realD);
-        const bRes = scoreBuffett(realD);
-        const pegRes = scorePEG(realD.pe, realD.eg);
-        const tRes = scoreTechnicalWithSteps(realD.closes);
-        realD.fundamental=fRes.score; realD.fundSteps=fRes.steps;
-        realD.buffett=bRes.buffett; realD.criteria=bRes.criteria; realD.buffSteps=bRes.steps;
-        realD.peg=pegRes.peg; realD.pegScore=pegRes.score; realD.pegSteps=pegRes.steps;
-        realD.technical=tRes.score; realD.techSteps=tRes.steps;
-        realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
-        realD.combined=Math.round(fRes.score*0.30+tRes.score*0.20+bRes.buffett*0.35+pegRes.score*0.15);
-        // Also update filtered data reference
-        if(window._fd?.[idx]) Object.assign(window._fd[idx], realD);
+      let usedDriveCache = false;
+      // Check Drive for fresh fundamentals (1-day TTL) to skip the Yahoo API call
+      if (GD_TOKEN) {
+        const driveStock = await gdReadStock(d.ticker);
+        if (driveStock?.fundamentals && driveStock.fundUpdated && (Date.now() - driveStock.fundUpdated < GD_FUND_TTL)) {
+          const f = driveStock.fundamentals;
+          const realD = allData.find(a => a.ticker === d.ticker);
+          if (realD && f) {
+            const keys = ['pe','pb','roe','npm','de','dy','fcf','cr','rg','eg','beta','w52high','w52low','w52change','mktCap','eps','fwdEps','dataDate'];
+            keys.forEach(k => { if (f[k] != null) realD[k] = f[k]; });
+            realD.fullLoaded = true;
+            const fRes = scoreFundamental(realD);
+            const bRes = scoreBuffett(realD);
+            const pegRes = scorePEG(realD.pe, realD.eg);
+            const tRes = scoreTechnicalWithSteps(realD.closes);
+            realD.fundamental=fRes.score; realD.fundSteps=fRes.steps;
+            realD.buffett=bRes.buffett; realD.criteria=bRes.criteria; realD.buffSteps=bRes.steps;
+            realD.peg=pegRes.peg; realD.pegScore=pegRes.score; realD.pegSteps=pegRes.steps;
+            realD.technical=tRes.score; realD.techSteps=tRes.steps;
+            realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
+            realD.combined=Math.round(fRes.score*0.30+tRes.score*0.20+bRes.buffett*0.35+pegRes.score*0.15);
+            if(window._fd?.[idx]) Object.assign(window._fd[idx], realD);
+            usedDriveCache = true;
+          }
+        }
+      }
+      if (!usedDriveCache) {
+        const full = await fetchStockFull(d);
+        const realD = allData.find(a=>a.ticker===d.ticker);
+        if(realD && full){
+          if(full.pe) realD.pe=full.pe;
+          if(full.pb) realD.pb=full.pb;
+          if(full.roe!=null) realD.roe=full.roe;
+          if(full.npm!=null) realD.npm=full.npm;
+          if(full.de!=null) realD.de=full.de;
+          if(full.dy!=null) realD.dy=full.dy;
+          if(full.cr!=null) realD.cr=full.cr;
+          if(full.rg!=null) realD.rg=full.rg;
+          if(full.eg!=null) realD.eg=full.eg;
+          if(full.fcf!=null) realD.fcf=full.fcf;
+          if(full.w52high) realD.w52high=full.w52high;
+          if(full.w52low) realD.w52low=full.w52low;
+          if(full.mktCap) realD.mktCap=full.mktCap;
+          if(full.beta) realD.beta=full.beta;
+          if(full.eps) realD.eps=full.eps;
+          if(full.dataDate) realD.dataDate=full.dataDate;
+          if(full.closes?.length>realD.closes.length){ realD.closes=full.closes; realD.timestamps=full.timestamps; }
+          if(full.rawYahoo) realD.rawYahoo = full.rawYahoo;
+          realD.fullLoaded = true;
+          const fRes = scoreFundamental(realD);
+          const bRes = scoreBuffett(realD);
+          const pegRes = scorePEG(realD.pe, realD.eg);
+          const tRes = scoreTechnicalWithSteps(realD.closes);
+          realD.fundamental=fRes.score; realD.fundSteps=fRes.steps;
+          realD.buffett=bRes.buffett; realD.criteria=bRes.criteria; realD.buffSteps=bRes.steps;
+          realD.peg=pegRes.peg; realD.pegScore=pegRes.score; realD.pegSteps=pegRes.steps;
+          realD.technical=tRes.score; realD.techSteps=tRes.steps;
+          realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
+          realD.combined=Math.round(fRes.score*0.30+tRes.score*0.20+bRes.buffett*0.35+pegRes.score*0.15);
+          if(window._fd?.[idx]) Object.assign(window._fd[idx], realD);
+        }
       }
     }catch(e){ console.warn('Full data fetch failed:', e); }
   }
@@ -2466,25 +2572,41 @@ async function buildFinancials(d, period) {
   const isQ = period === 'quarterly';
   const cacheKey = isQ ? 'quarterly' : 'annual';
 
-  // 1. Google Drive cache (if connected)
-  const driveData = await gdReadFinancials(`${d.ticker}_${cacheKey}`);
-  if (driveData && (driveData.is || driveData.bs || driveData.cf)) {
+  // 1. Google Drive cache (30-day TTL for statements)
+  const driveStock = await gdReadStock(d.ticker);
+  const driveStmt = driveStock?.[cacheKey];
+  const driveUpdated = driveStock?.[`${cacheKey}Updated`] || 0;
+  if (driveStmt && (driveStmt.is || driveStmt.bs || driveStmt.cf) && (Date.now() - driveUpdated < GD_STMT_TTL)) {
     tdLog('Loaded from Google Drive ✓', true);
-    return renderTwelveStatements(driveData, period, d.ticker, 'Google Drive cache');
+    return renderTwelveStatements(driveStmt, period, d.ticker, 'Google Drive cache');
   }
 
-  // 2. Yahoo rawYahoo (already fetched when panel opened)
+  // 2. Yahoo quoteSummary rawYahoo (fetched when panel opened)
   if (d.rawYahoo) {
     const y = parseYahooFinancials(d.rawYahoo, period);
-    if (y.is || y.bs || y.cf) return renderTwelveStatements(y, period, d.ticker, 'Yahoo Finance');
+    if (y.is || y.bs || y.cf) {
+      gdWriteStock(d.ticker, { [cacheKey]: y, [`${cacheKey}Updated`]: Date.now() });
+      return renderTwelveStatements(y, period, d.ticker, 'Yahoo Finance');
+    }
   }
 
-  // 3. localStorage cache
+  // 3. Yahoo Finance Timeseries — dedicated endpoint, better Saudi coverage
+  tdLog(`Fetching ${period} statements from Yahoo Finance…`, true);
+  const yt = await fetchYahooTimeseries(d.ticker, period);
+  if (yt.is || yt.bs || yt.cf) {
+    if (!d.rawTwelveData) d.rawTwelveData = {};
+    d.rawTwelveData[cacheKey] = yt;
+    tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
+    gdWriteStock(d.ticker, { [cacheKey]: yt, [`${cacheKey}Updated`]: Date.now() });
+    return renderTwelveStatements(yt, period, d.ticker, 'Yahoo Finance');
+  }
+
+  // 4. localStorage cache
   if (!d.rawTwelveData) { const c = tdCacheGet(d.ticker); if (c) d.rawTwelveData = c; }
   const cached = d.rawTwelveData?.[cacheKey];
   if (cached && (cached.is || cached.bs || cached.cf)) return renderTwelveStatements(cached, period, d.ticker, 'cache');
 
-  // 4. Alpha Vantage (free, 500/day, covers Saudi stocks — recommended)
+  // 5. Alpha Vantage (free, 500/day)
   if (getAVKey()) {
     tdLog(`Fetching ${period} statements from Alpha Vantage…`, true);
     const av = await fetchAlphaVantageStatements(d.ticker, period);
@@ -2495,12 +2617,12 @@ async function buildFinancials(d, period) {
       if (!d.rawTwelveData) d.rawTwelveData = {};
       d.rawTwelveData[cacheKey] = av;
       tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
-      await gdWriteFinancials(`${d.ticker}_${cacheKey}`, av);
+      gdWriteStock(d.ticker, { [cacheKey]: av, [`${cacheKey}Updated`]: Date.now() });
       return renderTwelveStatements(av, period, d.ticker, 'Alpha Vantage');
     }
   }
 
-  // 5. FMP API (if key saved)
+  // 6. FMP API (if key saved)
   if (getFMPKey()) {
     tdLog(`Fetching ${period} statements from FMP…`, true);
     const fmp = await fetchFMPStatements(d.ticker, period);
@@ -2508,30 +2630,19 @@ async function buildFinancials(d, period) {
       if (!d.rawTwelveData) d.rawTwelveData = {};
       d.rawTwelveData[cacheKey] = fmp;
       tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
-      await gdWriteFinancials(`${d.ticker}_${cacheKey}`, fmp);
+      gdWriteStock(d.ticker, { [cacheKey]: fmp, [`${cacheKey}Updated`]: Date.now() });
       return renderTwelveStatements(fmp, period, d.ticker, 'FMP');
     }
   }
 
-  // 6. Web scraping fallback + save to Google Drive
+  // 7. Web scraping fallback
   const scraped = await scrapeFinancials(d.ticker, period);
   if (scraped.is || scraped.bs || scraped.cf) {
     if (!d.rawTwelveData) d.rawTwelveData = {};
     d.rawTwelveData[cacheKey] = scraped;
     tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
-    await gdWriteFinancials(`${d.ticker}_${cacheKey}`, scraped);
+    gdWriteStock(d.ticker, { [cacheKey]: scraped, [`${cacheKey}Updated`]: Date.now() });
     return renderTwelveStatements(scraped, period, d.ticker, 'scraped');
-  }
-
-  // 7. Yahoo Finance API fallback
-  const summary = await fetchYahooFinancials(d.ticker);
-  const yf = parseYahooFinancials(summary, period);
-  if (yf.is || yf.bs || yf.cf) {
-    if (!d.rawTwelveData) d.rawTwelveData = {};
-    d.rawTwelveData[cacheKey] = yf;
-    tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
-    await gdWriteFinancials(`${d.ticker}_${cacheKey}`, yf);
-    return renderTwelveStatements(yf, period, d.ticker, 'Yahoo Finance');
   }
 
   return renderTwelveStatements({ is:null, bs:null, cf:null }, period, d.ticker, 'none');
