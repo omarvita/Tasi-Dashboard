@@ -686,12 +686,23 @@ async function validateTickers() {
     const col = !r.found ? 'var(--red)' : r.match && r.nameSimilar ? 'var(--green)' : r.match ? 'var(--amb)' : 'var(--red)';
     return `<tr><td style="color:${col};text-align:center">${icon}</td><td style="font-family:var(--mono)">${r.ticker}</td><td>${r.appName}</td><td style="color:var(--tx3)">${r.yhName}</td></tr>`;
   }).join('');
+
+  // Build copy-friendly text of issues only
+  const issueText = issues.length
+    ? 'Ticker Validation Issues (' + issues.length + '):\n' +
+      issues.map(r => (!r.found ? '✗' : '⚠') + ' ' + r.ticker + ' — ' + r.appName + (r.yhName && r.yhName !== '—' ? ' | Yahoo: ' + r.yhName : ' | not found on Yahoo')).join('\n')
+    : 'No issues found.';
+
   logEl.innerHTML = `<div style="font-size:9px;margin-bottom:5px;color:var(--tx2)">✓ OK  ~ name mismatch  ⚠ ticker mismatch  ✗ not found on Yahoo · ${results.filter(r=>r.found&&r.match&&r.nameSimilar).length}/${total} fully confirmed · ${issues.length} issues</div>
     <div style="overflow-x:auto;max-height:320px"><table style="width:100%;font-family:var(--mono);font-size:9px;border-collapse:collapse">
       <thead style="position:sticky;top:0;background:var(--bg3)"><tr style="color:var(--tx3)"><th></th><th>Ticker</th><th>App Name</th><th>Yahoo Name</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
-    ${issues.length?`<div style="margin-top:5px;color:var(--amb);font-size:9px;font-family:var(--mono)">⚠ ${issues.length} ticker(s) need review — run again or check Tadawul.com.sa</div>`:''}`;
+    ${issues.length ? `
+    <div style="display:flex;gap:8px;align-items:center;margin-top:7px;flex-wrap:wrap">
+      <div style="color:var(--amb);font-size:9px;font-family:var(--mono)">⚠ ${issues.length} ticker(s) need review</div>
+      <button onclick="navigator.clipboard.writeText(${JSON.stringify(issueText)}).then(()=>{this.textContent='✓ Copied!';setTimeout(()=>this.textContent='📋 Copy Issues',1500)})" style="font-family:var(--mono);font-size:9px;padding:3px 9px;background:var(--bg2);border:1px solid var(--b2);border-radius:4px;color:var(--tx2);cursor:pointer">📋 Copy Issues</button>
+    </div>` : '<div style="margin-top:5px;color:var(--green);font-size:9px;font-family:var(--mono)">✓ All tickers confirmed!</div>'}`;
 }
 
 function tdLog(msg, ok = true) {
@@ -1587,18 +1598,18 @@ const MORE_TICKERS = [
 {t:"8310.SR",n:"Amana Insurance",s:"Insurance",r:false},
 {t:"8311.SR",n:"Saudi Enaya Insurance",s:"Insurance",r:false},
 // Technology
-{t:"7201.SR",n:"Arabian Internet & Communications (solutions by stc)",s:"Technology",r:false},
+// 7201.SR removed — duplicate of 7202.SR (SOLUTIONS by STC) already in main STOCKS
 {t:"7204.SR",n:"Tiqniyat",s:"Technology",r:false},
 // Other / Media / Hotels
 {t:"4070.SR",n:"Tihama",s:"Consumer",r:false},
-{t:"4010.SR",n:"Saudi Hotels",s:"Real Estate",r:false},
 {t:"4011.SR",n:"Dur Hospitality",s:"Real Estate",r:false},
-{t:"6002.SR",n:"Herfy",s:"Consumer",r:false},
+// 6002.SR (Herfy) removed — taken private / delisted 2021
 {t:"6004.SR",n:"Catering Holding",s:"Consumer",r:false},
 {t:"6010.SR",n:"NADEC",s:"Consumer",r:false},
 {t:"6012.SR",n:"Halwani Brothers",s:"Consumer",r:false},
 {t:"6013.SR",n:"Tanmia Food",s:"Consumer",r:false},
 {t:"6014.SR",n:"Al Jouf Agri",s:"Consumer",r:false},
+// 4010.SR (Saudi Hotels) removed — suspended/delisted
 {t:"6015.SR",n:"United Electronics (eXtra)",s:"Consumer",r:false},
 {t:"6020.SR",n:"JADCO (AlDawaa)",s:"Healthcare",r:false},
 {t:"6040.SR",n:"Tabuk Agricultural",s:"Consumer",r:false},
