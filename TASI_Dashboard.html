@@ -6,6 +6,7 @@
 <title>TASI Stock Screener — Tadawul Full Market Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://accounts.google.com/gsi/client" async></script>
 <style>
 :root{--bg:#0a0c0f;--bg2:#111418;--bg3:#181c22;--b1:#232830;--b2:#2d3440;--tx:#e8eaed;--tx2:#8a9ab5;--tx3:#4a5568;--green:#22c55e;--gdim:#14532d;--red:#ef4444;--rdim:#7f1d1d;--amb:#f59e0b;--adim:#78350f;--blue:#60a5fa;--pur:#a855f7;--pdim:#3b0764;--acc:#00d4aa;--adm:#003d30;--mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans Arabic',sans-serif}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -541,19 +542,53 @@ function showToast(msg, duration=3000) {
 }
 
 
-// ── FINANCIAL STATEMENTS — Yahoo Finance (no API key required) ──
+// ── FINANCIAL STATEMENTS — FMP (primary) + Yahoo Finance (fallback) ──
 const TD_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function getFMPKey() { return localStorage.getItem('TASI_fmp_key') || ''; }
 
 function showSettings() {
   const ov = document.getElementById('settings-overlay');
   if (!ov) return;
+  const fmpInp = document.getElementById('fmp-key-input');
+  if (fmpInp) fmpInp.value = getFMPKey();
+  const avInp = document.getElementById('av-key-input');
+  if (avInp) avInp.value = getAVKey();
+  const gdInp = document.getElementById('gd-clientid-input');
+  if (gdInp) gdInp.value = getGDClientId();
   document.getElementById('td-log').innerHTML = '';
+  updateGDStatus();
   ov.style.display = 'flex';
 }
 
 function hideSettings() {
   const ov = document.getElementById('settings-overlay');
   if (ov) ov.style.display = 'none';
+}
+
+function saveFMPKey() {
+  const k = document.getElementById('fmp-key-input').value.trim();
+  if (k) localStorage.setItem('TASI_fmp_key', k);
+  else localStorage.removeItem('TASI_fmp_key');
+  showToast(k ? '✓ FMP key saved' : 'Key cleared');
+}
+
+async function testFMPKey() {
+  const key = getFMPKey();
+  const logEl = document.getElementById('td-log');
+  if (!key) { if (logEl) logEl.innerHTML = '<span style="color:var(--red)">No key saved. Paste your key and click Save first.</span>'; return; }
+  if (logEl) logEl.innerHTML = '<span class="spin"></span> Testing with Aramco (2222.SR)…';
+  try {
+    const r = await fetch(`https://financialmodelingprep.com/api/v3/income-statement/2222.SR?period=annual&limit=1&apikey=${key}`, { signal: AbortSignal.timeout(10000) });
+    const data = await r.json();
+    if (!Array.isArray(data) || !data.length) {
+      if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ No data returned. Key may be invalid or plan may not cover Saudi stocks.</span>`;
+    } else {
+      if (logEl) logEl.innerHTML = `<span style="color:var(--green)">✓ Key works! Got ${data.length} year(s) for Aramco — ready to load financial statements.</span>`;
+    }
+  } catch(e) {
+    if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ Network error: ${e.message}</span>`;
+  }
 }
 
 function clearTwelveCache() {
@@ -587,12 +622,194 @@ function tdCacheSet(ticker, quarterly, annual) {
   } catch(e) {}
 }
 
+async function fetchFMPStatements(ticker, period) {
+  const key = getFMPKey();
+  if (!key) return { is: null, bs: null, cf: null };
+  const p = period === 'quarterly' ? 'quarter' : 'annual';
+  const base = 'https://financialmodelingprep.com/api/v3';
+  try {
+    const [isR, bsR, cfR] = await Promise.all([
+      fetch(`${base}/income-statement/${ticker}?period=${p}&limit=5&apikey=${key}`, { signal: AbortSignal.timeout(15000) }),
+      fetch(`${base}/balance-sheet-statement/${ticker}?period=${p}&limit=5&apikey=${key}`, { signal: AbortSignal.timeout(15000) }),
+      fetch(`${base}/cash-flow-statement/${ticker}?period=${p}&limit=5&apikey=${key}`, { signal: AbortSignal.timeout(15000) }),
+    ]);
+    const [isData, bsData, cfData] = await Promise.all([isR.json(), bsR.json(), cfR.json()]);
+    const is = Array.isArray(isData) && isData.length ? isData.map(r => ({
+      fiscal_date:      r.date,
+      revenue:          r.revenue          ?? null,
+      gross_profit:     r.grossProfit      ?? null,
+      ebitda:           r.ebitda           ?? null,
+      operating_income: r.operatingIncome  ?? null,
+      net_income:       r.netIncome        ?? null,
+      eps:              r.eps              ?? null,
+    })) : null;
+    const bs = Array.isArray(bsData) && bsData.length ? bsData.map(r => ({
+      fiscal_date:          r.date,
+      total_assets:         r.totalAssets               ?? null,
+      total_liabilities:    r.totalLiabilities          ?? null,
+      total_equity:         r.totalStockholdersEquity   ?? null,
+      cash_and_equivalents: r.cashAndCashEquivalents    ?? null,
+      long_term_debt:       r.longTermDebt              ?? null,
+    })) : null;
+    const cf = Array.isArray(cfData) && cfData.length ? cfData.map(r => ({
+      fiscal_date:          r.date,
+      operating_activities: r.operatingCashFlow                          ?? null,
+      investing_activities: r.netCashUsedForInvestingActivities          ?? null,
+      financing_activities: r.netCashUsedProvidedByFinancingActivities   ?? null,
+      capital_expenditure:  r.capitalExpenditure                         ?? null,
+      free_cash_flow:       r.freeCashFlow                               ?? null,
+      dividends_paid:       r.dividendsPaid                              ?? null,
+    })) : null;
+    return { is, bs, cf };
+  } catch(e) { return { is: null, bs: null, cf: null }; }
+}
+
 async function fetchYahooFinancials(ticker) {
   const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=incomeStatementHistory,incomeStatementHistoryQuarterly,balanceSheetHistory,balanceSheetHistoryQuarterly,cashflowStatementHistory,cashflowStatementHistoryQuarterly`;
   try {
     const data = await fetchWithProxy(url);
     return data?.quoteSummary?.result?.[0] || null;
   } catch(e) { return null; }
+}
+
+// ── YAHOO FINANCE TIMESERIES — dedicated fundamentals endpoint, better Saudi coverage ──
+async function fetchYahooTimeseries(ticker, period) {
+  const prefix = period === 'quarterly' ? 'quarterly' : 'annual';
+  const metrics = [
+    `${prefix}TotalRevenue`, `${prefix}GrossProfit`, `${prefix}Ebitda`,
+    `${prefix}OperatingIncome`, `${prefix}NetIncome`, `${prefix}BasicEPS`,
+    `${prefix}TotalAssets`, `${prefix}TotalLiabilitiesNetMinorityInterest`,
+    `${prefix}StockholdersEquity`, `${prefix}CashAndCashEquivalents`, `${prefix}LongTermDebt`,
+    `${prefix}OperatingCashFlow`, `${prefix}InvestingCashFlow`, `${prefix}FinancingCashFlow`,
+    `${prefix}CapitalExpenditure`, `${prefix}FreeCashFlow`, `${prefix}DividendsPaid`,
+  ].join(',');
+  const url = `https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(ticker)}?type=${metrics}&period1=1451606400&period2=1900000000`;
+  try {
+    const data = await fetchWithProxy(url);
+    return parseYahooTimeseries(data, period);
+  } catch(e) { return { is: null, bs: null, cf: null }; }
+}
+
+function parseYahooTimeseries(data, period) {
+  const prefix = period === 'quarterly' ? 'quarterly' : 'annual';
+  const result = data?.timeseries?.result;
+  if (!result || !Array.isArray(result)) return { is: null, bs: null, cf: null };
+  const byDate = {};
+  for (const series of result) {
+    const metricKey = series?.meta?.type?.[0];
+    if (!metricKey) continue;
+    const entries = series[metricKey];
+    if (!Array.isArray(entries)) continue;
+    const stripped = metricKey.replace(new RegExp(`^${prefix}`, 'i'), '');
+    const fieldName = stripped.charAt(0).toLowerCase() + stripped.slice(1);
+    for (const entry of entries) {
+      if (!entry) continue;
+      const date = entry.asOfDate;
+      if (!date) continue;
+      if (!byDate[date]) byDate[date] = { fiscal_date: date };
+      byDate[date][fieldName] = entry.reportedValue?.raw ?? null;
+    }
+  }
+  const dates = Object.keys(byDate).sort().reverse().slice(0, period === 'quarterly' ? 8 : 5);
+  if (!dates.length) return { is: null, bs: null, cf: null };
+  const rows = dates.map(d => byDate[d]);
+  const is = rows.some(r => r.totalRevenue != null || r.netIncome != null) ? rows.map(r => ({
+    fiscal_date: r.fiscal_date, revenue: r.totalRevenue ?? null,
+    gross_profit: r.grossProfit ?? null, ebitda: r.ebitda ?? null,
+    operating_income: r.operatingIncome ?? null, net_income: r.netIncome ?? null,
+    eps: r.basicEPS ?? null,
+  })) : null;
+  const bs = rows.some(r => r.totalAssets != null) ? rows.map(r => ({
+    fiscal_date: r.fiscal_date, total_assets: r.totalAssets ?? null,
+    total_liabilities: r.totalLiabilitiesNetMinorityInterest ?? null,
+    total_equity: r.stockholdersEquity ?? null,
+    cash_and_equivalents: r.cashAndCashEquivalents ?? null,
+    long_term_debt: r.longTermDebt ?? null,
+  })) : null;
+  const cf = rows.some(r => r.operatingCashFlow != null) ? rows.map(r => ({
+    fiscal_date: r.fiscal_date, operating_activities: r.operatingCashFlow ?? null,
+    investing_activities: r.investingCashFlow ?? null,
+    financing_activities: r.financingCashFlow ?? null,
+    capital_expenditure: r.capitalExpenditure ?? null,
+    free_cash_flow: r.freeCashFlow ?? null, dividends_paid: r.dividendsPaid ?? null,
+  })) : null;
+  return { is, bs, cf };
+}
+
+// ── ALPHA VANTAGE — free tier, 500 calls/day, covers Saudi stocks ──
+function getAVKey() { return localStorage.getItem('TASI_av_key') || ''; }
+
+async function testAVKey() {
+  const key = getAVKey();
+  const logEl = document.getElementById('td-log');
+  if (!key) { if (logEl) logEl.innerHTML = '<span style="color:var(--red)">No key saved. Paste your key and click Save first.</span>'; return; }
+  if (logEl) logEl.innerHTML = '<span class="spin"></span> Testing with Al Rajhi Bank (1120.SR)…';
+  try {
+    const r = await fetch(`https://www.alphavantage.co/query?function=INCOME_STATEMENT&symbol=1120.SR&apikey=${key}`, { signal: AbortSignal.timeout(12000) });
+    const d = await r.json();
+    const rows = d?.annualReports || d?.quarterlyReports;
+    if (d?.Information) {
+      if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ ${d.Information}</span>`;
+    } else if (!rows?.length) {
+      if (logEl) logEl.innerHTML = `<span style="color:var(--amb)">⚠ Key valid but no Saudi data returned. Try Aramco (2222.SR) manually.</span>`;
+    } else {
+      if (logEl) logEl.innerHTML = `<span style="color:var(--green)">✓ Key works! Got ${rows.length} periods for Al Rajhi Bank.</span>`;
+    }
+  } catch(e) { if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ Network error: ${e.message}</span>`; }
+}
+
+function saveAVKey() {
+  const k = document.getElementById('av-key-input').value.trim();
+  if (k) localStorage.setItem('TASI_av_key', k); else localStorage.removeItem('TASI_av_key');
+  showToast(k ? '✓ Alpha Vantage key saved' : 'Key cleared');
+}
+
+async function fetchAlphaVantageStatements(ticker, period) {
+  const key = getAVKey();
+  if (!key) return { is: null, bs: null, cf: null };
+  const reportKey = period === 'quarterly' ? 'quarterlyReports' : 'annualReports';
+  const limit = 5;
+  try {
+    const [isR, bsR, cfR] = await Promise.all([
+      fetch(`https://www.alphavantage.co/query?function=INCOME_STATEMENT&symbol=${ticker}&apikey=${key}`, { signal: AbortSignal.timeout(15000) }),
+      fetch(`https://www.alphavantage.co/query?function=BALANCE_SHEET&symbol=${ticker}&apikey=${key}`,   { signal: AbortSignal.timeout(15000) }),
+      fetch(`https://www.alphavantage.co/query?function=CASH_FLOW&symbol=${ticker}&apikey=${key}`,       { signal: AbortSignal.timeout(15000) }),
+    ]);
+    const [isD, bsD, cfD] = await Promise.all([isR.json(), bsR.json(), cfR.json()]);
+    const n = v => { const x = parseFloat(v); return isNaN(x) ? null : x; };
+    const is = isD[reportKey]?.slice(0, limit).map(r => ({
+      fiscal_date:      r.fiscalDateEnding,
+      revenue:          n(r.totalRevenue),
+      gross_profit:     n(r.grossProfit),
+      ebitda:           n(r.ebitda),
+      operating_income: n(r.operatingIncome || r.ebit),
+      net_income:       n(r.netIncome),
+      eps:              n(r.reportedEPS || r.basicEPS),
+    })) || null;
+    const bs = bsD[reportKey]?.slice(0, limit).map(r => ({
+      fiscal_date:          r.fiscalDateEnding,
+      total_assets:         n(r.totalAssets),
+      total_liabilities:    n(r.totalLiabilities),
+      total_equity:         n(r.totalShareholderEquity),
+      cash_and_equivalents: n(r.cashAndCashEquivalentsAtCarryingValue || r.cash),
+      long_term_debt:       n(r.longTermDebtNoncurrent || r.longTermDebt),
+    })) || null;
+    const cf = cfD[reportKey]?.slice(0, limit).map(r => ({
+      fiscal_date:          r.fiscalDateEnding,
+      operating_activities: n(r.operatingCashflow),
+      investing_activities: n(r.cashflowFromInvestment),
+      financing_activities: n(r.cashflowFromFinancing),
+      capital_expenditure:  n(r.capitalExpenditures),
+      free_cash_flow:       (n(r.operatingCashflow) != null && n(r.capitalExpenditures) != null) ? n(r.operatingCashflow) - Math.abs(n(r.capitalExpenditures)) : null,
+      dividends_paid:       n(r.dividendPayout),
+    })) || null;
+    // Nullify if empty arrays returned
+    return {
+      is: is?.length ? is : null,
+      bs: bs?.length ? bs : null,
+      cf: cf?.length ? cf : null,
+    };
+  } catch(e) { return { is: null, bs: null, cf: null }; }
 }
 
 function parseYahooFinancials(summary, period) {
@@ -639,6 +856,196 @@ function parseYahooFinancials(summary, period) {
     };
   }) : null;
   return { is, bs, cf };
+}
+
+// ── GOOGLE DRIVE STORAGE ──
+let GD_TOKEN = null;
+const GD_FUND_TTL = 24 * 60 * 60 * 1000;       // 1 day TTL for fundamentals
+const GD_STMT_TTL = 30 * 24 * 60 * 60 * 1000;  // 30 days TTL for financial statements
+const _gdCache = {};                              // in-memory per-ticker Drive cache
+
+function getGDClientId() { return localStorage.getItem('TASI_gd_clientid') || ''; }
+function initGDToken() { const t = sessionStorage.getItem('TASI_gd_token'); if (t) GD_TOKEN = t; }
+
+function connectGoogleDrive() {
+  const cid = getGDClientId();
+  const logEl = document.getElementById('td-log');
+  if (!cid) { if (logEl) logEl.innerHTML = '<span style="color:var(--red)">Enter your Google Client ID first, then click Save.</span>'; return; }
+  if (typeof google === 'undefined' || !google?.accounts?.oauth2) {
+    if (logEl) logEl.innerHTML = '<span style="color:var(--red)">Google library not loaded yet, please wait a moment and try again.</span>'; return;
+  }
+  try {
+    google.accounts.oauth2.initTokenClient({
+      client_id: cid,
+      scope: 'https://www.googleapis.com/auth/drive.file',
+      callback: resp => {
+        if (resp.error) { if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ ${resp.error}: ${resp.error_description || ''}</span>`; return; }
+        GD_TOKEN = resp.access_token;
+        sessionStorage.setItem('TASI_gd_token', GD_TOKEN);
+        updateGDStatus();
+        showToast('✓ Google Drive connected');
+        if (logEl) logEl.innerHTML = '<span style="color:var(--green)">✓ Connected — all stock data (statements + fundamentals) will be cached in your Drive.</span>';
+      }
+    }).requestAccessToken();
+  } catch(e) { if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ ${e.message}</span>`; }
+}
+
+function disconnectGoogleDrive() {
+  GD_TOKEN = null;
+  sessionStorage.removeItem('TASI_gd_token');
+  updateGDStatus();
+  showToast('Google Drive disconnected');
+}
+
+function updateGDStatus() {
+  const el = document.getElementById('gd-status');
+  if (el) el.innerHTML = GD_TOKEN
+    ? '<span style="color:var(--green)">● Connected</span>'
+    : '<span style="color:var(--tx3)">● Not connected</span>';
+}
+
+function saveGDClientId() {
+  const k = document.getElementById('gd-clientid-input').value.trim();
+  if (k) localStorage.setItem('TASI_gd_clientid', k); else localStorage.removeItem('TASI_gd_clientid');
+  showToast(k ? '✓ Client ID saved' : 'Client ID cleared');
+}
+
+// One Drive file per stock: TASI_stock_{ticker}.json
+// Contains: { fundamentals, quarterly:{is,bs,cf}, annual:{is,bs,cf}, fundUpdated, quarterlyUpdated, annualUpdated }
+async function gdFindFile(ticker) {
+  if (!GD_TOKEN) return null;
+  const name = `TASI_stock_${ticker.replace(/\./g,'_')}.json`;
+  try {
+    const r = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=name%3D%27${encodeURIComponent(name)}%27+and+trashed%3Dfalse&fields=files(id,modifiedTime)`,
+      { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(8000) }
+    );
+    const d = await r.json();
+    return d.files?.[0] || null;
+  } catch(e) { return null; }
+}
+
+async function gdReadStock(ticker) {
+  if (!GD_TOKEN) return null;
+  if (_gdCache[ticker]) return _gdCache[ticker];
+  try {
+    const file = await gdFindFile(ticker);
+    if (!file) return null;
+    const r = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
+      { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(10000) }
+    );
+    const data = await r.json();
+    _gdCache[ticker] = data;
+    return data;
+  } catch(e) { return null; }
+}
+
+async function gdWriteStock(ticker, patch) {
+  if (!GD_TOKEN) return;
+  const name = `TASI_stock_${ticker.replace(/\./g,'_')}.json`;
+  const merged = Object.assign(_gdCache[ticker] || {}, patch);
+  _gdCache[ticker] = merged;
+  try {
+    const file = await gdFindFile(ticker);
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify({ name })], { type: 'application/json' }));
+    form.append('file', new Blob([JSON.stringify(merged)], { type: 'application/json' }));
+    const url = file
+      ? `https://www.googleapis.com/upload/drive/v3/files/${file.id}?uploadType=multipart`
+      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+    await fetch(url, { method: file ? 'PATCH' : 'POST', headers: { Authorization: `Bearer ${GD_TOKEN}` }, body: form, signal: AbortSignal.timeout(15000) });
+  } catch(e) { console.warn('GD write failed:', e); }
+}
+
+// ── WEB SCRAPING — StockAnalysis.com ──
+async function fetchHTMLViaProxy(url) {
+  const proxies = [
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+  ];
+  for (const p of proxies) {
+    try {
+      const r = await fetch(p, { signal: AbortSignal.timeout(20000) });
+      if (r.ok) { const t = await r.text(); if (t.length > 1000) return t; }
+    } catch(e) { continue; }
+  }
+  return null;
+}
+
+function parseStockAnalysisAmt(v) {
+  if (v == null || v === '-' || v === '--' || v === '' || v === 'N/A') return null;
+  const s = String(v).replace(/,/g, '').trim();
+  const m = s.match(/^([+-]?\d+\.?\d*)([BKMTQ]?)$/);
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  const mult = { B: 1e9, M: 1e6, K: 1e3, T: 1e12 }[m[2]] || 1;
+  return isNaN(n) ? null : n * mult;
+}
+
+function extractNextData(html) {
+  if (!html) return null;
+  const m = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
+  if (!m) return null;
+  try { return JSON.parse(m[1]); } catch(e) { return null; }
+}
+
+function mapSARows(nextData, period, fieldMap) {
+  if (!nextData) return null;
+  const pp = nextData?.props?.pageProps;
+  if (!pp) return null;
+  // StockAnalysis stores data under multiple possible paths
+  const fin = pp.financials || pp.data?.financials || pp.statement;
+  if (!fin) return null;
+  const dataset = period === 'quarterly'
+    ? (fin.quarterly || fin.Q || fin.TTM)
+    : (fin.annual || fin.A || fin);
+  const rows = Array.isArray(dataset) ? dataset
+    : Array.isArray(dataset?.data) ? dataset.data : null;
+  if (!rows || !rows.length) return null;
+  return rows.map(row => {
+    const entry = { fiscal_date: row.date || row.Date || row.period || row.calendarYear || '—' };
+    for (const [key, aliases] of Object.entries(fieldMap)) {
+      for (const alias of aliases) {
+        if (row[alias] !== undefined && row[alias] !== null) { entry[key] = parseStockAnalysisAmt(row[alias]); break; }
+      }
+    }
+    return entry;
+  });
+}
+
+// Scrape Wisesheets / Macrotrends as fallback — tries multiple Saudi-friendly sources
+async function scrapeFinancials(ticker, period) {
+  // Convert 1120.SR → 1120 for sites that use bare codes
+  const code = ticker.replace(/\.SR$/i, '');
+  const pq = period === 'quarterly' ? 'quarterly' : 'annual';
+
+  // Try Wisesheets (has Saudi stocks, server-rendered JSON in page)
+  tdLog('Scraping financial data…', true);
+  const html = await fetchHTMLViaProxy(
+    `https://wisesheets.io/financials?ticker=${encodeURIComponent(ticker)}&period=${pq}`
+  );
+  const nd = extractNextData(html);
+  if (nd) {
+    const rows = nd?.props?.pageProps?.data?.statements;
+    if (rows?.income?.length || rows?.balance?.length || rows?.cashflow?.length) {
+      const n = v => { const x = parseFloat(String(v).replace(/,/g,'')); return isNaN(x) ? null : x; };
+      const mapRows = (arr, fieldMap) => arr?.map(r => {
+        const e = { fiscal_date: r.date || r.period || '—' };
+        for (const [k, aliases] of Object.entries(fieldMap))
+          for (const a of aliases) if (r[a] != null) { e[k] = n(r[a]); break; }
+        return e;
+      }) || null;
+      return {
+        is: mapRows(rows.income, { revenue:['revenue','Revenue'], gross_profit:['grossProfit','Gross Profit'], ebitda:['ebitda','EBITDA'], operating_income:['operatingIncome','Operating Income'], net_income:['netIncome','Net Income'], eps:['eps','EPS'] }),
+        bs: mapRows(rows.balance, { total_assets:['totalAssets','Total Assets'], total_liabilities:['totalLiabilities','Total Liabilities'], total_equity:['totalEquity','Total Equity'], cash_and_equivalents:['cash','Cash'], long_term_debt:['longTermDebt','Long-Term Debt'] }),
+        cf: mapRows(rows.cashflow, { operating_activities:['operatingCashFlow','Operating CF'], investing_activities:['investingCashFlow','Investing CF'], financing_activities:['financingCashFlow','Financing CF'], capital_expenditure:['capex','CapEx'], free_cash_flow:['freeCashFlow','Free Cash Flow'], dividends_paid:['dividendsPaid','Dividends Paid'] }),
+      };
+    }
+  }
+  tdLog('Scraping: no data found from available sources', false);
+  return { is: null, bs: null, cf: null };
 }
 
 // ── DARK / LIGHT MODE ──
@@ -1643,6 +2050,17 @@ async function fetchStockFull(stock) {
         cashflowStatementHistory:qs.cashflowStatementHistory,
         cashflowStatementHistoryQuarterly:qs.cashflowStatementHistoryQuarterly,
       };
+      // Save fundamentals to Google Drive (fire-and-forget, 1-day TTL)
+      gdWriteStock(ticker, {
+        fundamentals: {
+          pe: result.pe, pb: result.pb, roe: result.roe, npm: result.npm,
+          de: result.de, dy: result.dy, fcf: result.fcf, cr: result.cr,
+          rg: result.rg, eg: result.eg, beta: result.beta,
+          w52high: result.w52high, w52low: result.w52low, w52change: result.w52change,
+          mktCap: result.mktCap, eps: result.eps, fwdEps: result.fwdEps, dataDate: result.dataDate,
+        },
+        fundUpdated: Date.now(),
+      });
     }
     // Also get longer chart data for 2-year history
     const meta = raw.chart?.chart?.result?.[0]?.meta;
@@ -1913,45 +2331,70 @@ function setSector(sec){
 async function openModal(idx){
   window._curIdx=idx;
   const d=window._fd?.[idx];if(!d)return;
-  // Lazy-load full Yahoo Finance data (fundamentals + statements) on first open
+  // Lazy-load full data on first open — try Google Drive cache first, then Yahoo Finance
   if(!d.fullLoaded){
     try{
-      const full = await fetchStockFull(d);
-      const realD = allData.find(a=>a.ticker===d.ticker);
-      if(realD && full){
-        // Update with live fundamentals
-        if(full.pe) realD.pe=full.pe;
-        if(full.pb) realD.pb=full.pb;
-        if(full.roe!=null) realD.roe=full.roe;
-        if(full.npm!=null) realD.npm=full.npm;
-        if(full.de!=null) realD.de=full.de;
-        if(full.dy!=null) realD.dy=full.dy;
-        if(full.cr!=null) realD.cr=full.cr;
-        if(full.rg!=null) realD.rg=full.rg;
-        if(full.eg!=null) realD.eg=full.eg;
-        if(full.fcf!=null) realD.fcf=full.fcf;
-        if(full.w52high) realD.w52high=full.w52high;
-        if(full.w52low) realD.w52low=full.w52low;
-        if(full.mktCap) realD.mktCap=full.mktCap;
-        if(full.beta) realD.beta=full.beta;
-        if(full.eps) realD.eps=full.eps;
-        if(full.dataDate) realD.dataDate=full.dataDate;
-        if(full.closes?.length>realD.closes.length){ realD.closes=full.closes; realD.timestamps=full.timestamps; }
-        if(full.rawYahoo) realD.rawData = full.rawYahoo;
-        realD.fullLoaded = true;
-        // Rescore with fresh fundamentals
-        const fRes = scoreFundamental(realD);
-        const bRes = scoreBuffett(realD);
-        const pegRes = scorePEG(realD.pe, realD.eg);
-        const tRes = scoreTechnicalWithSteps(realD.closes);
-        realD.fundamental=fRes.score; realD.fundSteps=fRes.steps;
-        realD.buffett=bRes.buffett; realD.criteria=bRes.criteria; realD.buffSteps=bRes.steps;
-        realD.peg=pegRes.peg; realD.pegScore=pegRes.score; realD.pegSteps=pegRes.steps;
-        realD.technical=tRes.score; realD.techSteps=tRes.steps;
-        realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
-        realD.combined=Math.round(fRes.score*0.30+tRes.score*0.20+bRes.buffett*0.35+pegRes.score*0.15);
-        // Also update filtered data reference
-        if(window._fd?.[idx]) Object.assign(window._fd[idx], realD);
+      let usedDriveCache = false;
+      // Check Drive for fresh fundamentals (1-day TTL) to skip the Yahoo API call
+      if (GD_TOKEN) {
+        const driveStock = await gdReadStock(d.ticker);
+        if (driveStock?.fundamentals && driveStock.fundUpdated && (Date.now() - driveStock.fundUpdated < GD_FUND_TTL)) {
+          const f = driveStock.fundamentals;
+          const realD = allData.find(a => a.ticker === d.ticker);
+          if (realD && f) {
+            const keys = ['pe','pb','roe','npm','de','dy','fcf','cr','rg','eg','beta','w52high','w52low','w52change','mktCap','eps','fwdEps','dataDate'];
+            keys.forEach(k => { if (f[k] != null) realD[k] = f[k]; });
+            realD.fullLoaded = true;
+            const fRes = scoreFundamental(realD);
+            const bRes = scoreBuffett(realD);
+            const pegRes = scorePEG(realD.pe, realD.eg);
+            const tRes = scoreTechnicalWithSteps(realD.closes);
+            realD.fundamental=fRes.score; realD.fundSteps=fRes.steps;
+            realD.buffett=bRes.buffett; realD.criteria=bRes.criteria; realD.buffSteps=bRes.steps;
+            realD.peg=pegRes.peg; realD.pegScore=pegRes.score; realD.pegSteps=pegRes.steps;
+            realD.technical=tRes.score; realD.techSteps=tRes.steps;
+            realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
+            realD.combined=Math.round(fRes.score*0.30+tRes.score*0.20+bRes.buffett*0.35+pegRes.score*0.15);
+            if(window._fd?.[idx]) Object.assign(window._fd[idx], realD);
+            usedDriveCache = true;
+          }
+        }
+      }
+      if (!usedDriveCache) {
+        const full = await fetchStockFull(d);
+        const realD = allData.find(a=>a.ticker===d.ticker);
+        if(realD && full){
+          if(full.pe) realD.pe=full.pe;
+          if(full.pb) realD.pb=full.pb;
+          if(full.roe!=null) realD.roe=full.roe;
+          if(full.npm!=null) realD.npm=full.npm;
+          if(full.de!=null) realD.de=full.de;
+          if(full.dy!=null) realD.dy=full.dy;
+          if(full.cr!=null) realD.cr=full.cr;
+          if(full.rg!=null) realD.rg=full.rg;
+          if(full.eg!=null) realD.eg=full.eg;
+          if(full.fcf!=null) realD.fcf=full.fcf;
+          if(full.w52high) realD.w52high=full.w52high;
+          if(full.w52low) realD.w52low=full.w52low;
+          if(full.mktCap) realD.mktCap=full.mktCap;
+          if(full.beta) realD.beta=full.beta;
+          if(full.eps) realD.eps=full.eps;
+          if(full.dataDate) realD.dataDate=full.dataDate;
+          if(full.closes?.length>realD.closes.length){ realD.closes=full.closes; realD.timestamps=full.timestamps; }
+          if(full.rawYahoo) realD.rawYahoo = full.rawYahoo;
+          realD.fullLoaded = true;
+          const fRes = scoreFundamental(realD);
+          const bRes = scoreBuffett(realD);
+          const pegRes = scorePEG(realD.pe, realD.eg);
+          const tRes = scoreTechnicalWithSteps(realD.closes);
+          realD.fundamental=fRes.score; realD.fundSteps=fRes.steps;
+          realD.buffett=bRes.buffett; realD.criteria=bRes.criteria; realD.buffSteps=bRes.steps;
+          realD.peg=pegRes.peg; realD.pegScore=pegRes.score; realD.pegSteps=pegRes.steps;
+          realD.technical=tRes.score; realD.techSteps=tRes.steps;
+          realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
+          realD.combined=Math.round(fRes.score*0.30+tRes.score*0.20+bRes.buffett*0.35+pegRes.score*0.15);
+          if(window._fd?.[idx]) Object.assign(window._fd[idx], realD);
+        }
       }
     }catch(e){ console.warn('Full data fetch failed:', e); }
   }
@@ -2125,34 +2568,95 @@ function buildBreakdown(d){
   ${renderSteps(pegSteps,pegScore,"PEG Score","#22c55e")}`;
 }
 
-async function buildQuarterly(d){
-  if (!d.rawTwelveData) {
-    const cached = tdCacheGet(d.ticker);
-    if (cached) d.rawTwelveData = cached;
+async function buildFinancials(d, period) {
+  const isQ = period === 'quarterly';
+  const cacheKey = isQ ? 'quarterly' : 'annual';
+
+  // 1. Google Drive cache (30-day TTL for statements)
+  const driveStock = await gdReadStock(d.ticker);
+  const driveStmt = driveStock?.[cacheKey];
+  const driveUpdated = driveStock?.[`${cacheKey}Updated`] || 0;
+  if (driveStmt && (driveStmt.is || driveStmt.bs || driveStmt.cf) && (Date.now() - driveUpdated < GD_STMT_TTL)) {
+    tdLog('Loaded from Google Drive ✓', true);
+    return renderTwelveStatements(driveStmt, period, d.ticker, 'Google Drive cache');
   }
-  if (d.rawTwelveData?.quarterly) return renderTwelveStatements(d.rawTwelveData.quarterly, 'quarterly', d.ticker);
 
-  tdLog('Fetching quarterly financial statements…', true);
-  const summary = await fetchYahooFinancials(d.ticker);
-  const quarterly = parseYahooFinancials(summary, 'quarterly');
-  tdLog('Income statement: ' + (quarterly.is ? 'ok' : 'no data'), !!quarterly.is);
-  tdLog('Balance sheet: '    + (quarterly.bs ? 'ok' : 'no data'), !!quarterly.bs);
-  tdLog('Cash flow: '        + (quarterly.cf ? 'ok' : 'no data'), !!quarterly.cf);
+  // 2. Yahoo quoteSummary rawYahoo (fetched when panel opened)
+  if (d.rawYahoo) {
+    const y = parseYahooFinancials(d.rawYahoo, period);
+    if (y.is || y.bs || y.cf) {
+      gdWriteStock(d.ticker, { [cacheKey]: y, [`${cacheKey}Updated`]: Date.now() });
+      return renderTwelveStatements(y, period, d.ticker, 'Yahoo Finance');
+    }
+  }
 
-  if (!d.rawTwelveData) d.rawTwelveData = {};
-  d.rawTwelveData.quarterly = quarterly;
-  tdCacheSet(d.ticker, quarterly, d.rawTwelveData?.annual || null);
+  // 3. Yahoo Finance Timeseries — dedicated endpoint, better Saudi coverage
+  tdLog(`Fetching ${period} statements from Yahoo Finance…`, true);
+  const yt = await fetchYahooTimeseries(d.ticker, period);
+  if (yt.is || yt.bs || yt.cf) {
+    if (!d.rawTwelveData) d.rawTwelveData = {};
+    d.rawTwelveData[cacheKey] = yt;
+    tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
+    gdWriteStock(d.ticker, { [cacheKey]: yt, [`${cacheKey}Updated`]: Date.now() });
+    return renderTwelveStatements(yt, period, d.ticker, 'Yahoo Finance');
+  }
 
-  return renderTwelveStatements(quarterly, 'quarterly', d.ticker);
+  // 4. localStorage cache
+  if (!d.rawTwelveData) { const c = tdCacheGet(d.ticker); if (c) d.rawTwelveData = c; }
+  const cached = d.rawTwelveData?.[cacheKey];
+  if (cached && (cached.is || cached.bs || cached.cf)) return renderTwelveStatements(cached, period, d.ticker, 'cache');
+
+  // 5. Alpha Vantage (free, 500/day)
+  if (getAVKey()) {
+    tdLog(`Fetching ${period} statements from Alpha Vantage…`, true);
+    const av = await fetchAlphaVantageStatements(d.ticker, period);
+    tdLog('Income: '+(av.is?'ok':'no data'), !!av.is);
+    tdLog('Balance: '+(av.bs?'ok':'no data'), !!av.bs);
+    tdLog('Cash flow: '+(av.cf?'ok':'no data'), !!av.cf);
+    if (av.is || av.bs || av.cf) {
+      if (!d.rawTwelveData) d.rawTwelveData = {};
+      d.rawTwelveData[cacheKey] = av;
+      tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
+      gdWriteStock(d.ticker, { [cacheKey]: av, [`${cacheKey}Updated`]: Date.now() });
+      return renderTwelveStatements(av, period, d.ticker, 'Alpha Vantage');
+    }
+  }
+
+  // 6. FMP API (if key saved)
+  if (getFMPKey()) {
+    tdLog(`Fetching ${period} statements from FMP…`, true);
+    const fmp = await fetchFMPStatements(d.ticker, period);
+    if (fmp.is || fmp.bs || fmp.cf) {
+      if (!d.rawTwelveData) d.rawTwelveData = {};
+      d.rawTwelveData[cacheKey] = fmp;
+      tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
+      gdWriteStock(d.ticker, { [cacheKey]: fmp, [`${cacheKey}Updated`]: Date.now() });
+      return renderTwelveStatements(fmp, period, d.ticker, 'FMP');
+    }
+  }
+
+  // 7. Web scraping fallback
+  const scraped = await scrapeFinancials(d.ticker, period);
+  if (scraped.is || scraped.bs || scraped.cf) {
+    if (!d.rawTwelveData) d.rawTwelveData = {};
+    d.rawTwelveData[cacheKey] = scraped;
+    tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
+    gdWriteStock(d.ticker, { [cacheKey]: scraped, [`${cacheKey}Updated`]: Date.now() });
+    return renderTwelveStatements(scraped, period, d.ticker, 'scraped');
+  }
+
+  return renderTwelveStatements({ is:null, bs:null, cf:null }, period, d.ticker, 'none');
 }
 
-function renderTwelveStatements(data, period, ticker) {
+async function buildQuarterly(d){ return buildFinancials(d, 'quarterly'); }
+
+function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance') {
   const { is, bs, cf } = data || {};
   const noData = (arr) => !arr || !arr.length;
   if (noData(is) && noData(bs) && noData(cf)) {
     return `<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">
-      <div style="color:var(--amb);margin-bottom:6px">⚠ No ${period} data available for this stock on Twelve Data.</div>
-      <div>Some Saudi stocks may have limited coverage on Yahoo Finance. Try the other tab or clear the cache in ⚙ Settings.</div>
+      <div style="color:var(--amb);margin-bottom:6px">⚠ No ${period} financial data found for this stock.</div>
+      <div>All sources tried (Google Drive, scraping, Yahoo Finance). Connect Google Drive in ⚙ Settings to enable scraping &amp; cloud storage, or check the other tab.</div>
     </div>`;
   }
   function fmtSAR(v) {
@@ -2197,29 +2701,10 @@ function renderTwelveStatements(data, period, ticker) {
   return makeTable(period === 'quarterly' ? 'Quarterly Income Statement' : '5-Year Income Statement', isRows, is?.map(pLabel) || [])
        + makeTable(period === 'quarterly' ? 'Quarterly Balance Sheet'    : '5-Year Balance Sheet',    bsRows, bs?.map(pLabel) || [])
        + makeTable(period === 'quarterly' ? 'Quarterly Cash Flow'        : '5-Year Cash Flow',        cfRows, cf?.map(pLabel) || [])
-       + `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Source: Yahoo Finance · SAR · B = Billions · Cached 7 days in browser</div>`;
+       + `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Source: ${source} · SAR · B = Billions · Cached 7 days in browser</div>`;
 }
 
-async function buildAnnual(d){
-  if (!d.rawTwelveData) {
-    const cached = tdCacheGet(d.ticker);
-    if (cached) d.rawTwelveData = cached;
-  }
-  if (d.rawTwelveData?.annual) return renderTwelveStatements(d.rawTwelveData.annual, 'annual', d.ticker);
-
-  tdLog('Fetching annual financial statements…', true);
-  const summary = await fetchYahooFinancials(d.ticker);
-  const annual = parseYahooFinancials(summary, 'annual');
-  tdLog('Income statement: ' + (annual.is ? 'ok' : 'no data'), !!annual.is);
-  tdLog('Balance sheet: '    + (annual.bs ? 'ok' : 'no data'), !!annual.bs);
-  tdLog('Cash flow: '        + (annual.cf ? 'ok' : 'no data'), !!annual.cf);
-
-  if (!d.rawTwelveData) d.rawTwelveData = {};
-  d.rawTwelveData.annual = annual;
-  tdCacheSet(d.ticker, d.rawTwelveData?.quarterly || null, annual);
-
-  return renderTwelveStatements(annual, 'annual', d.ticker);
-}
+async function buildAnnual(d){ return buildFinancials(d, 'annual'); }
 
 
 function buildBuffett(d){
@@ -2807,6 +3292,7 @@ function buildSectorPerf() {
 
   // Step 2: Open DB async in background, then check cache, then fetch prices
   restoreUIState();
+  initGDToken();
   // Fetch TASI market summary
   fetchMarketSummary();
 
@@ -2827,18 +3313,47 @@ function buildSectorPerf() {
   <div class="settings-panel">
     <div class="sp-close" onclick="hideSettings()">×</div>
     <div class="sp-title">⚙ Settings</div>
-    <div class="sp-desc">
-      Financial statements (Quarterly &amp; Annual tabs) are fetched from <strong>Yahoo Finance</strong> via a CORS proxy — no API key required.<br>
-      Statements are cached in your browser for <strong>7 days</strong> so each stock only fetches once per week.
+
+    <!-- Alpha Vantage — Recommended -->
+    <div style="font-family:var(--mono);font-size:10px;color:var(--green);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">★ Alpha Vantage — Recommended (Free)</div>
+    <div class="sp-desc" style="margin-bottom:8px">
+      The easiest way to get Saudi stock financial statements.<br>
+      <strong>Free tier: 500 calls/day, no credit card.</strong><br>
+      1. Go to <strong>alphavantage.co/support/#api-key</strong><br>
+      2. Enter your email → get key instantly<br>
+      3. Paste below and click Save.
     </div>
-    <hr class="sp-divider">
     <div class="sp-row">
-      <button class="sp-btn sp-btn-red" onclick="clearTwelveCache()">🗑 Clear Statement Cache</button>
+      <input class="sp-input" id="av-key-input" type="text" placeholder="Paste Alpha Vantage API key here…" autocomplete="off" spellcheck="false">
     </div>
-    <div class="sp-log" id="td-log">Clear cache to force fresh data on the next Quarterly / Annual tab click.</div>
+    <div class="sp-row">
+      <button class="sp-btn" onclick="saveAVKey()">💾 Save Key</button>
+      <button class="sp-btn sp-btn-sec" onclick="testAVKey()">▷ Test Key</button>
+      <button class="sp-btn sp-btn-red" onclick="clearTwelveCache()">🗑 Clear Cache</button>
+    </div>
+    <div class="sp-log" id="td-log">Status will appear here after saving or testing.</div>
+
+    <hr class="sp-divider">
+
+    <!-- Google Drive — Optional cloud cache -->
+    <div style="font-family:var(--mono);font-size:10px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Google Drive Storage (optional)</div>
+    <div class="sp-desc" style="margin-bottom:8px">
+      Cache financial data in your Google Drive (30 days) so it loads instantly across devices.<br>
+      Setup: <strong>console.cloud.google.com</strong> → New Project → Enable Drive API → Credentials → OAuth2 Client ID (Web app) → add <strong>https://omarvita.github.io</strong> as JS origin → copy Client ID below.
+    </div>
+    <div class="sp-row">
+      <input class="sp-input" id="gd-clientid-input" type="text" placeholder="Paste OAuth2 Client ID…" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="sp-row" style="align-items:center;gap:10px">
+      <button class="sp-btn" onclick="saveGDClientId()">💾 Save ID</button>
+      <button class="sp-btn sp-btn-sec" onclick="connectGoogleDrive()">🔗 Connect</button>
+      <button class="sp-btn" onclick="disconnectGoogleDrive()" style="font-size:9px">Disconnect</button>
+      <span id="gd-status" style="font-family:var(--mono);font-size:9px;color:var(--tx3)">● Not connected</span>
+    </div>
+
     <hr class="sp-divider">
     <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);line-height:1.65">
-      All data is fetched from Yahoo Finance. No personal data is collected or stored beyond your browser's localStorage.
+      All keys stored in your browser only. Price charts use Yahoo Finance (no key needed).
     </div>
   </div>
 </div>
