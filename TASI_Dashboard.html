@@ -2893,12 +2893,27 @@ async function buildFinancials(d, period) {
   const driveStmt = driveStock?.[cacheKey];
   const driveUpdated = driveStock?.[`${cacheKey}Updated`] || 0;
   if (driveStmt && (driveStmt.is || driveStmt.bs || driveStmt.cf) && (Date.now() - driveUpdated < GD_STMT_TTL)) {
-    tdLog('Loaded from Google Drive ✓', true);
-    return enrichAndRender(driveStmt, 'Google Drive cache');
+    // For annual: if the most recent FY ended >13 months ago a new year is out — bypass cache
+    if (!isQ) {
+      const stmts = driveStmt.is || driveStmt.bs || driveStmt.cf;
+      const recentDate = stmts?.[0]?.fiscal_date;
+      const monthsOld = recentDate ? (Date.now() - new Date(recentDate).getTime()) / (30.5 * 24 * 60 * 60 * 1000) : 0;
+      if (recentDate && monthsOld > 13) {
+        tdLog('Cache stale — new fiscal year available, refreshing…', true);
+        // fall through to re-fetch
+      } else {
+        tdLog('Loaded from Google Drive ✓', true);
+        return enrichAndRender(driveStmt, 'Google Drive cache');
+      }
+    } else {
+      tdLog('Loaded from Google Drive ✓', true);
+      return enrichAndRender(driveStmt, 'Google Drive cache');
+    }
   }
 
   // 2. Yahoo quoteSummary rawYahoo (fetched when panel opened)
-  if (d.rawYahoo) {
+  // Skip for annual if rawYahoo only has 4 years — go straight to timeseries which returns 6
+  if (d.rawYahoo && isQ) {
     const y = parseYahooFinancials(d.rawYahoo, period);
     if (y.is || y.bs || y.cf) {
       gdWriteStock(d.ticker, { [cacheKey]: y, [`${cacheKey}Updated`]: Date.now() });
