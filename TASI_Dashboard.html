@@ -506,7 +506,7 @@ function showComparePanel() {
 
 // ── VISION 2030 SCORE ──
 const VISION2030 = {
-  '2222.SR':85,'4002.SR':90,'6001.SR':95,'4030.SR':70,'4163.SR':75,
+  '2222.SR':85,'4002.SR':90,'6001.SR':95,'4030.SR':70,'4013.SR':75,
   '4161.SR':65,'4150.SR':60,'4290.SR':55,'4270.SR':60,'4321.SR':82,
   '4322.SR':85,'4250.SR':90,'7203.SR':88,'7202.SR':82,'7200.SR':75,
   '4040.SR':65,'4050.SR':62,'5110.SR':78,'4280.SR':72,'4191.SR':80,
@@ -522,7 +522,7 @@ const DIV_CONSISTENCY = {
   '4001.SR':{years:9,growing:true},'4030.SR':{years:10,growing:true},
   '2300.SR':{years:10,growing:true},'3004.SR':{years:10,growing:true},
   '2310.SR':{years:9,growing:true},'4290.SR':{years:8,growing:true},
-  '2080.SR':{years:10,growing:false},'1210.SR':{years:8,growing:true},
+  '2080.SR':{years:10,growing:false},'1010.SR':{years:8,growing:true},
   '1050.SR':{years:7,growing:false},'8100.SR':{years:6,growing:true},
   '8200.SR':{years:5,growing:true},'4270.SR':{years:7,growing:true},
   '4240.SR':{years:6,growing:true},'5110.SR':{years:8,growing:false},
@@ -552,18 +552,66 @@ function showSettings() {
   if (!ov) return;
   const fmpInp = document.getElementById('fmp-key-input');
   if (fmpInp) fmpInp.value = getFMPKey();
-  const avInp = document.getElementById('av-key-input');
-  if (avInp) avInp.value = getAVKey();
   const gdInp = document.getElementById('gd-clientid-input');
   if (gdInp) gdInp.value = getGDClientId();
   document.getElementById('td-log').innerHTML = '';
   updateGDStatus();
+  renderWeightsUI();
   ov.style.display = 'flex';
 }
 
 function hideSettings() {
   const ov = document.getElementById('settings-overlay');
   if (ov) ov.style.display = 'none';
+}
+
+function renderWeightsUI() {
+  const el = document.getElementById('score-weights-ui');
+  if (!el) return;
+  const W = SCORE_WEIGHTS;
+  const items = [
+    {k:'fundamental', label:'Fundamental'},
+    {k:'technical',   label:'Technical'},
+    {k:'buffett',     label:'Buffett'},
+    {k:'peg',         label:'PEG Score'},
+    {k:'dcf',         label:'DCF / DDM'},
+  ];
+  el.innerHTML = items.map(({k, label}) => `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+      <span style="font-family:var(--mono);font-size:9px;color:var(--tx2);width:88px;flex-shrink:0">${label}</span>
+      <input type="range" min="0" max="70" step="5" value="${W[k]||0}" id="ws-${k}"
+        oninput="document.getElementById('wv-${k}').textContent=this.value+'%';updateWeightTotal()"
+        style="flex:1;accent-color:var(--acc)">
+      <span id="wv-${k}" style="font-family:var(--mono);font-size:10px;color:var(--acc);width:34px;text-align:right">${W[k]||0}%</span>
+    </div>`).join('');
+  updateWeightTotal();
+}
+
+function updateWeightTotal() {
+  const keys = ['fundamental','technical','buffett','peg','dcf'];
+  const total = keys.reduce((s,k) => s + (+(document.getElementById('ws-'+k)?.value||0)), 0);
+  const el = document.getElementById('weights-total-lbl');
+  if (el) el.innerHTML = `Total: <span style="color:${total===100?'var(--green)':total===0?'var(--tx3)':'var(--amb)'};font-weight:600">${total}%</span>${total!==100&&total!==0?' — weights will be normalized to 100%':''}`;
+}
+
+function saveScoreWeights() {
+  const keys = ['fundamental','technical','buffett','peg','dcf'];
+  keys.forEach(k => { SCORE_WEIGHTS[k] = +(document.getElementById('ws-'+k)?.value||0); });
+  localStorage.setItem('tasi_score_weights', JSON.stringify(SCORE_WEIGHTS));
+  allData.forEach(d => { d.combined = calcCombined(d); });
+  if (window._fd) window._fd.forEach(d => { d.combined = calcCombined(d); });
+  doFilter();
+  document.getElementById('td-log').innerHTML = '<span style="color:var(--green)">✓ Weights saved and scores recalculated.</span>';
+}
+
+function resetScoreWeights() {
+  SCORE_WEIGHTS = {fundamental:30, technical:20, buffett:35, peg:15, dcf:0};
+  localStorage.removeItem('tasi_score_weights');
+  allData.forEach(d => { d.combined = calcCombined(d); });
+  if (window._fd) window._fd.forEach(d => { d.combined = calcCombined(d); });
+  doFilter();
+  renderWeightsUI();
+  document.getElementById('td-log').innerHTML = '<span style="color:var(--tx3)">Weights reset to defaults.</span>';
 }
 
 function saveFMPKey() {
@@ -593,8 +641,57 @@ async function testFMPKey() {
 
 function clearTwelveCache() {
   Object.keys(localStorage).filter(k => k.startsWith('TASI_td_')).forEach(k => localStorage.removeItem(k));
+  // Also clear Drive in-memory cache so next open re-reads from Drive
+  Object.keys(_gdCache).forEach(k => delete _gdCache[k]);
   showToast('✓ Financial statement cache cleared');
   document.getElementById('td-log').textContent = 'Cache cleared — next tab click will fetch fresh data.';
+}
+
+let _validating = false;
+async function validateTickers() {
+  const logEl = document.getElementById('td-log');
+  if (!logEl) return;
+  if (_validating) { logEl.innerHTML = '<span style="color:var(--amb)">Validation already running…</span>'; return; }
+  const allStocks = [...(typeof STOCKS !== 'undefined' ? STOCKS : []), ...(typeof MORE_TICKERS !== 'undefined' ? MORE_TICKERS : [])];
+  if (!allStocks.length) { logEl.innerHTML = '<span style="color:var(--red)">No stock data loaded yet.</span>'; return; }
+  _validating = true;
+  const results = [];
+  const batchSize = 6;
+  const total = allStocks.length;
+  for (let i = 0; i < total; i += batchSize) {
+    const batch = allStocks.slice(i, i + batchSize);
+    logEl.innerHTML = `<span class="spin"></span> Validating ${i+1}–${Math.min(i+batchSize,total)} of ${total} tickers…`;
+    await Promise.all(batch.map(async s => {
+      try {
+        const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s.t)}?interval=1d&range=1d`;
+        const data = await fetchWithProxy(url);
+        const meta = data?.chart?.result?.[0]?.meta;
+        const yhName = meta?.longName || meta?.shortName || '—';
+        const yhSymbol = meta?.symbol || '—';
+        const found = !!meta?.regularMarketPrice;
+        const match = yhSymbol.toUpperCase() === s.t.toUpperCase();
+        const sn = s.n.toLowerCase(), yn = yhName.toLowerCase();
+        const nameSimilar = yn !== '—' && (yn.includes(sn.split(' ')[0]) || sn.includes(yn.split(' ')[0]) || sn.split(' ').some(w => w.length > 3 && yn.includes(w)));
+        results.push({ ticker: s.t, appName: s.n, yhName, match, nameSimilar, found });
+      } catch(e) {
+        results.push({ ticker: s.t, appName: s.n, yhName: 'error', match: false, nameSimilar: false, found: false });
+      }
+    }));
+    if (i + batchSize < total) await new Promise(r => setTimeout(r, 400));
+  }
+  _validating = false;
+  const issues = results.filter(r => !r.found || (!r.match && r.found));
+  const rows = results.map(r => {
+    const icon = !r.found ? '✗' : r.match && r.nameSimilar ? '✓' : r.match ? '~' : '⚠';
+    const col = !r.found ? 'var(--red)' : r.match && r.nameSimilar ? 'var(--green)' : r.match ? 'var(--amb)' : 'var(--red)';
+    return `<tr><td style="color:${col};text-align:center">${icon}</td><td style="font-family:var(--mono)">${r.ticker}</td><td>${r.appName}</td><td style="color:var(--tx3)">${r.yhName}</td></tr>`;
+  }).join('');
+  logEl.innerHTML = `<div style="font-size:9px;margin-bottom:5px;color:var(--tx2)">✓ OK  ~ name mismatch  ⚠ ticker mismatch  ✗ not found on Yahoo · ${results.filter(r=>r.found&&r.match&&r.nameSimilar).length}/${total} fully confirmed · ${issues.length} issues</div>
+    <div style="overflow-x:auto;max-height:320px"><table style="width:100%;font-family:var(--mono);font-size:9px;border-collapse:collapse">
+      <thead style="position:sticky;top:0;background:var(--bg3)"><tr style="color:var(--tx3)"><th></th><th>Ticker</th><th>App Name</th><th>Yahoo Name</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+    ${issues.length?`<div style="margin-top:5px;color:var(--amb);font-size:9px;font-family:var(--mono)">⚠ ${issues.length} ticker(s) need review — run again or check Tadawul.com.sa</div>`:''}`;
 }
 
 function tdLog(msg, ok = true) {
@@ -676,14 +773,15 @@ async function fetchYahooFinancials(ticker) {
 async function fetchYahooTimeseries(ticker, period) {
   const prefix = period === 'quarterly' ? 'quarterly' : 'annual';
   const metrics = [
-    `${prefix}TotalRevenue`, `${prefix}GrossProfit`, `${prefix}Ebitda`,
+    `${prefix}TotalRevenue`, `${prefix}GrossProfit`, `${prefix}EBITDA`,
     `${prefix}OperatingIncome`, `${prefix}NetIncome`, `${prefix}BasicEPS`,
     `${prefix}TotalAssets`, `${prefix}TotalLiabilitiesNetMinorityInterest`,
     `${prefix}StockholdersEquity`, `${prefix}CashAndCashEquivalents`, `${prefix}LongTermDebt`,
     `${prefix}OperatingCashFlow`, `${prefix}InvestingCashFlow`, `${prefix}FinancingCashFlow`,
-    `${prefix}CapitalExpenditure`, `${prefix}FreeCashFlow`, `${prefix}DividendsPaid`,
+    `${prefix}CapitalExpenditure`, `${prefix}FreeCashFlow`, `${prefix}CashDividendsPaid`,
+    `${prefix}DepreciationAndAmortization`,
   ].join(',');
-  const url = `https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(ticker)}?type=${metrics}&period1=1451606400&period2=1900000000`;
+  const url = `https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(ticker)}?type=${metrics}&period1=1388534400&period2=1900000000`;
   try {
     const data = await fetchWithProxy(url);
     return parseYahooTimeseries(data, period);
@@ -701,7 +799,12 @@ function parseYahooTimeseries(data, period) {
     const entries = series[metricKey];
     if (!Array.isArray(entries)) continue;
     const stripped = metricKey.replace(new RegExp(`^${prefix}`, 'i'), '');
-    const fieldName = stripped.charAt(0).toLowerCase() + stripped.slice(1);
+    // Normalize known all-caps variants so field lookups are consistent
+    const fieldName = (
+      stripped === 'EBITDA' ? 'ebitda' :
+      stripped === 'CashDividendsPaid' ? 'cashDividendsPaid' :
+      stripped.charAt(0).toLowerCase() + stripped.slice(1)
+    );
     for (const entry of entries) {
       if (!entry) continue;
       const date = entry.asOfDate;
@@ -710,12 +813,16 @@ function parseYahooTimeseries(data, period) {
       byDate[date][fieldName] = entry.reportedValue?.raw ?? null;
     }
   }
-  const dates = Object.keys(byDate).sort().reverse().slice(0, period === 'quarterly' ? 8 : 5);
+  const limit = period === 'quarterly' ? 8 : 6;
+  const dates = Object.keys(byDate).sort().reverse().slice(0, limit);
   if (!dates.length) return { is: null, bs: null, cf: null };
   const rows = dates.map(d => byDate[d]);
   const is = rows.some(r => r.totalRevenue != null || r.netIncome != null) ? rows.map(r => ({
     fiscal_date: r.fiscal_date, revenue: r.totalRevenue ?? null,
-    gross_profit: r.grossProfit ?? null, ebitda: r.ebitda ?? null,
+    gross_profit: r.grossProfit ?? null,
+    // Calculate EBITDA from D&A if not directly available
+    ebitda: r.ebitda ?? ((r.operatingIncome != null && r.depreciationAndAmortization != null)
+      ? r.operatingIncome + Math.abs(r.depreciationAndAmortization) : null),
     operating_income: r.operatingIncome ?? null, net_income: r.netIncome ?? null,
     eps: r.basicEPS ?? null,
   })) : null;
@@ -731,86 +838,12 @@ function parseYahooTimeseries(data, period) {
     investing_activities: r.investingCashFlow ?? null,
     financing_activities: r.financingCashFlow ?? null,
     capital_expenditure: r.capitalExpenditure ?? null,
-    free_cash_flow: r.freeCashFlow ?? null, dividends_paid: r.dividendsPaid ?? null,
+    free_cash_flow: r.freeCashFlow ?? null,
+    dividends_paid: r.cashDividendsPaid ?? null,
   })) : null;
   return { is, bs, cf };
 }
 
-// ── ALPHA VANTAGE — free tier, 500 calls/day, covers Saudi stocks ──
-function getAVKey() { return localStorage.getItem('TASI_av_key') || ''; }
-
-async function testAVKey() {
-  const key = getAVKey();
-  const logEl = document.getElementById('td-log');
-  if (!key) { if (logEl) logEl.innerHTML = '<span style="color:var(--red)">No key saved. Paste your key and click Save first.</span>'; return; }
-  if (logEl) logEl.innerHTML = '<span class="spin"></span> Testing with Al Rajhi Bank (1120.SR)…';
-  try {
-    const r = await fetch(`https://www.alphavantage.co/query?function=INCOME_STATEMENT&symbol=1120.SR&apikey=${key}`, { signal: AbortSignal.timeout(12000) });
-    const d = await r.json();
-    const rows = d?.annualReports || d?.quarterlyReports;
-    if (d?.Information) {
-      if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ ${d.Information}</span>`;
-    } else if (!rows?.length) {
-      if (logEl) logEl.innerHTML = `<span style="color:var(--amb)">⚠ Key valid but no Saudi data returned. Try Aramco (2222.SR) manually.</span>`;
-    } else {
-      if (logEl) logEl.innerHTML = `<span style="color:var(--green)">✓ Key works! Got ${rows.length} periods for Al Rajhi Bank.</span>`;
-    }
-  } catch(e) { if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ Network error: ${e.message}</span>`; }
-}
-
-function saveAVKey() {
-  const k = document.getElementById('av-key-input').value.trim();
-  if (k) localStorage.setItem('TASI_av_key', k); else localStorage.removeItem('TASI_av_key');
-  showToast(k ? '✓ Alpha Vantage key saved' : 'Key cleared');
-}
-
-async function fetchAlphaVantageStatements(ticker, period) {
-  const key = getAVKey();
-  if (!key) return { is: null, bs: null, cf: null };
-  const reportKey = period === 'quarterly' ? 'quarterlyReports' : 'annualReports';
-  const limit = 5;
-  try {
-    const [isR, bsR, cfR] = await Promise.all([
-      fetch(`https://www.alphavantage.co/query?function=INCOME_STATEMENT&symbol=${ticker}&apikey=${key}`, { signal: AbortSignal.timeout(15000) }),
-      fetch(`https://www.alphavantage.co/query?function=BALANCE_SHEET&symbol=${ticker}&apikey=${key}`,   { signal: AbortSignal.timeout(15000) }),
-      fetch(`https://www.alphavantage.co/query?function=CASH_FLOW&symbol=${ticker}&apikey=${key}`,       { signal: AbortSignal.timeout(15000) }),
-    ]);
-    const [isD, bsD, cfD] = await Promise.all([isR.json(), bsR.json(), cfR.json()]);
-    const n = v => { const x = parseFloat(v); return isNaN(x) ? null : x; };
-    const is = isD[reportKey]?.slice(0, limit).map(r => ({
-      fiscal_date:      r.fiscalDateEnding,
-      revenue:          n(r.totalRevenue),
-      gross_profit:     n(r.grossProfit),
-      ebitda:           n(r.ebitda),
-      operating_income: n(r.operatingIncome || r.ebit),
-      net_income:       n(r.netIncome),
-      eps:              n(r.reportedEPS || r.basicEPS),
-    })) || null;
-    const bs = bsD[reportKey]?.slice(0, limit).map(r => ({
-      fiscal_date:          r.fiscalDateEnding,
-      total_assets:         n(r.totalAssets),
-      total_liabilities:    n(r.totalLiabilities),
-      total_equity:         n(r.totalShareholderEquity),
-      cash_and_equivalents: n(r.cashAndCashEquivalentsAtCarryingValue || r.cash),
-      long_term_debt:       n(r.longTermDebtNoncurrent || r.longTermDebt),
-    })) || null;
-    const cf = cfD[reportKey]?.slice(0, limit).map(r => ({
-      fiscal_date:          r.fiscalDateEnding,
-      operating_activities: n(r.operatingCashflow),
-      investing_activities: n(r.cashflowFromInvestment),
-      financing_activities: n(r.cashflowFromFinancing),
-      capital_expenditure:  n(r.capitalExpenditures),
-      free_cash_flow:       (n(r.operatingCashflow) != null && n(r.capitalExpenditures) != null) ? n(r.operatingCashflow) - Math.abs(n(r.capitalExpenditures)) : null,
-      dividends_paid:       n(r.dividendPayout),
-    })) || null;
-    // Nullify if empty arrays returned
-    return {
-      is: is?.length ? is : null,
-      bs: bs?.length ? bs : null,
-      cf: cf?.length ? cf : null,
-    };
-  } catch(e) { return { is: null, bs: null, cf: null }; }
-}
 
 function parseYahooFinancials(summary, period) {
   if (!summary) return { is: null, bs: null, cf: null };
@@ -958,6 +991,93 @@ async function gdWriteStock(ticker, patch) {
   } catch(e) { console.warn('GD write failed:', e); }
 }
 
+// ── DIVIDEND SCHEDULE — Yahoo Finance chart events ──
+const GD_DIV_TTL = 7 * 24 * 60 * 60 * 1000; // 7-day TTL for dividend data
+
+async function fetchDividendSchedule(ticker) {
+  // Check Drive cache first
+  if (GD_TOKEN) {
+    const cached = await gdReadStock(ticker);
+    if (cached?.dividendSchedule && cached.divUpdated && (Date.now() - cached.divUpdated < GD_DIV_TTL)) {
+      return cached.dividendSchedule;
+    }
+  }
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=10y&events=div`;
+    const data = await fetchWithProxy(url);
+    const events = data?.chart?.result?.[0]?.events?.dividends;
+    if (!events) return [];
+    const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+    const schedule = Object.values(events)
+      .sort((a, b) => b.date - a.date)
+      .map(e => ({
+        date: new Date(e.date * 1000).toISOString().slice(0, 10),
+        amount: parseFloat(e.amount.toFixed(4)),
+        yieldAtPrice: price && price > 0 ? parseFloat((e.amount / price * 100).toFixed(2)) : null,
+        type: 'Cash',
+      }));
+    gdWriteStock(ticker, { dividendSchedule: schedule, divUpdated: Date.now() });
+    return schedule;
+  } catch(e) { return []; }
+}
+
+// ── ENRICH FUNDAMENTALS FROM STATEMENTS ──
+function enrichFundamentalsFromStatements(d, stmtData) {
+  const { is, bs, cf } = stmtData || {};
+  if (!is?.length && !bs?.length && !cf?.length) return false;
+  let changed = false;
+
+  if (is?.length >= 2) {
+    const cur = is[0], prv = is[1];
+    const curRev = parseFloat(cur.revenue), prvRev = parseFloat(prv.revenue);
+    const curNI  = parseFloat(cur.net_income), prvNI = parseFloat(prv.net_income);
+    const curEPS = parseFloat(cur.eps), prvEPS = parseFloat(prv.eps);
+    if (!isNaN(curRev) && !isNaN(prvRev) && prvRev !== 0) { d.rg = (curRev - prvRev) / Math.abs(prvRev); changed = true; }
+    // Prefer EPS growth (accounts for dilution); fall back to NI growth
+    if (!isNaN(curEPS) && !isNaN(prvEPS) && prvEPS !== 0) {
+      d.eg = (curEPS - prvEPS) / Math.abs(prvEPS); changed = true;
+    } else if (!isNaN(curNI) && !isNaN(prvNI) && prvNI !== 0) {
+      d.eg = (curNI - prvNI) / Math.abs(prvNI); changed = true;
+    }
+    d.egSource = 'statements';
+    if (!isNaN(curNI) && !isNaN(curRev) && curRev !== 0)  { d.npm = curNI / curRev; changed = true; }
+    // Update rev/ni for overview display
+    if (!isNaN(curRev)) { d.rev  = curRev / 1e9; changed = true; }
+    if (!isNaN(curNI))  { d.ni   = curNI  / 1e9; changed = true; }
+  }
+
+  if (bs?.length >= 1) {
+    const cur = bs[0];
+    const te = parseFloat(cur.total_equity), tl = parseFloat(cur.total_liabilities), ta = parseFloat(cur.total_assets);
+    if (!isNaN(te) && te !== 0 && !isNaN(tl)) { d.de = (tl / te) * 100; changed = true; }
+    if (!isNaN(ta)) { d.assets = ta / 1e9; changed = true; }
+    // ROE uses latest NI / latest equity
+    if (is?.length >= 1) {
+      const ni = parseFloat(is[0].net_income);
+      if (!isNaN(ni) && !isNaN(te) && te > 0) { d.roe = ni / te; changed = true; }
+    }
+  }
+
+  if (cf?.length >= 1) {
+    const cur = cf[0];
+    const fcfVal = parseFloat(cur.free_cash_flow);
+    if (!isNaN(fcfVal)) { d.fcf = fcfVal > 0; changed = true; }
+  }
+
+  if (changed) {
+    // Re-run scoring with enriched data
+    const fRes = scoreFundamental(d);
+    const bRes = scoreBuffett(d);
+    const pegRes = scorePEG(d.pe, d.eg);
+    d.fundamental = fRes.score; d.fundSteps = fRes.steps;
+    d.buffett = bRes.buffett; d.criteria = bRes.criteria; d.buffSteps = bRes.steps;
+    d.peg = pegRes.peg; d.pegScore = pegRes.score; d.pegSteps = pegRes.steps;
+    d.combined = calcCombined(d);
+    d.stmtEnriched = true;
+  }
+  return changed;
+}
+
 // ── WEB SCRAPING — StockAnalysis.com ──
 async function fetchHTMLViaProxy(url) {
   const proxies = [
@@ -1076,9 +1196,9 @@ function loadTheme() {
 let isArabic = false;
 const AR_NAMES = {
   '2222.SR':'أرامكو السعودية','1120.SR':'مصرف الراجحي','1180.SR':'البنك الأهلي السعودي',
-  '2010.SR':'سابك','4001.SR':'سابك للمغذيات الزراعية','1210.SR':'بنك الرياض',
+  '2010.SR':'سابك','4001.SR':'سابك للمغذيات الزراعية','1010.SR':'بنك الرياض',
   '1050.SR':'بنك السعودي الفرنسي','1150.SR':'مصرف الإنماء','4030.SR':'الاتصالات السعودية',
-  '4040.SR':'موبايلي','4050.SR':'زين السعودية','4163.SR':'مجموعة سليمان الحبيب',
+  '4040.SR':'موبايلي','4050.SR':'زين السعودية','4013.SR':'مجموعة سليمان الحبيب',
   '4161.SR':'مواساة','4100.SR':'دله الصحية','4150.SR':'النهدي الطبية',
   '4270.SR':'المراعي','4290.SR':'مكتبة جرير','4240.SR':'أسواق عبد الله العثيم',
   '4230.SR':'إكسترا','6001.SR':'أكوا باور','5110.SR':'الكهرباء السعودية',
@@ -1299,11 +1419,11 @@ function buildAlertPanel(d) {
 
 const STOCKS=[
 {t:"2222.SR",n:"Saudi Aramco",s:"Energy",r:false,pe:13.2,pb:3.8,roe:0.27,npm:0.24,de:48,dy:0.074,fcf:true,cr:1.2,rg:-0.03,eg:0.02,rev:1622,ni:328,assets:2695,desc:"World's largest oil company. Unmatched reserve base, massive dividend payer."},
-{t:"2382.SR",n:"Petro Rabigh",s:"Energy",r:false,pe:null,pb:0.6,roe:-0.04,npm:-0.02,de:195,dy:0,fcf:false,cr:0.8,rg:-0.08,eg:null,rev:42,ni:-1.2,assets:55,desc:"Integrated refining & petrochemicals. Facing margin pressure."},
+{t:"2380.SR",n:"Petro Rabigh",s:"Energy",r:false,pe:null,pb:0.6,roe:-0.04,npm:-0.02,de:195,dy:0,fcf:false,cr:0.8,rg:-0.08,eg:null,rev:42,ni:-1.2,assets:55,desc:"Integrated refining & petrochemicals. Facing margin pressure."},
 {t:"2250.SR",n:"Saudi Drilling",s:"Energy",r:false,pe:14,pb:1.1,roe:0.08,npm:0.12,de:35,dy:0.04,fcf:true,cr:1.6,rg:0.06,eg:0.10,rev:4.2,ni:0.5,assets:8.1,desc:"National drilling company supporting Aramco's upstream operations."},
 {t:"1120.SR",n:"Al Rajhi Bank",s:"Banking",r:false,pe:17.4,pb:3.5,roe:0.182,npm:0.45,de:null,dy:0.032,fcf:true,cr:null,rg:0.22,eg:0.26,rev:39.1,ni:18.2,assets:1040,desc:"Saudi Arabia's largest Islamic bank. ROE target >23.5%."},
 {t:"1180.SR",n:"Saudi National Bank",s:"Banking",r:false,pe:12.8,pb:1.6,roe:0.14,npm:0.40,de:null,dy:0.038,fcf:true,cr:null,rg:0.10,eg:0.08,rev:28.5,ni:11.4,assets:1120,desc:"Saudi Arabia's largest bank by total assets."},
-{t:"1211.SR",n:"Maaden (Saudi Arabian Mining)",s:"Materials",r:false,pe:11.5,pb:1.2,roe:0.12,npm:0.38,de:null,dy:0.045,fcf:true,cr:null,rg:0.08,eg:0.10,rev:11.2,ni:4.3,assets:320,desc:"HSBC-affiliated bank, strong wholesale and trade finance."},
+{t:"1030.SR",n:"Saudi Investment Bank (SAIB)",s:"Banking",r:false,pe:11.5,pb:1.2,roe:0.12,npm:0.38,de:null,dy:0.045,fcf:true,cr:null,rg:0.08,eg:0.10,rev:11.2,ni:4.3,assets:320,desc:"Mid-size bank with corporate and investment banking focus."},
 {t:"1010.SR",n:"Riyad Bank",s:"Banking",r:false,pe:13.1,pb:1.4,roe:0.13,npm:0.41,de:null,dy:0.040,fcf:true,cr:null,rg:0.09,eg:0.09,rev:14.8,ni:6.1,assets:420,desc:"Large Saudi bank with strong retail and corporate banking."},
 {t:"1050.SR",n:"Banque Saudi Fransi",s:"Banking",r:false,pe:10.8,pb:1.1,roe:0.11,npm:0.37,de:null,dy:0.048,fcf:true,cr:null,rg:0.07,eg:0.08,rev:9.2,ni:3.4,assets:280,desc:"Mid-sized bank with French heritage. Strong corporate banking."},
 {t:"1080.SR",n:"Arab National Bank",s:"Banking",r:false,pe:11.2,pb:1.0,roe:0.10,npm:0.35,de:null,dy:0.046,fcf:true,cr:null,rg:0.06,eg:0.07,rev:7.8,ni:2.7,assets:220,desc:"Balanced retail and corporate banking mix."},
@@ -1385,18 +1505,15 @@ const STOCKS=[
 // live data from Yahoo Finance when fetched
 // ═══════════════════════════════════════════════════
 const MORE_TICKERS = [
-// Energy
-{t:"2381.SR",n:"Petro Rabigh (PRC)",s:"Energy",r:false},
+// Energy (2380.SR Petro Rabigh already in main STOCKS, 2381 removed to avoid duplicate)
 {t:"2030.SR",n:"SARCO",s:"Energy",r:false},
 {t:"4031.SR",n:"Saudi Chemical Co.",s:"Materials",r:false},
 {t:"2001.SR",n:"Methanol Chemicals",s:"Petrochemicals",r:false},
 {t:"2290.SR",n:"Yanbu National Petrochem",s:"Petrochemicals",r:false},
 {t:"2170.SR",n:"Almohandis Investment",s:"Petrochemicals",r:false},
-// Banks
+// Banks (1030.SR Saudi Investment Bank is in main STOCKS; 1140.SR Samba merged into SNB 1180.SR)
 {t:"1020.SR",n:"Bank AlJazira",s:"Banking",r:false},
-{t:"1030.SR",n:"Audi Capital",s:"Banking",r:false},
-{t:"1040.SR",n:"Saudi Investment Bank",s:"Banking",r:false},
-{t:"1140.SR",n:"Bank AlBilad",s:"Banking",r:false},
+{t:"1040.SR",n:"Bank AlBilad",s:"Banking",r:false},
 // Telecom
 {t:"7020.SR",n:"Etihad Etisalat (Mobily)",s:"Telecom",r:false},
 {t:"7030.SR",n:"Zain KSA",s:"Telecom",r:false},
@@ -1413,8 +1530,8 @@ const MORE_TICKERS = [
 {t:"4323.SR",n:"Sumou Real Estate",s:"Real Estate",r:false},
 {t:"4324.SR",n:"Banan Real Estate",s:"Real Estate",r:false},
 // Retail / Consumer
-{t:"4003.SR",n:"Extra",s:"Consumer",r:false},
-{t:"4050.SR",n:"SACO",s:"Consumer",r:false},
+{t:"4003.SR",n:"Extra (eXtra)",s:"Consumer",r:false},
+{t:"4017.SR",n:"SACO",s:"Consumer",r:false},
 {t:"4051.SR",n:"Batic Investments",s:"Consumer",r:false},
 {t:"4160.SR",n:"Theeb Rent-a-Car",s:"Consumer",r:false},
 {t:"4200.SR",n:"Aldrees Petroleum",s:"Consumer",r:false},
@@ -1499,6 +1616,31 @@ const MORE_TICKERS = [
 // STATE
 // ═══════════════════════════════════════
 let allData=[],filtData=[],activeSector="All",sortKey="combined",curPage=1;
+
+// ── COMBINED SCORE WEIGHTS ──
+let SCORE_WEIGHTS = JSON.parse(localStorage.getItem('tasi_score_weights') || 'null') || {fundamental:30,technical:20,buffett:35,peg:15,dcf:0};
+
+function dcfUpsideToScore(upside) {
+  if (upside == null) return 50;
+  if (upside >= 0.50) return 100;
+  if (upside >= 0)    return Math.round(50 + (upside / 0.50) * 50);
+  if (upside >= -0.50) return Math.max(0, Math.round(50 + (upside / 0.50) * 50));
+  return 0;
+}
+
+function calcCombined(d) {
+  const W = SCORE_WEIGHTS;
+  const total = (W.fundamental||0) + (W.technical||0) + (W.buffett||0) + (W.peg||0) + (W.dcf||0);
+  if (total === 0) return 50;
+  const dcfScore = (W.dcf > 0 && d.dcfUpside != null) ? dcfUpsideToScore(d.dcfUpside) : 50;
+  return Math.round(
+    (d.fundamental||50) * (W.fundamental||0) / total +
+    (d.technical||50)   * (W.technical||0)   / total +
+    (d.buffett||50)     * (W.buffett||0)      / total +
+    (d.pegScore||50)    * (W.peg||0)          / total +
+    dcfScore            * (W.dcf||0)          / total
+  );
+}
 const PG=30;
 let chartInst=null;
 
@@ -2125,7 +2267,8 @@ function renderTable(){
     const reit=d.isReit?`<span class="badge b-reit">REIT</span>`:"";
     const lv=d.priceLoaded?`<span class="badge b-live" style="margin-left:2px">LIVE</span>`:`<span class="badge b-est" style="margin-left:2px">EST</span>`;
     const pegStr=d.peg!=null?`<span style="font-family:var(--mono);font-size:10px;color:${d.peg<1?"var(--green)":d.peg<2?"var(--amb)":"var(--red)"}">${d.peg.toFixed(2)}</span>`:`<span class="nav">—</span>`;
-    const egStr=d.eg!=null?`<span class="${d.eg>=0?'pos':'neg'}">${d.eg>=0?"+":""}${(d.eg*100).toFixed(0)}%</span>`:`<span class="nav">—</span>`;
+    const egSrc=d.egSource==='statements'?'<span title="From annual financial statements" style="font-size:7px;vertical-align:super;color:var(--blue);margin-left:1px">s</span>':'';
+    const egStr=d.eg!=null?`<span class="${d.eg>=0?'pos':'neg'}">${d.eg>=0?"+":""}${(d.eg*100).toFixed(0)}%${egSrc}</span>`:`<span class="nav">—</span>`;
     return`<tr class="data-row" onclick="openModal(${start+i})">
       <td class="rk">${start+i+1}</td>
       <td class="tk">${d.ticker.replace(".SR","")}</td>
@@ -2354,7 +2497,7 @@ async function openModal(idx){
             realD.peg=pegRes.peg; realD.pegScore=pegRes.score; realD.pegSteps=pegRes.steps;
             realD.technical=tRes.score; realD.techSteps=tRes.steps;
             realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
-            realD.combined=Math.round(fRes.score*0.30+tRes.score*0.20+bRes.buffett*0.35+pegRes.score*0.15);
+            realD.combined=calcCombined(realD);
             if(window._fd?.[idx]) Object.assign(window._fd[idx], realD);
             usedDriveCache = true;
           }
@@ -2392,7 +2535,7 @@ async function openModal(idx){
           realD.peg=pegRes.peg; realD.pegScore=pegRes.score; realD.pegSteps=pegRes.steps;
           realD.technical=tRes.score; realD.techSteps=tRes.steps;
           realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
-          realD.combined=Math.round(fRes.score*0.30+tRes.score*0.20+bRes.buffett*0.35+pegRes.score*0.15);
+          realD.combined=calcCombined(realD);
           if(window._fd?.[idx]) Object.assign(window._fd[idx], realD);
         }
       }
@@ -2417,6 +2560,7 @@ async function openModal(idx){
       <div class="tab" id="tab-annual" onclick="switchTab('annual')">5-Year</div>
       <div class="tab" id="tab-buffett" onclick="switchTab('buffett')">Buffett</div>
       <div class="tab" id="tab-chart" onclick="switchTab('chart')">Chart</div>
+      <div class="tab" id="tab-dcf" onclick="switchTab('dcf')">DCF</div>
       <div class="tab" id="tab-extra" onclick="switchTab('extra')">Vision 2030</div>
     </div>
   </div>
@@ -2430,7 +2574,41 @@ function switchTab(tab){
   const el=document.getElementById("tab-"+tab);if(el)el.classList.add("active");
   const d=window._fd?.[window._curIdx];if(!d)return;
   const body=document.getElementById("panel-content");if(!body)return;
-  if(tab==="overview")body.innerHTML=buildOverview(d);
+  if(tab==="overview"){
+    body.innerHTML=buildOverview(d);
+    // Async load dividend schedule into placeholder
+    fetchDividendSchedule(d.ticker).then(sched=>{
+      const el=document.getElementById('div-sched-'+d.ticker);
+      if(!el)return;
+      if(!sched||!sched.length){
+        el.innerHTML='<span style="color:var(--tx3)">No dividend history found for this stock.</span>';return;
+      }
+      const totalPerYear={};
+      sched.forEach(e=>{const yr=e.date.slice(0,4);totalPerYear[yr]=(totalPerYear[yr]||0)+e.amount;});
+      const yearRows=Object.entries(totalPerYear).sort((a,b)=>b[0]-a[0]).slice(0,8).map(([yr,amt])=>
+        `<tr><td>${yr}</td><td style="color:var(--green);font-family:var(--mono)">${amt.toFixed(4)} SAR</td><td style="color:var(--tx3)">${d.price?(amt/d.price*100).toFixed(2)+'%':'—'}</td><td style="color:var(--tx3)">Annual</td></tr>`
+      ).join('');
+      const recentRows=sched.slice(0,10).map(div=>
+        `<tr><td style="font-family:var(--mono)">${div.date}</td><td style="color:var(--green);font-family:var(--mono)">${div.amount.toFixed(4)} SAR</td><td style="color:var(--tx3)">${div.yieldAtPrice?div.yieldAtPrice+'%':'—'}</td><td style="color:var(--tx3)">${div.type}</td></tr>`
+      ).join('');
+      el.innerHTML=`
+        <div style="margin-bottom:8px">
+          <div style="font-size:8px;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Annual Totals (last 8 years)</div>
+          <div style="overflow-x:auto"><table class="ft">
+            <thead><tr><th>Year</th><th>Total Paid (SAR)</th><th>Yield</th><th>Type</th></tr></thead>
+            <tbody>${yearRows}</tbody>
+          </table></div>
+        </div>
+        <div>
+          <div style="font-size:8px;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Individual Payments (last 10)</div>
+          <div style="overflow-x:auto"><table class="ft">
+            <thead><tr><th>Ex-Date</th><th>Amount (SAR)</th><th>Yield @Price</th><th>Type</th></tr></thead>
+            <tbody>${recentRows}</tbody>
+          </table></div>
+        </div>
+        <div style="font-size:8px;color:var(--tx3);margin-top:4px">Source: Yahoo Finance · ${sched.length} dividend payments found</div>`;
+    });
+  }
   else if(tab==="breakdown")body.innerHTML=buildBreakdown(d);
   else if(tab==="quarterly"){
     body.innerHTML=`<div class="tab-loading"><span class="spin"></span> Loading quarterly statements…</div>`;
@@ -2442,6 +2620,7 @@ function switchTab(tab){
   }
   else if(tab==="buffett")body.innerHTML=buildBuffett(d);
   else if(tab==="chart"){chartRangeIdx=3;chartShowRSI=false;chartShowSMA20=true;chartShowSMA50=false;chartShowBollinger=false;body.innerHTML=buildChartPanel(d);drawChart(d);}
+  else if(tab==="dcf"){body.innerHTML=`<div class="tab-loading"><span class="spin"></span> Building DCF model…</div>`;buildDCF(d).then(html=>{if(body.isConnected)body.innerHTML=html;});}
   else if(tab==="extra")body.innerHTML=buildExtraPanel(d);
 }
 
@@ -2455,8 +2634,7 @@ function buildOverview(d){
     <div class="scard hl"><div class="slbl">Combined</div><div class="sval" style="color:${sc(d.combined)}">${d.combined}</div></div>
   </div>
   <div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:8px 10px;font-family:var(--mono);font-size:9px;color:var(--tx3);margin-bottom:8px">
-    Combined = (Fundamental × 30%) + (Technical × 20%) + (Buffett × 35%) + (PEG Score × 15%)
-    = (${d.fundamental}×0.30) + (${d.technical}×0.20) + (${d.buffett}×0.35) + (${d.pegScore}×0.15) = <span style="color:var(--acc);font-weight:600">${d.combined}</span>
+    ${(()=>{const W=SCORE_WEIGHTS;const t=(W.fundamental||0)+(W.technical||0)+(W.buffett||0)+(W.peg||0)+(W.dcf||0)||100;const parts=[];if(W.fundamental>0)parts.push(`Fund×${W.fundamental}%`);if(W.technical>0)parts.push(`Tech×${W.technical}%`);if(W.buffett>0)parts.push(`Buffett×${W.buffett}%`);if(W.peg>0)parts.push(`PEG×${W.peg}%`);if(W.dcf>0)parts.push(`DCF×${W.dcf}%`);return`Combined = ${parts.join(' + ')} = <span style="color:var(--acc);font-weight:600">${d.combined}</span>`;})()}
   </div>
   <div class="secl">Market & Valuation</div>
   <div class="mgrid4">
@@ -2465,9 +2643,10 @@ function buildOverview(d){
     <div class="mi"><div class="mil">P/E Ratio</div><div class="miv">${d.pe!=null?d.pe.toFixed(1):"—"}</div></div>
     <div class="mi"><div class="mil">P/B Ratio</div><div class="miv">${d.pb!=null?d.pb.toFixed(2):"—"}</div></div>
     <div class="mi"><div class="mil">PEG Ratio</div><div class="miv" style="color:${peg!=null?(peg<1?"var(--green)":peg<2?"var(--amb)":"var(--red)"):"var(--tx3)"}">${peg!=null?peg.toFixed(2):"—"}</div></div>
-    <div class="mi"><div class="mil">Earnings Growth</div><div class="miv ${d.eg!=null?(d.eg>=0?'pos':'neg'):''}">${d.eg!=null?(d.eg>=0?"+":"")+(d.eg*100).toFixed(1)+"%":"—"}</div></div>
+    <div class="mi"><div class="mil">Earnings Growth${d.egSource==='statements'?'<span title="From annual statements" style="font-size:8px;color:var(--blue);margin-left:3px">★stmt</span>':''}</div><div class="miv ${d.eg!=null?(d.eg>=0?'pos':'neg'):''}">${d.eg!=null?(d.eg>=0?"+":"")+(d.eg*100).toFixed(1)+"%":"—"}</div></div>
     <div class="mi"><div class="mil">Div. Yield</div><div class="miv">${d.dy!=null?(d.dy*100).toFixed(2)+"%":"—"}</div></div>
     <div class="mi"><div class="mil">ROE</div><div class="miv ${d.roe!=null?(d.roe>0.12?"pos":d.roe<0?"neg":""):''}">${d.roe!=null?(d.roe*100).toFixed(1)+"%":"—"}</div></div>
+    ${d.dcfPS!=null&&d.price?`<div class="mi"><div class="mil">${d.dcfMethod||'DCF'} Fair Value</div><div class="miv" style="color:${d.dcfUpside>0.10?'var(--green)':d.dcfUpside>-0.10?'var(--amb)':'var(--red)'}"><span style="font-weight:600">${d.dcfPS.toFixed(2)} SAR</span> <span style="font-size:9px;font-family:var(--mono)">${d.dcfUpside>=0?'+':''}${(d.dcfUpside*100).toFixed(1)}%</span></div></div>`:`<div class="mi"><div class="mil">DCF Fair Value</div><div class="miv" style="font-size:9px;color:var(--tx3)">Open DCF tab ↗</div></div>`}
   </div>
   <div class="secl">Key Financials (SAR B, FY2024)</div>
   <div class="mgrid">
@@ -2491,6 +2670,7 @@ function buildOverview(d){
       '<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:#1a1a2e;color:var(--blue);border:1px solid var(--blue)">✓ Yahoo Finance Live</span>':
       '<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:var(--bg3);color:var(--tx3);border:1px solid var(--b1)">Hardcoded estimates</span>'}
     ${d.fullLoaded?'<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:var(--gdim);color:var(--green);border:1px solid #166534">✓ Full data loaded</span>':'<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Full fundamentals load when you click a stock</span>'}
+    ${d.stmtEnriched?'<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:#1a1a2e;color:var(--blue);border:1px solid var(--blue)">↻ Scores updated from statements</span>':''}
     ${d.beta!=null?`<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Beta: ${d.beta.toFixed(2)}</span>`:''}
     ${d.mktCap!=null?`<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Market cap: ${(d.mktCap/1e9).toFixed(1)}B SAR</span>`:''}
   </div>
@@ -2499,16 +2679,8 @@ function buildOverview(d){
     <div class="mi"><div class="mil">52W Low</div><div class="miv">${d.w52low?.toFixed(2)||'—'} SAR</div></div>
     <div class="mi"><div class="mil">52W Range</div><div class="miv" style="font-size:10px">${d.w52low?.toFixed(2)||'?'} – ${d.w52high?.toFixed(2)||'?'}</div></div>
   </div>`:''}
-  ${d.dividends?.length?`
-  <div class="secl">Recent Dividends</div>
-  <div style="overflow-x:auto"><table class="ft" style="margin-bottom:8px">
-    <thead><tr><th>Date</th><th>Amount (SAR)</th><th>Type</th></tr></thead>
-    <tbody>${d.dividends.slice(0,5).map(div=>`<tr>
-      <td>${div.date||'—'}</td>
-      <td style="color:var(--green);font-family:var(--mono)">${div.amount?.toFixed(2)||'—'}</td>
-      <td style="color:var(--tx3)">${div.type||'Cash'}</td>
-    </tr>`).join('')}</tbody>
-  </table></div>`:''}
+  <div class="secl">Dividend History</div>
+  <div id="div-sched-${d.ticker}" style="font-family:var(--mono);font-size:9px;color:var(--tx3);padding:6px 0"><span class="spin"></span> Loading dividend history…</div>
   ${buildPeerComparison(d)}
   ${buildAlertPanel(d)}
   <div class="secl" style="margin-top:10px">Actions</div>
@@ -2572,13 +2744,31 @@ async function buildFinancials(d, period) {
   const isQ = period === 'quarterly';
   const cacheKey = isQ ? 'quarterly' : 'annual';
 
+  function enrichAndRender(stmtData, src) {
+    if (period === 'annual' && !d.stmtEnriched) {
+      const realD = allData.find(a => a.ticker === d.ticker);
+      if (realD) {
+        const changed = enrichFundamentalsFromStatements(realD, stmtData);
+        if (changed) {
+          Object.assign(d, realD);
+          if (window._fd) {
+            const fdIdx = window._fd.findIndex(f => f.ticker === d.ticker);
+            if (fdIdx >= 0) Object.assign(window._fd[fdIdx], realD);
+          }
+          setTimeout(() => doFilter(), 50);
+        }
+      }
+    }
+    return renderTwelveStatements(stmtData, period, d.ticker, src, d);
+  }
+
   // 1. Google Drive cache (30-day TTL for statements)
   const driveStock = await gdReadStock(d.ticker);
   const driveStmt = driveStock?.[cacheKey];
   const driveUpdated = driveStock?.[`${cacheKey}Updated`] || 0;
   if (driveStmt && (driveStmt.is || driveStmt.bs || driveStmt.cf) && (Date.now() - driveUpdated < GD_STMT_TTL)) {
     tdLog('Loaded from Google Drive ✓', true);
-    return renderTwelveStatements(driveStmt, period, d.ticker, 'Google Drive cache');
+    return enrichAndRender(driveStmt, 'Google Drive cache');
   }
 
   // 2. Yahoo quoteSummary rawYahoo (fetched when panel opened)
@@ -2586,7 +2776,7 @@ async function buildFinancials(d, period) {
     const y = parseYahooFinancials(d.rawYahoo, period);
     if (y.is || y.bs || y.cf) {
       gdWriteStock(d.ticker, { [cacheKey]: y, [`${cacheKey}Updated`]: Date.now() });
-      return renderTwelveStatements(y, period, d.ticker, 'Yahoo Finance');
+      return enrichAndRender(y, 'Yahoo Finance');
     }
   }
 
@@ -2598,31 +2788,15 @@ async function buildFinancials(d, period) {
     d.rawTwelveData[cacheKey] = yt;
     tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
     gdWriteStock(d.ticker, { [cacheKey]: yt, [`${cacheKey}Updated`]: Date.now() });
-    return renderTwelveStatements(yt, period, d.ticker, 'Yahoo Finance');
+    return enrichAndRender(yt, 'Yahoo Finance');
   }
 
   // 4. localStorage cache
   if (!d.rawTwelveData) { const c = tdCacheGet(d.ticker); if (c) d.rawTwelveData = c; }
   const cached = d.rawTwelveData?.[cacheKey];
-  if (cached && (cached.is || cached.bs || cached.cf)) return renderTwelveStatements(cached, period, d.ticker, 'cache');
+  if (cached && (cached.is || cached.bs || cached.cf)) return enrichAndRender(cached, 'cache');
 
-  // 5. Alpha Vantage (free, 500/day)
-  if (getAVKey()) {
-    tdLog(`Fetching ${period} statements from Alpha Vantage…`, true);
-    const av = await fetchAlphaVantageStatements(d.ticker, period);
-    tdLog('Income: '+(av.is?'ok':'no data'), !!av.is);
-    tdLog('Balance: '+(av.bs?'ok':'no data'), !!av.bs);
-    tdLog('Cash flow: '+(av.cf?'ok':'no data'), !!av.cf);
-    if (av.is || av.bs || av.cf) {
-      if (!d.rawTwelveData) d.rawTwelveData = {};
-      d.rawTwelveData[cacheKey] = av;
-      tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
-      gdWriteStock(d.ticker, { [cacheKey]: av, [`${cacheKey}Updated`]: Date.now() });
-      return renderTwelveStatements(av, period, d.ticker, 'Alpha Vantage');
-    }
-  }
-
-  // 6. FMP API (if key saved)
+  // 5. FMP API (if key saved)
   if (getFMPKey()) {
     tdLog(`Fetching ${period} statements from FMP…`, true);
     const fmp = await fetchFMPStatements(d.ticker, period);
@@ -2631,32 +2805,32 @@ async function buildFinancials(d, period) {
       d.rawTwelveData[cacheKey] = fmp;
       tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
       gdWriteStock(d.ticker, { [cacheKey]: fmp, [`${cacheKey}Updated`]: Date.now() });
-      return renderTwelveStatements(fmp, period, d.ticker, 'FMP');
+      return enrichAndRender(fmp, 'FMP');
     }
   }
 
-  // 7. Web scraping fallback
+  // 6. Web scraping fallback
   const scraped = await scrapeFinancials(d.ticker, period);
   if (scraped.is || scraped.bs || scraped.cf) {
     if (!d.rawTwelveData) d.rawTwelveData = {};
     d.rawTwelveData[cacheKey] = scraped;
     tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
     gdWriteStock(d.ticker, { [cacheKey]: scraped, [`${cacheKey}Updated`]: Date.now() });
-    return renderTwelveStatements(scraped, period, d.ticker, 'scraped');
+    return enrichAndRender(scraped, 'scraped');
   }
 
-  return renderTwelveStatements({ is:null, bs:null, cf:null }, period, d.ticker, 'none');
+  return renderTwelveStatements({ is:null, bs:null, cf:null }, period, d.ticker, 'none', d);
 }
 
 async function buildQuarterly(d){ return buildFinancials(d, 'quarterly'); }
 
-function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance') {
+function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', stockObj = null) {
   const { is, bs, cf } = data || {};
   const noData = (arr) => !arr || !arr.length;
   if (noData(is) && noData(bs) && noData(cf)) {
     return `<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">
       <div style="color:var(--amb);margin-bottom:6px">⚠ No ${period} financial data found for this stock.</div>
-      <div>All sources tried (Google Drive, scraping, Yahoo Finance). Connect Google Drive in ⚙ Settings to enable scraping &amp; cloud storage, or check the other tab.</div>
+      <div>All sources tried (Google Drive, Yahoo Finance Timeseries, scraping). Connect Google Drive in ⚙ Settings to enable cloud caching, or check the other tab.</div>
     </div>`;
   }
   function fmtSAR(v) {
@@ -2665,47 +2839,407 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance') 
     if (isNaN(n)) return '—';
     return (n / 1e9).toFixed(2) + 'B';
   }
+  function fmtPct(v) {
+    if (v == null || isNaN(v)) return '—';
+    return (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%';
+  }
+  function fmtRatio(v) {
+    if (v == null || isNaN(v)) return '—';
+    return v.toFixed(2) + 'x';
+  }
+  function yoyGrowth(arr, key) {
+    return arr.map((r, i) => {
+      if (i >= arr.length - 1) return null;
+      const cur = parseFloat(arr[i][key]), prv = parseFloat(arr[i + 1][key]);
+      if (isNaN(cur) || isNaN(prv) || prv === 0) return null;
+      return (cur - prv) / Math.abs(prv);
+    });
+  }
   function makeTable(title, rows, dates) {
     if (!dates || !dates.length) return '';
     return `<div style="margin-bottom:14px">
       <div style="font-family:var(--mono);font-size:9px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;padding-bottom:4px;border-bottom:1px solid var(--b1)">${title}</div>
       <div style="overflow-x:auto"><table class="ft">
         <thead><tr><th>Item</th>${dates.map(d=>`<th>${d}</th>`).join('')}</tr></thead>
-        <tbody>${rows.map(row=>`<tr><td>${row.label}</td>${row.vals.map(v=>`<td class="${v&&v.startsWith&&v.startsWith('-')?'ft-neg':v&&v!=='—'?'ft-pos':''}">${v||'—'}</td>`).join('')}</tr>`).join('')}</tbody>
+        <tbody>${rows.map(row => {
+          const isPct = row.type === 'pct';
+          const isRatio = row.type === 'ratio';
+          const isDim = row.type === 'dim';
+          const trStyle = isDim ? 'opacity:.7' : '';
+          const cells = row.vals.map(v => {
+            if (!v || v === '—') return `<td style="color:var(--tx3)">—</td>`;
+            if (isPct) {
+              const n = parseFloat(v);
+              const col = isNaN(n) ? 'var(--tx3)' : n > 5 ? 'var(--green)' : n > 0 ? 'var(--amb)' : 'var(--red)';
+              return `<td style="color:${col};font-size:9px">${v}</td>`;
+            }
+            if (isRatio) return `<td style="color:var(--tx2);font-size:9px">${v}</td>`;
+            return `<td class="${v.startsWith('-')?'ft-neg':'ft-pos'}">${v}</td>`;
+          }).join('');
+          return `<tr style="${trStyle}"><td style="${isDim?'color:var(--tx3);font-style:italic':''}">${row.label}</td>${cells}</tr>`;
+        }).join('')}</tbody>
       </table></div></div>`;
   }
-  const isRows = is ? [
-    {label:'Revenue',        vals: is.map(r => fmtSAR(r.revenue))},
-    {label:'Gross Profit',   vals: is.map(r => fmtSAR(r.gross_profit))},
-    {label:'EBITDA',         vals: is.map(r => fmtSAR(r.ebitda))},
-    {label:'Operating Inc.', vals: is.map(r => fmtSAR(r.operating_income))},
-    {label:'Net Income',     vals: is.map(r => fmtSAR(r.net_income))},
-    {label:'EPS (SAR)',      vals: is.map(r => r.eps != null && r.eps !== '' ? parseFloat(r.eps).toFixed(3) : '—')},
-  ] : [];
-  const bsRows = bs ? [
-    {label:'Total Assets',   vals: bs.map(r => fmtSAR(r.total_assets))},
-    {label:'Total Liab.',    vals: bs.map(r => fmtSAR(r.total_liabilities))},
-    {label:'Total Equity',   vals: bs.map(r => fmtSAR(r.total_equity))},
-    {label:'Cash & Equiv.',  vals: bs.map(r => fmtSAR(r.cash_and_equivalents))},
-    {label:'Long-term Debt', vals: bs.map(r => fmtSAR(r.long_term_debt))},
-  ] : [];
-  const cfRows = cf ? [
-    {label:'Operating CF',   vals: cf.map(r => fmtSAR(r.operating_activities))},
-    {label:'Investing CF',   vals: cf.map(r => fmtSAR(r.investing_activities))},
-    {label:'Financing CF',   vals: cf.map(r => fmtSAR(r.financing_activities))},
-    {label:'CapEx',          vals: cf.map(r => fmtSAR(r.capital_expenditure))},
-    {label:'Free Cashflow',  vals: cf.map(r => fmtSAR(r.free_cash_flow))},
-    {label:'Dividends Paid', vals: cf.map(r => fmtSAR(r.dividends_paid))},
-  ] : [];
   const pLabel = period === 'quarterly' ? (r => r.fiscal_date || '—') : (r => 'FY' + (r.fiscal_date || '—').slice(0, 4));
-  return makeTable(period === 'quarterly' ? 'Quarterly Income Statement' : '5-Year Income Statement', isRows, is?.map(pLabel) || [])
+
+  // Banks and insurance use a different P&L structure — no COGS, no EBITDA, no traditional margins
+  const sector = stockObj?.sector || stockObj?.s || '';
+  const isFinancial = /banking|insurance|reit/i.test(sector);
+
+  // Check if data actually contains these fields (some sources may include them even for banks)
+  const hasGrossProfit = is?.some(r => r.gross_profit != null);
+  const hasEbitda      = is?.some(r => r.ebitda != null);
+  const hasOpIncome    = is?.some(r => r.operating_income != null);
+  const showGrossBlock = hasGrossProfit && !isFinancial;
+  const showEbitda     = hasEbitda && !isFinancial;
+  const showOpBlock    = hasOpIncome && !isFinancial;
+
+  // ── Income Statement rows ──
+  const isRows = is ? (() => {
+    const revGrowth = yoyGrowth(is, 'revenue');
+    const niGrowth  = yoyGrowth(is, 'net_income');
+    const epsGrowth = yoyGrowth(is, 'eps');
+    const rows = [
+      {label:'Revenue',          vals: is.map(r => fmtSAR(r.revenue))},
+      {label:'Rev Growth YoY',   vals: revGrowth.map(fmtPct), type:'pct'},
+    ];
+    if (showGrossBlock) {
+      rows.push({label:'Gross Profit', vals: is.map(r => fmtSAR(r.gross_profit))});
+      rows.push({label:'Gross Margin', vals: is.map(r => {
+        const gm = parseFloat(r.gross_profit), rv = parseFloat(r.revenue);
+        return (!isNaN(gm) && !isNaN(rv) && rv !== 0) ? fmtPct(gm/rv) : '—';
+      }), type:'pct'});
+    }
+    if (showEbitda) rows.push({label:'EBITDA', vals: is.map(r => fmtSAR(r.ebitda))});
+    if (showOpBlock) {
+      rows.push({label:'Operating Inc.', vals: is.map(r => fmtSAR(r.operating_income))});
+      rows.push({label:'Op. Margin', vals: is.map(r => {
+        const oi = parseFloat(r.operating_income), rv = parseFloat(r.revenue);
+        return (!isNaN(oi) && !isNaN(rv) && rv !== 0) ? fmtPct(oi/rv) : '—';
+      }), type:'pct'});
+    }
+    rows.push({label:'Net Income',     vals: is.map(r => fmtSAR(r.net_income))});
+    rows.push({label:'Net Inc Growth', vals: niGrowth.map(fmtPct), type:'pct'});
+    if (!isFinancial) {
+      rows.push({label:'Net Margin', vals: is.map(r => {
+        const ni = parseFloat(r.net_income), rv = parseFloat(r.revenue);
+        return (!isNaN(ni) && !isNaN(rv) && rv !== 0) ? fmtPct(ni/rv) : '—';
+      }), type:'pct'});
+    }
+    rows.push({label:'EPS (SAR)', vals: is.map(r => r.eps != null && r.eps !== '' ? parseFloat(r.eps).toFixed(3) : '—')});
+    rows.push({label:'EPS Growth', vals: epsGrowth.map(fmtPct), type:'pct'});
+    return rows;
+  })() : [];
+
+  // ── Balance Sheet rows ──
+  const bsRows = bs ? (() => {
+    const niByYear = {};
+    if (is) is.forEach(r => { if (r.fiscal_date) niByYear[r.fiscal_date.slice(0,4)] = parseFloat(r.net_income); });
+    const rows = [
+      {label:'Total Assets',   vals: bs.map(r => fmtSAR(r.total_assets))},
+      {label:'Total Liab.',    vals: bs.map(r => fmtSAR(r.total_liabilities))},
+      {label:'Total Equity',   vals: bs.map(r => fmtSAR(r.total_equity))},
+    ];
+    // For banks show Equity/Assets ratio instead of D/E (D/E is intentionally high for banks)
+    if (isFinancial) {
+      rows.push({label:'Equity/Assets', vals: bs.map(r => {
+        const te = parseFloat(r.total_equity), ta = parseFloat(r.total_assets);
+        return (!isNaN(te) && !isNaN(ta) && ta !== 0) ? fmtPct(te/ta) : '—';
+      }), type:'pct'});
+    } else {
+      rows.push({label:'D/E Ratio', vals: bs.map(r => {
+        const tl = parseFloat(r.total_liabilities), te = parseFloat(r.total_equity);
+        return (!isNaN(tl) && !isNaN(te) && te !== 0) ? fmtRatio(tl/te) : '—';
+      }), type:'ratio'});
+    }
+    rows.push({label:'ROA', vals: bs.map(r => {
+      const ta = parseFloat(r.total_assets);
+      const yr = (r.fiscal_date||'').slice(0,4);
+      const ni = niByYear[yr];
+      return (!isNaN(ta) && ta !== 0 && ni != null && !isNaN(ni)) ? fmtPct(ni/ta) : '—';
+    }), type:'pct'});
+    rows.push({label:'Cash & Equiv.',  vals: bs.map(r => fmtSAR(r.cash_and_equivalents))});
+    rows.push({label:'Long-term Debt', vals: bs.map(r => fmtSAR(r.long_term_debt))});
+    return rows;
+  })() : [];
+
+  // ── Cash Flow rows ──
+  const cfRows = cf ? (() => {
+    const revByYear = {};
+    if (is) is.forEach(r => { if (r.fiscal_date) revByYear[r.fiscal_date.slice(0,4)] = parseFloat(r.revenue); });
+    const rows = [
+      {label:'Operating CF',  vals: cf.map(r => fmtSAR(r.operating_activities))},
+      {label:'Investing CF',  vals: cf.map(r => fmtSAR(r.investing_activities))},
+      {label:'Financing CF',  vals: cf.map(r => fmtSAR(r.financing_activities))},
+      {label:'CapEx',         vals: cf.map(r => fmtSAR(r.capital_expenditure))},
+      {label:'Free Cashflow', vals: cf.map(r => fmtSAR(r.free_cash_flow))},
+    ];
+    if (!isFinancial) {
+      rows.push({label:'FCF Margin', vals: cf.map(r => {
+        const fcf = parseFloat(r.free_cash_flow);
+        const yr = (r.fiscal_date||'').slice(0,4);
+        const rv = revByYear[yr];
+        return (!isNaN(fcf) && rv != null && !isNaN(rv) && rv !== 0) ? fmtPct(fcf/rv) : '—';
+      }), type:'pct'});
+    }
+    rows.push({label:'Dividends Paid', vals: cf.map(r => fmtSAR(r.dividends_paid))});
+    return rows;
+  })() : [];
+
+  // ── Data cross-check vs overview ──
+  // Skipped for financial sectors (banks, insurance) where revenue denominator differs
+  let validationHtml = '';
+  if (stockObj && is?.length && !isFinancial) {
+    const latestIS = is[0];
+    const checks = [];
+    if (stockObj.eps != null && latestIS.eps != null) {
+      const stmtEps = parseFloat(latestIS.eps), ovEps = parseFloat(stockObj.eps);
+      if (!isNaN(stmtEps) && !isNaN(ovEps)) {
+        const diff = Math.abs(stmtEps - ovEps) / Math.max(Math.abs(ovEps), 0.01);
+        const icon = diff < 0.15 ? '✓' : '⚠';
+        const col  = diff < 0.15 ? 'var(--green)' : 'var(--amb)';
+        checks.push(`<span style="color:${col}">${icon} EPS: stmt ${stmtEps.toFixed(2)} SAR vs overview ${ovEps.toFixed(2)} SAR${diff >= 0.15 ? ' (diff >15% — likely trailing vs FY period)' : ''}</span>`);
+      }
+    }
+    const rv = parseFloat(latestIS.revenue), ni = parseFloat(latestIS.net_income);
+    if (!isNaN(rv) && !isNaN(ni) && rv !== 0 && stockObj.npm != null) {
+      const stmtNpm = ni / rv, ovNpm = parseFloat(stockObj.npm);
+      if (!isNaN(ovNpm)) {
+        const diff = Math.abs(stmtNpm - ovNpm);
+        const icon = diff < 0.05 ? '✓' : '⚠';
+        const col  = diff < 0.05 ? 'var(--green)' : 'var(--amb)';
+        checks.push(`<span style="color:${col}">${icon} Net margin: stmt ${(stmtNpm*100).toFixed(1)}% vs overview ${(ovNpm*100).toFixed(1)}%${diff >= 0.05 ? ' (>5pp diff)' : ''}</span>`);
+      }
+    }
+    if (checks.length) {
+      validationHtml = `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:7px 10px;margin-bottom:8px;font-family:var(--mono);font-size:9px;line-height:1.8">
+        <div style="color:var(--tx2);margin-bottom:3px;font-size:8px;text-transform:uppercase;letter-spacing:.07em">⚡ Data Cross-Check (Statement vs Overview)</div>
+        ${checks.join('<br>')}
+      </div>`;
+    }
+  }
+
+  return validationHtml
+       + makeTable(period === 'quarterly' ? 'Quarterly Income Statement' : '5-Year Income Statement', isRows, is?.map(pLabel) || [])
        + makeTable(period === 'quarterly' ? 'Quarterly Balance Sheet'    : '5-Year Balance Sheet',    bsRows, bs?.map(pLabel) || [])
        + makeTable(period === 'quarterly' ? 'Quarterly Cash Flow'        : '5-Year Cash Flow',        cfRows, cf?.map(pLabel) || [])
-       + `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Source: ${source} · SAR · B = Billions · Cached 7 days in browser</div>`;
+       + `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Source: ${source} · SAR · B = Billions · Growth rows: YoY vs prior period · Margins are % of Revenue</div>`;
 }
 
 async function buildAnnual(d){ return buildFinancials(d, 'annual'); }
 
+// ── DCF ANALYSIS ──
+async function buildDCF(d) {
+  // ── DATA FETCHING ──
+  let baseFCF = null, fcfSource = 'N/A', stmtRevenue = null;
+  const annualData = d.rawTwelveData?.annual || (await (async()=>{
+    const cached = tdCacheGet(d.ticker); return cached?.annual || null;
+  })());
+  if (annualData?.cf?.length) {
+    const fcfRaw = parseFloat(annualData.cf[0].free_cash_flow);
+    if (!isNaN(fcfRaw)) { baseFCF = fcfRaw; fcfSource = 'financial statements'; }
+    if (annualData.is?.length) { const rv = parseFloat(annualData.is[0].revenue); if (!isNaN(rv)) stmtRevenue = rv; }
+  }
+  if (baseFCF === null && d.ni != null) {
+    baseFCF = d.fcf ? d.ni * 0.85e9 : d.ni * 0.3e9;
+    fcfSource = `estimated (NI ${d.ni?.toFixed(2)}B × factor)`;
+  }
+
+  // ── WACC ──
+  const rfRate=0.055, erp=0.065, kd=0.055, taxRate=0.20, termGrowth=0.025;
+  const beta = d.beta || 1.0;
+  const ke = rfRate + beta * erp;
+  const deRatio = d.de ? d.de / 100 : 0.3;
+  const eWeight = 1 / (1 + deRatio);
+  const dWeight = deRatio / (1 + deRatio);
+  const wacc = ke * eWeight + kd * dWeight * (1 - taxRate);
+  const growthRate = Math.min(Math.max(d.rg != null ? d.rg : 0.04, -0.10), 0.20);
+
+  // ── FCF COMPUTATION (all upfront) ──
+  let fcfProj=[], pvFCFs=[], sumPvFCF=0, termVal=0, pvTerm=0;
+  let enterpriseValue=0, netDebt=0, netDebtNote='assumed 0';
+  let equityValue=0, shareCount=null, intrinsicPS=null, upside=null;
+  if (baseFCF !== null) {
+    let fcf = baseFCF;
+    for (let i=1;i<=5;i++) { fcf *= (1+growthRate); fcfProj.push(fcf); }
+    pvFCFs = fcfProj.map((f,i) => f / Math.pow(1+wacc, i+1));
+    sumPvFCF = pvFCFs.reduce((a,b) => a+b, 0);
+    termVal = fcfProj[4] * (1+termGrowth) / (wacc - termGrowth);
+    pvTerm = termVal / Math.pow(1+wacc, 5);
+    enterpriseValue = sumPvFCF + pvTerm;
+    if (d.assets && d.de) {
+      const totalDebt = (d.de/100) * (d.assets*1e9 / (1+d.de/100));
+      const cash = annualData?.bs?.[0]?.cash_and_equivalents ? parseFloat(annualData.bs[0].cash_and_equivalents) : totalDebt * 0.15;
+      netDebt = totalDebt - (!isNaN(cash) ? cash : 0);
+      netDebtNote = `total debt ${(totalDebt/1e9).toFixed(1)}B − cash ${(!isNaN(cash)?cash/1e9:0).toFixed(1)}B`;
+    }
+    equityValue = Math.max(enterpriseValue - netDebt, 0);
+    shareCount = (d.mktCap && d.price && d.price > 0) ? d.mktCap / d.price : null;
+    intrinsicPS = shareCount ? equityValue / shareCount : null;
+    upside = (intrinsicPS && d.price) ? (intrinsicPS - d.price) / d.price : null;
+  }
+
+  // ── DDM FOR BANKING STOCKS ──
+  // Banks have D/E 400–600% (deposits = liabilities) → EV − Net Debt ≈ 0 → FCF-DCF useless.
+  // Use Gordon Growth DDM: Fair Value = DPS / (ke − g_sustainable)
+  const isBanking = d.sector === 'Banking';
+  let ddmPS=null, ddmUpside=null, ddmNotes='';
+  if (isBanking && d.dy && d.price && d.price > 0) {
+    const dps = d.dy * d.price;
+    const payoutRatio = Math.min(d.dy * (d.pe||15), 0.95);
+    const gSustain = Math.min((d.roe||0.12) * (1-payoutRatio), ke - 0.005);
+    if (ke > gSustain + 0.003 && dps > 0) {
+      ddmPS = dps / (ke - gSustain);
+      ddmUpside = (ddmPS - d.price) / d.price;
+      ddmNotes = `DPS ≈ ${dps.toFixed(3)} SAR · payout ≈ ${(payoutRatio*100).toFixed(0)}% · g = ${(gSustain*100).toFixed(2)}% · ke = ${(ke*100).toFixed(1)}%`;
+    }
+  }
+
+  // ── PRIMARY VALUATION ──
+  const primaryPS = isBanking ? (ddmPS ?? intrinsicPS) : intrinsicPS;
+  const primaryUpside = isBanking ? (ddmUpside ?? upside) : upside;
+  const primaryMethod = isBanking && ddmPS ? 'DDM' : 'FCF-DCF';
+  if (primaryPS != null) { d.dcfPS = primaryPS; d.dcfUpside = primaryUpside; d.dcfMethod = primaryMethod; }
+
+  // ── HTML ──
+  let html = `<div class="secl">DCF Valuation — Saudi Market Parameters</div>`;
+
+  // PROMINENT PRICE vs FAIR VALUE CARD
+  if (primaryPS != null && d.price) {
+    const uColor = primaryUpside > 0.10 ? 'var(--green)' : primaryUpside > -0.10 ? 'var(--amb)' : 'var(--red)';
+    const uLabel = primaryUpside > 0.10 ? '▲ Undervalued' : primaryUpside > -0.10 ? '● Fairly Valued' : '▼ Overvalued';
+    html += `<div style="background:var(--bg2);border:2px solid ${uColor};border-radius:10px;padding:14px 16px;margin-bottom:12px">
+  <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">${primaryMethod} — Market Price vs Fair Value</div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <div style="flex:1;min-width:90px;text-align:center;background:var(--bg3);border-radius:7px;padding:10px 8px;border:1px solid var(--b1)">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:5px">Market Price</div>
+      <div style="font-size:24px;font-weight:700;color:var(--tx1);font-family:var(--mono)">${d.price.toFixed(2)}</div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--tx3)">SAR</div>
+    </div>
+    <div style="flex:1;min-width:90px;text-align:center;background:var(--bg3);border-radius:7px;padding:10px 8px;border:1px solid ${uColor}55">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:5px">Fair Value (${primaryMethod})</div>
+      <div style="font-size:24px;font-weight:700;color:${uColor};font-family:var(--mono)">${primaryPS.toFixed(2)}</div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--tx3)">SAR</div>
+    </div>
+    <div style="flex:1;min-width:90px;text-align:center;background:var(--bg3);border-radius:7px;padding:10px 8px;border:1px solid ${uColor}55">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:5px">Upside / Downside</div>
+      <div style="font-size:24px;font-weight:700;color:${uColor};font-family:var(--mono)">${primaryUpside>=0?'+':''}${(primaryUpside*100).toFixed(1)}%</div>
+      <div style="font-family:var(--mono);font-size:9px;color:${uColor};font-weight:600">${uLabel}</div>
+    </div>
+  </div>
+</div>`;
+  }
+
+  // BANK WARNING
+  if (isBanking) {
+    html += `<div style="background:#1a1000;border:1px solid var(--amb);border-radius:7px;padding:10px 12px;margin-bottom:10px;font-family:var(--mono);font-size:9px;line-height:1.6">
+  <span style="color:var(--amb);font-weight:600">⚠ Bank Valuation:</span> <span style="color:var(--tx2)">FCF-DCF is unreliable for banks — deposits inflate D/E 400–600%, making EV − Net Debt ≈ 0. ${ddmPS?`Primary fair value uses <strong style="color:var(--acc)">DDM (Gordon Growth)</strong>: Fair Value = DPS ÷ (ke − g_sustainable).<br><span style="color:var(--tx3)">${ddmNotes}</span>`:'DDM unavailable (missing dividend/ROE data).'}</span>
+</div>`;
+  }
+
+  // MODEL INPUTS TABLE
+  html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">Model Inputs</div>
+  <div class="mgrid4">
+    <div class="mi"><div class="mil">Risk-Free Rate</div><div class="miv">${(rfRate*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil">Equity Risk Premium</div><div class="miv">${(erp*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil">Beta</div><div class="miv">${beta.toFixed(2)}</div></div>
+    <div class="mi"><div class="mil">Cost of Equity (ke)</div><div class="miv" style="color:var(--acc)">${(ke*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil">Cost of Debt</div><div class="miv">${(kd*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil">D/E Ratio</div><div class="miv">${(deRatio*100).toFixed(0)}%${isBanking?'<span style="font-size:8px;color:var(--amb)"> (incl. deposits)</span>':''}</div></div>
+    <div class="mi"><div class="mil">WACC</div><div class="miv" style="color:var(--acc);font-weight:600">${(wacc*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil">Terminal Growth</div><div class="miv">${(termGrowth*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil">FCF Growth (5Y)</div><div class="miv ${growthRate>=0?'pos':'neg'}">${growthRate>=0?'+':''}${(growthRate*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil">FCF Source</div><div class="miv" style="font-size:9px">${fcfSource}</div></div>
+  </div></div>`;
+
+  if (baseFCF === null) {
+    html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:10px 12px;font-family:var(--mono);font-size:10px;color:var(--amb)">
+  ⚠ No Free Cash Flow data — open the 5-Year tab first to load statements.</div>`;
+    html += `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:10px;border-top:1px solid var(--b1);padding-top:8px">Not financial advice.</div>`;
+    return html;
+  }
+
+  function dcfEV(w, g, bg) {
+    let f=baseFCF, pv=0;
+    for (let i=1;i<=5;i++) { f*=(1+g); pv+=f/Math.pow(1+w,i); }
+    return (pv + f*(1+bg)/(w-bg)/Math.pow(1+w,5) - netDebt) / (shareCount||1);
+  }
+
+  // FCF PROJECTIONS TABLE
+  html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">5-Year FCF Projection (SAR B)${isBanking?' — Reference only':''}</div>
+  <div style="overflow-x:auto"><table class="ft">
+    <thead><tr><th>Year</th><th>FCF (B SAR)</th><th>Growth</th><th>PV @ ${(wacc*100).toFixed(1)}%</th></tr></thead>
+    <tbody>
+      <tr><td style="color:var(--tx3)">Base</td><td style="font-family:var(--mono)">${(baseFCF/1e9).toFixed(3)}</td><td>—</td><td>—</td></tr>
+      ${fcfProj.map((f,i)=>`<tr><td>Year ${i+1}</td><td class="${f>=0?'ft-pos':'neg'}">${(f/1e9).toFixed(3)}</td><td style="font-size:9px;color:var(--tx3)">${growthRate>=0?'+':''}${(growthRate*100).toFixed(1)}%</td><td style="color:var(--acc);font-family:var(--mono)">${(pvFCFs[i]/1e9).toFixed(3)}</td></tr>`).join('')}
+    </tbody>
+  </table></div></div>`;
+
+  // FCF VALUATION SUMMARY
+  html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">${isBanking?'FCF-DCF Summary (reference — see DDM below)':'Valuation Summary'}</div>
+  <div class="mgrid">
+    <div class="mi"><div class="mil">PV of FCFs (5Y)</div><div class="miv">${(sumPvFCF/1e9).toFixed(1)}B SAR</div></div>
+    <div class="mi"><div class="mil">PV of Terminal Value</div><div class="miv">${(pvTerm/1e9).toFixed(1)}B SAR</div></div>
+    <div class="mi"><div class="mil">Enterprise Value</div><div class="miv" style="color:var(--acc);font-weight:600">${(enterpriseValue/1e9).toFixed(1)}B SAR</div></div>
+    <div class="mi"><div class="mil">Net Debt</div><div class="miv" style="font-size:9px">${(netDebt/1e9).toFixed(1)}B SAR <span style="color:var(--tx3)">(${netDebtNote})</span></div></div>
+    <div class="mi"><div class="mil">Equity Value</div><div class="miv">${(equityValue/1e9).toFixed(1)}B SAR</div></div>
+    ${shareCount?`<div class="mi"><div class="mil">Shares Outstanding</div><div class="miv">${(shareCount/1e9).toFixed(2)}B</div></div>`:''}
+    ${intrinsicPS!=null?`<div class="mi ${isBanking?'':'hl'}"><div class="mil">FCF Intrinsic/Share</div><div class="miv" style="color:${isBanking?'var(--tx3)':'var(--acc)'};font-weight:600;font-size:${isBanking?12:16}px">${intrinsicPS.toFixed(2)} SAR${isBanking?' <span style="font-size:8px">(ignore)</span>':''}</div></div>`:''}
+    ${d.price?`<div class="mi"><div class="mil">Current Price</div><div class="miv">${d.price.toFixed(2)} SAR</div></div>`:''}
+    ${upside!=null&&!isBanking?`<div class="mi hl"><div class="mil">Upside / Downside</div><div class="miv" style="font-size:16px;font-weight:600;color:${upside>0.10?'var(--green)':upside>-0.10?'var(--amb)':'var(--red)'}">${upside>=0?'+':''}${(upside*100).toFixed(1)}%</div></div>`:''}
+  </div></div>`;
+
+  // DDM BREAKDOWN FOR BANKS
+  if (isBanking && ddmPS) {
+    const dps=d.dy*d.price, pe=d.pe||15;
+    const payoutRatio=Math.min(d.dy*pe,0.95);
+    const roe=d.roe||0.12;
+    const gSustain=Math.min(roe*(1-payoutRatio),ke-0.005);
+    const uClr=ddmUpside>0.10?'var(--green)':ddmUpside>-0.10?'var(--amb)':'var(--red)';
+    html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">Dividend Discount Model — Bank Fair Value</div>
+  <div class="mgrid4">
+    <div class="mi"><div class="mil">Dividend Yield</div><div class="miv">${(d.dy*100).toFixed(2)}%</div></div>
+    <div class="mi"><div class="mil">DPS (est.)</div><div class="miv">${dps.toFixed(3)} SAR</div></div>
+    <div class="mi"><div class="mil">Payout Ratio</div><div class="miv">${(payoutRatio*100).toFixed(0)}%</div></div>
+    <div class="mi"><div class="mil">ROE</div><div class="miv">${(roe*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil">Sustainable Growth (g)</div><div class="miv">${(gSustain*100).toFixed(2)}%</div></div>
+    <div class="mi"><div class="mil">Cost of Equity (ke)</div><div class="miv">${(ke*100).toFixed(1)}%</div></div>
+    <div class="mi hl"><div class="mil">DDM Fair Value</div><div class="miv" style="color:${uClr};font-weight:600;font-size:16px">${ddmPS.toFixed(2)} SAR</div></div>
+    <div class="mi hl"><div class="mil">DDM Upside</div><div class="miv" style="font-size:16px;font-weight:600;color:${uClr}">${ddmUpside>=0?'+':''}${(ddmUpside*100).toFixed(1)}%</div></div>
+  </div>
+  <div style="font-size:8px;color:var(--tx3);margin-top:6px">Formula: ${dps.toFixed(3)} ÷ (${(ke*100).toFixed(2)}% − ${(gSustain*100).toFixed(2)}%) = ${ddmPS.toFixed(2)} SAR</div>
+</div>`;
+  }
+
+  // SENSITIVITY TABLE
+  if (shareCount) {
+    const waccRange=[wacc-0.02,wacc-0.01,wacc,wacc+0.01,wacc+0.02];
+    const grRange=[growthRate-0.02,growthRate-0.01,growthRate,growthRate+0.01,growthRate+0.02];
+    html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
+    <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">FCF Sensitivity — Intrinsic Value/Share (SAR)${isBanking?' · Reference only':''}</div>
+    <div style="font-size:8px;color:var(--tx3);margin-bottom:5px">Rows = WACC ± 2%  ·  Columns = FCF Growth ± 2%</div>
+    <div style="overflow-x:auto"><table class="ft">
+      <thead><tr><th>WACC \\ Growth</th>${grRange.map(g=>`<th>${(g*100).toFixed(1)}%</th>`).join('')}</tr></thead>
+      <tbody>${waccRange.map(w=>{
+        if(w<=termGrowth+0.005)return'';
+        return`<tr>${w===wacc?'<td style="color:var(--acc);font-weight:600">'+(w*100).toFixed(1)+'% ★</td>':'<td>'+(w*100).toFixed(1)+'%</td>'}${grRange.map(g=>{const iv=dcfEV(w,g,termGrowth);const ud=(iv-(d.price||0))/(d.price||1);const col=ud>0.10?'var(--green)':ud>-0.10?'var(--amb)':'var(--red)';return`<td style="color:${col};font-family:var(--mono)">${iv>0?iv.toFixed(1):'—'}</td>`;}).join('')}</tr>`;
+      }).join('')}</tbody>
+    </table></div></div>`;
+  }
+
+  html += `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px;border-top:1px solid var(--b1);padding-top:8px;line-height:1.7">
+    <strong style="color:var(--tx2)">Saudi DCF Assumptions:</strong><br>
+    Risk-free rate (5.5%): SAIBOR 3M + SAR sovereign spread. ERP (6.5%): Damodaran 2024 MENA. Terminal growth (2.5%): Vision 2030 nominal GDP.<br>
+    Banks use DDM — FCF-DCF breaks for deposit-funded balance sheets. WACC 9–12% typical range for TASI.<br>
+    ⚠ A 1% ke change shifts fair value 15–30%. This is a range, not a price target. NOT financial advice.
+  </div>`;
+
+  return html;
+}
 
 function buildBuffett(d){
   const crit=d.criteria||{};
@@ -3035,7 +3569,8 @@ function init(){
     const fRes=scoreFundamental(s);
     const bRes=scoreBuffett(s);
     const pegRes=scorePEG(s.pe,s.eg);
-    const combined=Math.round(fRes.score*0.30+50*0.20+bRes.buffett*0.35+pegRes.score*0.15);
+    const _init={fundamental:fRes.score,technical:50,buffett:bRes.buffett,pegScore:pegRes.score,dcfUpside:null};
+    const combined=calcCombined(_init);
     return{
       ticker:s.t,name:s.n,sector:s.s,isReit:s.r,
       pe:s.pe,pb:s.pb,roe:s.roe,npm:s.npm,de:s.de,dy:s.dy,
@@ -3105,7 +3640,7 @@ async function refreshAll(forceRefresh=false){
           dataDate: fetched.dataDate || allData[idx].dataDate,
           technical:tRes.score, techSteps:tRes.steps,
           rsi:tRes.rsi, sma20:tRes.sma20, sma50:tRes.sma50, momentum:tRes.momentum,
-          combined: Math.round(allData[idx].fundamental*0.30+tRes.score*0.20+allData[idx].buffett*0.35+(allData[idx].pegScore||50)*0.15),
+          combined: calcCombined({...allData[idx], technical:tRes.score}),
         };
       }catch(e){allData[idx].priceLoaded=false;}
     }));
@@ -3314,24 +3849,11 @@ function buildSectorPerf() {
     <div class="sp-close" onclick="hideSettings()">×</div>
     <div class="sp-title">⚙ Settings</div>
 
-    <!-- Alpha Vantage — Recommended -->
-    <div style="font-family:var(--mono);font-size:10px;color:var(--green);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">★ Alpha Vantage — Recommended (Free)</div>
-    <div class="sp-desc" style="margin-bottom:8px">
-      The easiest way to get Saudi stock financial statements.<br>
-      <strong>Free tier: 500 calls/day, no credit card.</strong><br>
-      1. Go to <strong>alphavantage.co/support/#api-key</strong><br>
-      2. Enter your email → get key instantly<br>
-      3. Paste below and click Save.
-    </div>
-    <div class="sp-row">
-      <input class="sp-input" id="av-key-input" type="text" placeholder="Paste Alpha Vantage API key here…" autocomplete="off" spellcheck="false">
-    </div>
-    <div class="sp-row">
-      <button class="sp-btn" onclick="saveAVKey()">💾 Save Key</button>
-      <button class="sp-btn sp-btn-sec" onclick="testAVKey()">▷ Test Key</button>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
       <button class="sp-btn sp-btn-red" onclick="clearTwelveCache()">🗑 Clear Cache</button>
+      <button class="sp-btn sp-btn-sec" onclick="validateTickers()" title="Check ALL tickers against Yahoo Finance — batches of 6, ~2-3 min total">⚡ Validate All Tickers</button>
     </div>
-    <div class="sp-log" id="td-log">Status will appear here after saving or testing.</div>
+    <div class="sp-log" id="td-log">Status will appear here after actions.</div>
 
     <hr class="sp-divider">
 
@@ -3349,6 +3871,20 @@ function buildSectorPerf() {
       <button class="sp-btn sp-btn-sec" onclick="connectGoogleDrive()">🔗 Connect</button>
       <button class="sp-btn" onclick="disconnectGoogleDrive()" style="font-size:9px">Disconnect</button>
       <span id="gd-status" style="font-family:var(--mono);font-size:9px;color:var(--tx3)">● Not connected</span>
+    </div>
+
+    <hr class="sp-divider">
+
+    <!-- Combined Score Weights -->
+    <div style="font-family:var(--mono);font-size:10px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Combined Score Weights</div>
+    <div class="sp-desc" style="margin-bottom:10px">
+      Adjust how each criteria contributes to the Combined Score. Set to 0 to exclude. Include DCF to factor in fair value upside. Weights auto-normalize to 100%.
+    </div>
+    <div id="score-weights-ui"></div>
+    <div style="font-family:var(--mono);font-size:9px;margin:6px 0 10px" id="weights-total-lbl"></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="sp-btn" onclick="saveScoreWeights()">✓ Apply Weights</button>
+      <button class="sp-btn sp-btn-sec" onclick="resetScoreWeights()">Reset to Default</button>
     </div>
 
     <hr class="sp-divider">
