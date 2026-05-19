@@ -194,6 +194,56 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 .sp-close:hover{border-color:var(--red);color:var(--red)}
 .gear-wrap{position:relative;display:inline-block}
 .gear-dot{display:none;position:absolute;top:0;right:0;width:7px;height:7px;background:var(--green);border-radius:50%;border:1.5px solid var(--bg2);pointer-events:none}
+/* ─── MOBILE BOTTOM NAV ─── */
+.mob-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:var(--bg2);border-top:1px solid var(--b1);z-index:200;padding:6px 0 calc(6px + env(safe-area-inset-bottom));gap:0}
+.mob-nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px 2px;background:none;border:none;color:var(--tx3);cursor:pointer;font-family:var(--mono);font-size:8px;text-transform:uppercase;letter-spacing:.04em;min-height:48px}
+.mob-nav-btn:active{background:rgba(255,255,255,.05)}
+.mob-nav-ico{font-size:18px;line-height:1}
+.mob-nav-btn.active{color:var(--acc)}
+/* ─── MOBILE MORE MENU ─── */
+.mob-more-menu{display:none;position:absolute;top:calc(100% + 4px);right:0;background:var(--bg2);border:1px solid var(--b2);border-radius:8px;padding:6px;min-width:160px;z-index:500;box-shadow:0 8px 24px rgba(0,0,0,.5);flex-direction:column;gap:4px}
+.mob-more-menu.open{display:flex}
+.mob-menu-item{font-family:var(--mono);font-size:10px;padding:7px 10px;background:none;border:none;color:var(--tx2);cursor:pointer;border-radius:5px;text-align:left;width:100%}
+.mob-menu-item:active,.mob-menu-item:hover{background:var(--bg3);color:var(--tx)}
+.mob-more-wrap{position:relative;display:none}
+/* ─── MOBILE RESPONSIVE ─── */
+@media (max-width: 640px) {
+  body { padding-bottom: 60px; }
+  .mob-nav { display: flex; }
+  .mob-more-wrap { display: inline-block; }
+  .hdr-sec { display: none !important; }
+  .main { padding: 8px 10px; }
+  .logo-sub { display: none; }
+  .logo-icon { width: 28px; height: 28px; font-size: 10px; }
+  .logo-text { font-size: 11px; letter-spacing: .05em; }
+  .topbar { padding: 7px 10px; }
+  .metrics { grid-template-columns: repeat(4,1fr); gap: 4px; }
+  .mc { padding: 6px 7px; }
+  .mc-v { font-size: 13px; }
+  .mc-l { font-size: 7px; }
+  #market-bar { overflow-x:auto; flex-wrap:nowrap; font-size:9px; gap:8px; padding:5px 10px; scrollbar-width:none; }
+  #market-bar::-webkit-scrollbar { display:none; }
+  .secperf { font-size:8px; gap:4px; padding:5px 10px; overflow-x:auto; flex-wrap:nowrap; scrollbar-width:none; }
+  .secperf::-webkit-scrollbar { display:none; }
+  .sb { font-size:8px; padding:3px 7px; }
+  .ctrl { gap:4px; }
+  .sw { min-width:100%; max-width:100%; order:-1; flex-basis:100%; }
+  .ctrl select,.ctrl button { font-size:9px; padding:5px 7px; }
+  /* table: hide non-essential columns */
+  .col-co,.col-pe,.col-eg,.col-peg,.col-fu,.col-te,.col-bu,.col-tr,.col-st,.col-cp,.col-vw { display:none !important; }
+  table { table-layout:auto; }
+  td { padding:10px 5px; }
+  th { padding:6px 5px; font-size:8px; }
+  .bw { gap:2px; }
+  .bt { min-width:16px; }
+  .bn { font-size:9px; min-width:14px; }
+  .mob-company { display:block !important; }
+  .pv { font-size:12px; }
+  /* modal: bottom sheet style */
+  .modal-overlay { align-items:flex-end; padding:0; }
+  .modal { width:100% !important; border-radius:12px 12px 0 0; max-height:94vh; }
+  .tab { font-size:9px; padding:6px 8px; }
+}
 </style>
 </head>
 <body>
@@ -204,19 +254,31 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
-    <span id="cache-info" style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Checking cache...</span>
+    <span id="cache-info" class="hdr-sec" style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Checking cache...</span>
     <button class="rbtn" id="rbtn" onclick="refreshAll(false)">↻ Load Data</button>
-
-    <button class="rbtn" style="background:var(--rdim);border-color:var(--red);color:var(--red)" onclick="if(confirm('Force re-fetch? Takes 2-3 min.'))refreshAll(true)">⟳ Force</button>
-    <button class="rbtn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showExportMenu()">⤓ Export ▾</button>
-    <label class="rbtn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3);cursor:pointer">⤒ Import<input type="file" id="importFile" accept=".json" style="display:none" onchange="importCache(this)"></label>
-    <button class="rbtn" id="theme-btn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="toggleTheme()">☀ Light</button>
-    <button class="rbtn" id="lang-btn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="toggleArabic()">عر</button>
-    <button class="rbtn" id="cmpbtn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showComparePanel()">Compare</button>
-    <button class="rbtn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showPortfolioPanel()">💼 Portfolio</button>
+    <button class="rbtn hdr-sec" style="background:var(--rdim);border-color:var(--red);color:var(--red)" onclick="if(confirm('Force re-fetch? Takes 2-3 min.'))refreshAll(true)">⟳ Force</button>
+    <button class="rbtn hdr-sec" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showExportMenu()">⤓ Export ▾</button>
+    <label class="rbtn hdr-sec" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3);cursor:pointer">⤒ Import<input type="file" id="importFile" accept=".json" style="display:none" onchange="importCache(this)"></label>
+    <button class="rbtn hdr-sec" id="theme-btn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="toggleTheme()">☀ Light</button>
+    <button class="rbtn hdr-sec" id="lang-btn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="toggleArabic()">عر</button>
+    <button class="rbtn hdr-sec" id="cmpbtn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showComparePanel()">Compare</button>
+    <button class="rbtn hdr-sec" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showPortfolioPanel()">💼 Portfolio</button>
     <div class="gear-wrap">
-      <button class="rbtn" id="gear-btn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showSettings()">⚙ Settings</button>
+      <button class="rbtn" id="gear-btn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showSettings()">⚙</button>
       <span class="gear-dot" id="gear-dot"></span>
+    </div>
+    <!-- Mobile ⋯ More menu -->
+    <div class="mob-more-wrap" id="mob-more-wrap">
+      <button class="rbtn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx2);font-size:14px;padding:4px 9px;letter-spacing:1px" onclick="toggleMobMenu()" id="mob-more-btn">⋯</button>
+      <div class="mob-more-menu" id="mob-more-menu">
+        <button class="mob-menu-item" onclick="refreshAll(true);closeMobMenu()">⟳ Force Reload</button>
+        <button class="mob-menu-item" onclick="showExportMenu();closeMobMenu()">⤓ Export Data</button>
+        <button class="mob-menu-item" onclick="document.getElementById('importFile').click();closeMobMenu()">⤒ Import Data</button>
+        <button class="mob-menu-item" onclick="toggleTheme();closeMobMenu()" id="mob-theme-item">☀ Light Mode</button>
+        <button class="mob-menu-item" onclick="toggleArabic();closeMobMenu()">عر Arabic Names</button>
+        <button class="mob-menu-item" onclick="showComparePanel();closeMobMenu()">⊕ Compare Stocks</button>
+        <button class="mob-menu-item" onclick="showPortfolioPanel();closeMobMenu()">💼 Portfolio</button>
+      </div>
     </div>
   </div>
 </header>
@@ -287,21 +349,21 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
       <thead><tr>
         <th style="width:26px">#</th>
         <th style="width:58px">Ticker</th>
-        <th style="width:145px">Company</th>
+        <th class="col-co" style="width:145px">Company</th>
         <th style="width:60px">SAR <span style="font-size:8px;opacity:.5">▼price</span></th>
         <th style="width:50px">Chg%</th>
-        <th style="width:46px" onclick="sk('pe')" title="P/E Ratio">P/E↕</th>
-        <th style="width:52px" onclick="sk('eg')" title="Earnings Growth">EG%↕</th>
-        <th style="width:46px" onclick="sk('peg')" title="PEG Ratio — P/E÷EarningsGrowth">PEG↕</th>
-        <th style="width:82px" onclick="sk('fundamental')">Fund.↕</th>
-        <th style="width:82px" onclick="sk('technical')">Tech.↕</th>
-        <th style="width:82px" onclick="sk('buffett')">Buffett↕</th>
-        <th style="width:82px" onclick="sk('combined')">Combined↕</th>
+        <th class="col-pe" style="width:46px" onclick="sk('pe')" title="P/E Ratio">P/E↕</th>
+        <th class="col-eg" style="width:52px" onclick="sk('eg')" title="Earnings Growth">EG%↕</th>
+        <th class="col-peg" style="width:46px" onclick="sk('peg')" title="PEG Ratio — P/E÷EarningsGrowth">PEG↕</th>
+        <th class="col-fu" style="width:82px" onclick="sk('fundamental')">Fund.↕</th>
+        <th class="col-te" style="width:82px" onclick="sk('technical')">Tech.↕</th>
+        <th class="col-bu" style="width:82px" onclick="sk('buffett')">Buffett↕</th>
+        <th style="width:82px" onclick="sk('combined')">Score↕</th>
         <th style="width:48px">Signal</th>
-        <th style="width:50px">Trend</th>
-        <th style="width:32px">★</th>
-        <th style="width:32px">⊕</th>
-        <th style="width:40px">Info</th>
+        <th class="col-tr" style="width:50px">Trend</th>
+        <th class="col-st" style="width:32px">★</th>
+        <th class="col-cp" style="width:32px">⊕</th>
+        <th class="col-vw" style="width:40px">Info</th>
       </tr></thead>
       <tbody id="tbody"><tr><td colspan="17" class="ls"><span class="spin"></span> Loading scores...</td></tr></tbody>
     </table>
@@ -563,6 +625,24 @@ function showSettings() {
 function hideSettings() {
   const ov = document.getElementById('settings-overlay');
   if (ov) ov.style.display = 'none';
+}
+
+function toggleMobMenu() {
+  const m = document.getElementById('mob-more-menu');
+  if (!m) return;
+  m.classList.toggle('open');
+  if (m.classList.contains('open')) {
+    document.addEventListener('click', function _close(e) {
+      if (!document.getElementById('mob-more-wrap')?.contains(e.target)) {
+        m.classList.remove('open');
+        document.removeEventListener('click', _close);
+      }
+    }, {once: false, capture: true});
+  }
+}
+
+function closeMobMenu() {
+  document.getElementById('mob-more-menu')?.classList.remove('open');
 }
 
 function renderWeightsUI() {
@@ -2280,24 +2360,25 @@ function renderTable(){
     const pegStr=d.peg!=null?`<span style="font-family:var(--mono);font-size:10px;color:${d.peg<1?"var(--green)":d.peg<2?"var(--amb)":"var(--red)"}">${d.peg.toFixed(2)}</span>`:`<span class="nav">—</span>`;
     const egSrc=d.egSource==='statements'?'<span title="From annual financial statements" style="font-size:7px;vertical-align:super;color:var(--blue);margin-left:1px">s</span>':'';
     const egStr=d.eg!=null?`<span class="${d.eg>=0?'pos':'neg'}">${d.eg>=0?"+":""}${(d.eg*100).toFixed(0)}%${egSrc}</span>`:`<span class="nav">—</span>`;
+    const shortName = d.name.split(' ').slice(0,3).join(' ') + (d.name.split(' ').length > 3 ? '…' : '');
     return`<tr class="data-row" onclick="openModal(${start+i})">
       <td class="rk">${start+i+1}</td>
-      <td class="tk">${d.ticker.replace(".SR","")}</td>
-      <td title="${d.name}" style="color:var(--tx)">${getStockName(d)}${moat}${reit}</td>
-      <td><span class="pv">${hasPx?d.price.toFixed(2):'—'}</span>${lv}</td>
-      <td class="${cc}">${cs}</td>
-      <td><span style="font-family:var(--mono);font-size:10px;color:var(--tx)">${d.pe!=null?d.pe.toFixed(1):'<span class="nav">—</span>'}</span></td>
-      <td>${egStr}</td>
-      <td>${pegStr}</td>
-      <td>${bar(d.fundamental)}</td>
-      <td>${bar(d.technical)}</td>
-      <td>${bar(d.buffett)}</td>
-      <td>${bar(d.combined)}</td>
-      <td><span class="badge ${sig.cls}">${sig.label}</span></td>
-      <td>${makeSparkline(d.closes)}</td>
-      <td><span id="star-${d.ticker}" onclick="event.stopPropagation();toggleWatch('${d.ticker}')" style="cursor:pointer;font-size:14px;color:${watchlist.has(d.ticker)?'var(--amb)':'var(--tx3)'}">${watchlist.has(d.ticker)?'★':'☆'}</span></td>
-      <td><span onclick="event.stopPropagation();toggleCompare('${d.ticker}')" style="cursor:pointer;font-size:13px;color:${compareList.includes(d.ticker)?'var(--acc)':'var(--tx3)'}">${compareList.includes(d.ticker)?'✓':'⊕'}</span></td>
-      <td><button class="dbtn" onclick="event.stopPropagation();openModal(${start+i})">View</button></td>
+      <td class="tk" style="white-space:normal;min-width:54px">${d.ticker.replace(".SR","")}<span class="mob-company" style="display:none">${shortName}${moat}${reit}</span></td>
+      <td class="col-co" title="${d.name}" style="color:var(--tx)">${getStockName(d)}${moat}${reit}</td>
+      <td style="min-width:52px"><span class="pv">${hasPx?d.price.toFixed(2):'—'}</span>${lv}</td>
+      <td class="${cc}" style="min-width:44px">${cs}</td>
+      <td class="col-pe"><span style="font-family:var(--mono);font-size:10px;color:var(--tx)">${d.pe!=null?d.pe.toFixed(1):'<span class="nav">—</span>'}</span></td>
+      <td class="col-eg">${egStr}</td>
+      <td class="col-peg">${pegStr}</td>
+      <td class="col-fu">${bar(d.fundamental)}</td>
+      <td class="col-te">${bar(d.technical)}</td>
+      <td class="col-bu">${bar(d.buffett)}</td>
+      <td style="min-width:60px">${bar(d.combined)}</td>
+      <td style="min-width:40px"><span class="badge ${sig.cls}">${sig.label}</span></td>
+      <td class="col-tr">${makeSparkline(d.closes)}</td>
+      <td class="col-st"><span id="star-${d.ticker}" onclick="event.stopPropagation();toggleWatch('${d.ticker}')" style="cursor:pointer;font-size:14px;color:${watchlist.has(d.ticker)?'var(--amb)':'var(--tx3)'}">${watchlist.has(d.ticker)?'★':'☆'}</span></td>
+      <td class="col-cp"><span onclick="event.stopPropagation();toggleCompare('${d.ticker}')" style="cursor:pointer;font-size:13px;color:${compareList.includes(d.ticker)?'var(--acc)':'var(--tx3)'}">${compareList.includes(d.ticker)?'✓':'⊕'}</span></td>
+      <td class="col-vw"><button class="dbtn" onclick="event.stopPropagation();openModal(${start+i})">View</button></td>
     </tr>`;
   }).join("");
   window._fd=filtData;
@@ -3855,6 +3936,14 @@ function buildSectorPerf() {
 })();
 </script>
 <!-- ── SETTINGS OVERLAY ─────────────────────────────────────────────────── -->
+<!-- Mobile bottom nav -->
+<nav class="mob-nav" id="mob-nav">
+  <button class="mob-nav-btn" onclick="refreshAll(false)"><span class="mob-nav-ico">↻</span>Reload</button>
+  <button class="mob-nav-btn" onclick="document.getElementById('search').focus();document.getElementById('search').scrollIntoView({behavior:'smooth'})"><span class="mob-nav-ico">⌕</span>Search</button>
+  <button class="mob-nav-btn" onclick="showPortfolioPanel()"><span class="mob-nav-ico">💼</span>Portfolio</button>
+  <button class="mob-nav-btn" onclick="showSettings()"><span class="mob-nav-ico">⚙</span>Settings</button>
+</nav>
+
 <div class="settings-overlay" id="settings-overlay" style="display:none" onclick="if(event.target===this)hideSettings()">
   <div class="settings-panel">
     <div class="sp-close" onclick="hideSettings()">×</div>
