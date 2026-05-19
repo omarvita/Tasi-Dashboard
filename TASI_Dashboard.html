@@ -541,12 +541,16 @@ function showToast(msg, duration=3000) {
 }
 
 
-// ── FINANCIAL STATEMENTS — Yahoo Finance (no API key required) ──
+// ── FINANCIAL STATEMENTS — FMP (primary) + Yahoo Finance (fallback) ──
 const TD_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function getFMPKey() { return localStorage.getItem('TASI_fmp_key') || ''; }
 
 function showSettings() {
   const ov = document.getElementById('settings-overlay');
   if (!ov) return;
+  const inp = document.getElementById('fmp-key-input');
+  if (inp) inp.value = getFMPKey();
   document.getElementById('td-log').innerHTML = '';
   ov.style.display = 'flex';
 }
@@ -554,6 +558,31 @@ function showSettings() {
 function hideSettings() {
   const ov = document.getElementById('settings-overlay');
   if (ov) ov.style.display = 'none';
+}
+
+function saveFMPKey() {
+  const k = document.getElementById('fmp-key-input').value.trim();
+  if (k) localStorage.setItem('TASI_fmp_key', k);
+  else localStorage.removeItem('TASI_fmp_key');
+  showToast(k ? '✓ FMP key saved' : 'Key cleared');
+}
+
+async function testFMPKey() {
+  const key = getFMPKey();
+  const logEl = document.getElementById('td-log');
+  if (!key) { if (logEl) logEl.innerHTML = '<span style="color:var(--red)">No key saved. Paste your key and click Save first.</span>'; return; }
+  if (logEl) logEl.innerHTML = '<span class="spin"></span> Testing with Aramco (2222.SR)…';
+  try {
+    const r = await fetch(`https://financialmodelingprep.com/api/v3/income-statement/2222.SR?period=annual&limit=1&apikey=${key}`, { signal: AbortSignal.timeout(10000) });
+    const data = await r.json();
+    if (!Array.isArray(data) || !data.length) {
+      if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ No data returned. Key may be invalid or plan may not cover Saudi stocks.</span>`;
+    } else {
+      if (logEl) logEl.innerHTML = `<span style="color:var(--green)">✓ Key works! Got ${data.length} year(s) for Aramco — ready to load financial statements.</span>`;
+    }
+  } catch(e) {
+    if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ Network error: ${e.message}</span>`;
+  }
 }
 
 function clearTwelveCache() {
@@ -585,6 +614,48 @@ function tdCacheSet(ticker, quarterly, annual) {
   try {
     localStorage.setItem('TASI_td_' + ticker, JSON.stringify({ ts: Date.now(), quarterly, annual }));
   } catch(e) {}
+}
+
+async function fetchFMPStatements(ticker, period) {
+  const key = getFMPKey();
+  if (!key) return { is: null, bs: null, cf: null };
+  const p = period === 'quarterly' ? 'quarter' : 'annual';
+  const base = 'https://financialmodelingprep.com/api/v3';
+  try {
+    const [isR, bsR, cfR] = await Promise.all([
+      fetch(`${base}/income-statement/${ticker}?period=${p}&limit=5&apikey=${key}`, { signal: AbortSignal.timeout(15000) }),
+      fetch(`${base}/balance-sheet-statement/${ticker}?period=${p}&limit=5&apikey=${key}`, { signal: AbortSignal.timeout(15000) }),
+      fetch(`${base}/cash-flow-statement/${ticker}?period=${p}&limit=5&apikey=${key}`, { signal: AbortSignal.timeout(15000) }),
+    ]);
+    const [isData, bsData, cfData] = await Promise.all([isR.json(), bsR.json(), cfR.json()]);
+    const is = Array.isArray(isData) && isData.length ? isData.map(r => ({
+      fiscal_date:      r.date,
+      revenue:          r.revenue          ?? null,
+      gross_profit:     r.grossProfit      ?? null,
+      ebitda:           r.ebitda           ?? null,
+      operating_income: r.operatingIncome  ?? null,
+      net_income:       r.netIncome        ?? null,
+      eps:              r.eps              ?? null,
+    })) : null;
+    const bs = Array.isArray(bsData) && bsData.length ? bsData.map(r => ({
+      fiscal_date:          r.date,
+      total_assets:         r.totalAssets               ?? null,
+      total_liabilities:    r.totalLiabilities          ?? null,
+      total_equity:         r.totalStockholdersEquity   ?? null,
+      cash_and_equivalents: r.cashAndCashEquivalents    ?? null,
+      long_term_debt:       r.longTermDebt              ?? null,
+    })) : null;
+    const cf = Array.isArray(cfData) && cfData.length ? cfData.map(r => ({
+      fiscal_date:          r.date,
+      operating_activities: r.operatingCashFlow                          ?? null,
+      investing_activities: r.netCashUsedForInvestingActivities          ?? null,
+      financing_activities: r.netCashUsedProvidedByFinancingActivities   ?? null,
+      capital_expenditure:  r.capitalExpenditure                         ?? null,
+      free_cash_flow:       r.freeCashFlow                               ?? null,
+      dividends_paid:       r.dividendsPaid                              ?? null,
+    })) : null;
+    return { is, bs, cf };
+  } catch(e) { return { is: null, bs: null, cf: null }; }
 }
 
 async function fetchYahooFinancials(ticker) {
@@ -2126,38 +2197,53 @@ function buildBreakdown(d){
 }
 
 async function buildQuarterly(d){
-  // Use already-fetched Yahoo data from fetchStockFull if available
+  // 1. Use already-fetched Yahoo data if it has content
   if (d.rawYahoo) {
-    const quarterly = parseYahooFinancials(d.rawYahoo, 'quarterly');
-    if (quarterly.is || quarterly.bs || quarterly.cf) return renderTwelveStatements(quarterly, 'quarterly', d.ticker);
+    const q = parseYahooFinancials(d.rawYahoo, 'quarterly');
+    if (q.is || q.bs || q.cf) return renderTwelveStatements(q, 'quarterly', d.ticker, 'Yahoo Finance');
   }
-
-  // Fall back to cache
-  if (!d.rawTwelveData) {
-    const cached = tdCacheGet(d.ticker);
-    if (cached) d.rawTwelveData = cached;
+  // 2. Check cache (skip if all null)
+  if (!d.rawTwelveData) { const c = tdCacheGet(d.ticker); if (c) d.rawTwelveData = c; }
+  const cq = d.rawTwelveData?.quarterly;
+  if (cq && (cq.is || cq.bs || cq.cf)) return renderTwelveStatements(cq, 'quarterly', d.ticker, 'FMP');
+  // 3. Fetch — FMP first (covers Saudi stocks), then Yahoo Finance fallback
+  if (getFMPKey()) {
+    tdLog('Fetching quarterly statements from FMP…', true);
+    const quarterly = await fetchFMPStatements(d.ticker, 'quarterly');
+    tdLog('Income statement: ' + (quarterly.is ? 'ok' : 'no data'), !!quarterly.is);
+    tdLog('Balance sheet: '    + (quarterly.bs ? 'ok' : 'no data'), !!quarterly.bs);
+    tdLog('Cash flow: '        + (quarterly.cf ? 'ok' : 'no data'), !!quarterly.cf);
+    if (quarterly.is || quarterly.bs || quarterly.cf) {
+      if (!d.rawTwelveData) d.rawTwelveData = {};
+      d.rawTwelveData.quarterly = quarterly;
+      tdCacheSet(d.ticker, quarterly, d.rawTwelveData?.annual || null);
+      return renderTwelveStatements(quarterly, 'quarterly', d.ticker, 'FMP');
+    }
   }
-  const q = d.rawTwelveData?.quarterly;
-  if (q && (q.is || q.bs || q.cf)) return renderTwelveStatements(q, 'quarterly', d.ticker);
-
-  // Fetch from Yahoo Finance
-  tdLog('Fetching quarterly financial statements…', true);
+  // 4. Yahoo Finance fallback
+  tdLog('Trying Yahoo Finance…', true);
   const summary = await fetchYahooFinancials(d.ticker);
   const quarterly = parseYahooFinancials(summary, 'quarterly');
   tdLog('Income statement: ' + (quarterly.is ? 'ok' : 'no data'), !!quarterly.is);
   tdLog('Balance sheet: '    + (quarterly.bs ? 'ok' : 'no data'), !!quarterly.bs);
   tdLog('Cash flow: '        + (quarterly.cf ? 'ok' : 'no data'), !!quarterly.cf);
-
   if (quarterly.is || quarterly.bs || quarterly.cf) {
     if (!d.rawTwelveData) d.rawTwelveData = {};
     d.rawTwelveData.quarterly = quarterly;
     tdCacheSet(d.ticker, quarterly, d.rawTwelveData?.annual || null);
   }
-
-  return renderTwelveStatements(quarterly, 'quarterly', d.ticker);
+  // 5. No key prompt
+  if (!getFMPKey() && !quarterly.is && !quarterly.bs && !quarterly.cf) {
+    return `<div style="padding:18px;font-family:var(--mono);font-size:11px;text-align:center">
+      <div style="color:var(--amb);margin-bottom:8px;font-size:13px">⚙ API Key Recommended</div>
+      <div style="color:var(--tx3);margin-bottom:12px;line-height:1.65">Yahoo Finance has limited coverage for Saudi stocks.<br>Add a free <strong>Financial Modeling Prep (FMP)</strong> key for full quarterly statements.<br>Free tier: 250 calls/day, no credit card needed — register at <strong>financialmodelingprep.com</strong>.</div>
+      <button class="sp-btn" onclick="showSettings()">⚙ Open Settings to add FMP key</button>
+    </div>`;
+  }
+  return renderTwelveStatements(quarterly, 'quarterly', d.ticker, 'Yahoo Finance');
 }
 
-function renderTwelveStatements(data, period, ticker) {
+function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance') {
   const { is, bs, cf } = data || {};
   const noData = (arr) => !arr || !arr.length;
   if (noData(is) && noData(bs) && noData(cf)) {
@@ -2208,39 +2294,54 @@ function renderTwelveStatements(data, period, ticker) {
   return makeTable(period === 'quarterly' ? 'Quarterly Income Statement' : '5-Year Income Statement', isRows, is?.map(pLabel) || [])
        + makeTable(period === 'quarterly' ? 'Quarterly Balance Sheet'    : '5-Year Balance Sheet',    bsRows, bs?.map(pLabel) || [])
        + makeTable(period === 'quarterly' ? 'Quarterly Cash Flow'        : '5-Year Cash Flow',        cfRows, cf?.map(pLabel) || [])
-       + `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Source: Yahoo Finance · SAR · B = Billions · Cached 7 days in browser</div>`;
+       + `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Source: ${source} · SAR · B = Billions · Cached 7 days in browser</div>`;
 }
 
 async function buildAnnual(d){
-  // Use already-fetched Yahoo data from fetchStockFull if available
+  // 1. Use already-fetched Yahoo data if it has content
   if (d.rawYahoo) {
-    const annual = parseYahooFinancials(d.rawYahoo, 'annual');
-    if (annual.is || annual.bs || annual.cf) return renderTwelveStatements(annual, 'annual', d.ticker);
+    const a = parseYahooFinancials(d.rawYahoo, 'annual');
+    if (a.is || a.bs || a.cf) return renderTwelveStatements(a, 'annual', d.ticker, 'Yahoo Finance');
   }
-
-  // Fall back to cache
-  if (!d.rawTwelveData) {
-    const cached = tdCacheGet(d.ticker);
-    if (cached) d.rawTwelveData = cached;
+  // 2. Check cache (skip if all null)
+  if (!d.rawTwelveData) { const c = tdCacheGet(d.ticker); if (c) d.rawTwelveData = c; }
+  const ca = d.rawTwelveData?.annual;
+  if (ca && (ca.is || ca.bs || ca.cf)) return renderTwelveStatements(ca, 'annual', d.ticker, 'FMP');
+  // 3. Fetch — FMP first, then Yahoo Finance fallback
+  if (getFMPKey()) {
+    tdLog('Fetching annual statements from FMP…', true);
+    const annual = await fetchFMPStatements(d.ticker, 'annual');
+    tdLog('Income statement: ' + (annual.is ? 'ok' : 'no data'), !!annual.is);
+    tdLog('Balance sheet: '    + (annual.bs ? 'ok' : 'no data'), !!annual.bs);
+    tdLog('Cash flow: '        + (annual.cf ? 'ok' : 'no data'), !!annual.cf);
+    if (annual.is || annual.bs || annual.cf) {
+      if (!d.rawTwelveData) d.rawTwelveData = {};
+      d.rawTwelveData.annual = annual;
+      tdCacheSet(d.ticker, d.rawTwelveData?.quarterly || null, annual);
+      return renderTwelveStatements(annual, 'annual', d.ticker, 'FMP');
+    }
   }
-  const a = d.rawTwelveData?.annual;
-  if (a && (a.is || a.bs || a.cf)) return renderTwelveStatements(a, 'annual', d.ticker);
-
-  // Fetch from Yahoo Finance
-  tdLog('Fetching annual financial statements…', true);
+  // 4. Yahoo Finance fallback
+  tdLog('Trying Yahoo Finance…', true);
   const summary = await fetchYahooFinancials(d.ticker);
   const annual = parseYahooFinancials(summary, 'annual');
   tdLog('Income statement: ' + (annual.is ? 'ok' : 'no data'), !!annual.is);
   tdLog('Balance sheet: '    + (annual.bs ? 'ok' : 'no data'), !!annual.bs);
   tdLog('Cash flow: '        + (annual.cf ? 'ok' : 'no data'), !!annual.cf);
-
   if (annual.is || annual.bs || annual.cf) {
     if (!d.rawTwelveData) d.rawTwelveData = {};
     d.rawTwelveData.annual = annual;
     tdCacheSet(d.ticker, d.rawTwelveData?.quarterly || null, annual);
   }
-
-  return renderTwelveStatements(annual, 'annual', d.ticker);
+  // 5. No key prompt
+  if (!getFMPKey() && !annual.is && !annual.bs && !annual.cf) {
+    return `<div style="padding:18px;font-family:var(--mono);font-size:11px;text-align:center">
+      <div style="color:var(--amb);margin-bottom:8px;font-size:13px">⚙ API Key Recommended</div>
+      <div style="color:var(--tx3);margin-bottom:12px;line-height:1.65">Yahoo Finance has limited coverage for Saudi stocks.<br>Add a free <strong>Financial Modeling Prep (FMP)</strong> key for full annual statements.<br>Free tier: 250 calls/day, no credit card needed — register at <strong>financialmodelingprep.com</strong>.</div>
+      <button class="sp-btn" onclick="showSettings()">⚙ Open Settings to add FMP key</button>
+    </div>`;
+  }
+  return renderTwelveStatements(annual, 'annual', d.ticker, 'Yahoo Finance');
 }
 
 
@@ -2848,19 +2949,27 @@ function buildSectorPerf() {
 <div class="settings-overlay" id="settings-overlay" style="display:none" onclick="if(event.target===this)hideSettings()">
   <div class="settings-panel">
     <div class="sp-close" onclick="hideSettings()">×</div>
-    <div class="sp-title">⚙ Settings</div>
+    <div class="sp-title">⚙ API Settings</div>
     <div class="sp-desc">
-      Financial statements (Quarterly &amp; Annual tabs) are fetched from <strong>Yahoo Finance</strong> via a CORS proxy — no API key required.<br>
-      Statements are cached in your browser for <strong>7 days</strong> so each stock only fetches once per week.
+      Financial statements use <strong>Financial Modeling Prep (FMP)</strong> — the only free API with full Saudi (TADAWUL) coverage.<br>
+      Free tier: <strong>250 calls/day</strong>, no credit card needed. Statements are cached 7 days so each stock only uses 3 calls once.<br>
+      Get your free key at <strong>financialmodelingprep.com</strong> → Sign Up → copy your API key.
     </div>
     <hr class="sp-divider">
+    <label class="sp-label">Financial Modeling Prep API Key</label>
     <div class="sp-row">
-      <button class="sp-btn sp-btn-red" onclick="clearTwelveCache()">🗑 Clear Statement Cache</button>
+      <input class="sp-input" id="fmp-key-input" type="text" placeholder="Paste your FMP API key here…" autocomplete="off" spellcheck="false">
     </div>
-    <div class="sp-log" id="td-log">Clear cache to force fresh data on the next Quarterly / Annual tab click.</div>
+    <div class="sp-row">
+      <button class="sp-btn" onclick="saveFMPKey()">💾 Save Key</button>
+      <button class="sp-btn sp-btn-sec" onclick="testFMPKey()">▷ Test Key</button>
+      <button class="sp-btn sp-btn-red" onclick="clearTwelveCache()">🗑 Clear Cache</button>
+    </div>
+    <div class="sp-log" id="td-log">Status will appear here after saving or testing.</div>
     <hr class="sp-divider">
     <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);line-height:1.65">
-      All data is fetched from Yahoo Finance. No personal data is collected or stored beyond your browser's localStorage.
+      Your API key is stored only in this browser's localStorage and never sent anywhere except FMP's servers.<br>
+      Price charts and scores use Yahoo Finance (no key needed).
     </div>
   </div>
 </div>
