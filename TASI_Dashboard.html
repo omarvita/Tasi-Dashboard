@@ -541,20 +541,12 @@ function showToast(msg, duration=3000) {
 }
 
 
-// ── TWELVE DATA API + SETTINGS PANEL ──
+// ── FINANCIAL STATEMENTS — Yahoo Finance (no API key required) ──
 const TD_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
-
-function getTwelveKey() { return localStorage.getItem('TASI_twelvedata_key') || ''; }
-
-function updateGearDot() {
-  const dot = document.getElementById('gear-dot');
-  if (dot) dot.style.display = getTwelveKey() ? 'block' : 'none';
-}
 
 function showSettings() {
   const ov = document.getElementById('settings-overlay');
   if (!ov) return;
-  document.getElementById('td-key-input').value = getTwelveKey();
   document.getElementById('td-log').innerHTML = '';
   ov.style.display = 'flex';
 }
@@ -564,37 +556,10 @@ function hideSettings() {
   if (ov) ov.style.display = 'none';
 }
 
-function saveTwelveKey() {
-  const k = document.getElementById('td-key-input').value.trim();
-  if (k) localStorage.setItem('TASI_twelvedata_key', k);
-  else localStorage.removeItem('TASI_twelvedata_key');
-  updateGearDot();
-  showToast(k ? '✓ API key saved' : 'Key cleared');
-}
-
 function clearTwelveCache() {
   Object.keys(localStorage).filter(k => k.startsWith('TASI_td_')).forEach(k => localStorage.removeItem(k));
   showToast('✓ Financial statement cache cleared');
   document.getElementById('td-log').textContent = 'Cache cleared — next tab click will fetch fresh data.';
-}
-
-async function testTwelveKey() {
-  const key = getTwelveKey();
-  const logEl = document.getElementById('td-log');
-  if (!key) { if (logEl) logEl.innerHTML = '<span style="color:var(--red)">No key saved. Paste your key and click Save first.</span>'; return; }
-  if (logEl) logEl.innerHTML = '<span class="spin"></span> Testing with Aramco (2222 / TADAWUL)…';
-  try {
-    const r = await fetch(`https://api.twelvedata.com/quote?symbol=2222&exchange=TADAWUL&apikey=${key}`, { signal: AbortSignal.timeout(10000) });
-    const data = await r.json();
-    if (data.code || data.status === 'error') {
-      if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ API error: ${data.message || data.code}</span>`;
-    } else {
-      if (logEl) logEl.innerHTML = `<span style="color:var(--green)">✓ Key works! Aramco price: ${data.close} SAR — ready to load financial statements.</span>`;
-      updateGearDot();
-    }
-  } catch(e) {
-    if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ Network error: ${e.message}</span>`;
-  }
 }
 
 function tdLog(msg, ok = true) {
@@ -622,23 +587,58 @@ function tdCacheSet(ticker, quarterly, annual) {
   } catch(e) {}
 }
 
-function tdTicker(ticker) {
-  // Convert Yahoo Finance format (2222.SR) → Twelve Data format (symbol=2222&exchange=TADAWUL)
-  return ticker.replace(/\.SR$/i, '');
+async function fetchYahooFinancials(ticker) {
+  const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=incomeStatementHistory,incomeStatementHistoryQuarterly,balanceSheetHistory,balanceSheetHistoryQuarterly,cashflowStatementHistory,cashflowStatementHistoryQuarterly`;
+  try {
+    const data = await fetchWithProxy(url);
+    return data?.quoteSummary?.result?.[0] || null;
+  } catch(e) { return null; }
 }
 
-async function fetchTwelveStatement(ticker, endpoint, period, outputsize = 5) {
-  const key = getTwelveKey();
-  if (!key) return null;
-  try {
-    const sym = tdTicker(ticker);
-    const url = `https://api.twelvedata.com/${endpoint}?symbol=${sym}&exchange=TADAWUL&period=${period}&outputsize=${outputsize}&apikey=${key}`;
-    const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
-    if (!r.ok) return null;
-    const data = await r.json();
-    if (data.code || data.status === 'error') return null;
-    return Array.isArray(data.data) ? data.data : null;
-  } catch(e) { return null; }
+function parseYahooFinancials(summary, period) {
+  if (!summary) return { is: null, bs: null, cf: null };
+  const fmtDate = ts => {
+    if (!ts) return '—';
+    const d = new Date(ts * 1000);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  };
+  const isKey = period === 'quarterly' ? 'incomeStatementHistoryQuarterly' : 'incomeStatementHistory';
+  const bsKey = period === 'quarterly' ? 'balanceSheetHistoryQuarterly'    : 'balanceSheetHistory';
+  const cfKey = period === 'quarterly' ? 'cashflowStatementHistoryQuarterly' : 'cashflowStatementHistory';
+  const isArr = summary[isKey]?.incomeStatementHistory || [];
+  const bsArr = summary[bsKey]?.balanceSheetStatements || [];
+  const cfArr = summary[cfKey]?.cashflowStatements    || [];
+  const is = isArr.length ? isArr.map(r => ({
+    fiscal_date:      fmtDate(r.endDate?.raw),
+    revenue:          r.totalRevenue?.raw ?? null,
+    gross_profit:     r.grossProfit?.raw  ?? null,
+    ebitda:           r.ebitda?.raw       ?? null,
+    operating_income: r.ebit?.raw         ?? null,
+    net_income:       r.netIncome?.raw    ?? null,
+    eps:              r.basicEPS?.raw     ?? null,
+  })) : null;
+  const bs = bsArr.length ? bsArr.map(r => ({
+    fiscal_date:          fmtDate(r.endDate?.raw),
+    total_assets:         r.totalAssets?.raw              ?? null,
+    total_liabilities:    r.totalLiab?.raw                ?? null,
+    total_equity:         r.totalStockholderEquity?.raw   ?? null,
+    cash_and_equivalents: r.cash?.raw                     ?? null,
+    long_term_debt:       r.longTermDebt?.raw             ?? null,
+  })) : null;
+  const cf = cfArr.length ? cfArr.map(r => {
+    const opCF  = r.totalCashFromOperatingActivities?.raw    ?? null;
+    const capEx = r.capitalExpenditures?.raw                 ?? null;
+    return {
+      fiscal_date:          fmtDate(r.endDate?.raw),
+      operating_activities: opCF,
+      investing_activities: r.totalCashflowsFromInvestingActivities?.raw ?? null,
+      financing_activities: r.totalCashFromFinancingActivities?.raw      ?? null,
+      capital_expenditure:  capEx,
+      free_cash_flow:       (opCF != null && capEx != null) ? opCF + capEx : null,
+      dividends_paid:       r.dividendsPaid?.raw ?? null,
+    };
+  }) : null;
+  return { is, bs, cf };
 }
 
 // ── DARK / LIGHT MODE ──
@@ -2126,33 +2126,19 @@ function buildBreakdown(d){
 }
 
 async function buildQuarterly(d){
-  // ── Cache check: in-memory then localStorage ──
   if (!d.rawTwelveData) {
     const cached = tdCacheGet(d.ticker);
     if (cached) d.rawTwelveData = cached;
   }
   if (d.rawTwelveData?.quarterly) return renderTwelveStatements(d.rawTwelveData.quarterly, 'quarterly', d.ticker);
 
-  // ── No key → prompt ──
-  const key = getTwelveKey();
-  if (!key) return `<div style="padding:18px;font-family:var(--mono);font-size:11px;text-align:center">
-    <div style="color:var(--amb);margin-bottom:8px;font-size:13px">⚙ API Key Required</div>
-    <div style="color:var(--tx3);margin-bottom:12px;line-height:1.65">Quarterly financial statements are fetched from Twelve Data.<br>Free tier: 800 calls/day, no credit card needed.</div>
-    <button class="sp-btn" onclick="showSettings()">⚙ Open Settings to add key</button>
-  </div>`;
+  tdLog('Fetching quarterly financial statements…', true);
+  const summary = await fetchYahooFinancials(d.ticker);
+  const quarterly = parseYahooFinancials(summary, 'quarterly');
+  tdLog('Income statement: ' + (quarterly.is ? 'ok' : 'no data'), !!quarterly.is);
+  tdLog('Balance sheet: '    + (quarterly.bs ? 'ok' : 'no data'), !!quarterly.bs);
+  tdLog('Cash flow: '        + (quarterly.cf ? 'ok' : 'no data'), !!quarterly.cf);
 
-  // ── Fetch from Twelve Data ──
-  tdLog('Fetching quarterly income statement…', true);
-  const [is, bs, cf] = await Promise.all([
-    fetchTwelveStatement(d.ticker, 'income_statement', 'quarterly'),
-    fetchTwelveStatement(d.ticker, 'balance_sheet',    'quarterly'),
-    fetchTwelveStatement(d.ticker, 'cash_flow',        'quarterly'),
-  ]);
-  tdLog('Income statement: ' + (is ? 'ok' : 'failed'), !!is);
-  tdLog('Balance sheet: '    + (bs ? 'ok' : 'failed'), !!bs);
-  tdLog('Cash flow: '        + (cf ? 'ok' : 'failed'), !!cf);
-
-  const quarterly = { is, bs, cf };
   if (!d.rawTwelveData) d.rawTwelveData = {};
   d.rawTwelveData.quarterly = quarterly;
   tdCacheSet(d.ticker, quarterly, d.rawTwelveData?.annual || null);
@@ -2166,7 +2152,7 @@ function renderTwelveStatements(data, period, ticker) {
   if (noData(is) && noData(bs) && noData(cf)) {
     return `<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">
       <div style="color:var(--amb);margin-bottom:6px">⚠ No ${period} data available for this stock on Twelve Data.</div>
-      <div>Some Saudi stocks may have limited coverage. Try the other tab or check your API key in ⚙ Settings.</div>
+      <div>Some Saudi stocks may have limited coverage on Yahoo Finance. Try the other tab or clear the cache in ⚙ Settings.</div>
     </div>`;
   }
   function fmtSAR(v) {
@@ -2211,37 +2197,23 @@ function renderTwelveStatements(data, period, ticker) {
   return makeTable(period === 'quarterly' ? 'Quarterly Income Statement' : '5-Year Income Statement', isRows, is?.map(pLabel) || [])
        + makeTable(period === 'quarterly' ? 'Quarterly Balance Sheet'    : '5-Year Balance Sheet',    bsRows, bs?.map(pLabel) || [])
        + makeTable(period === 'quarterly' ? 'Quarterly Cash Flow'        : '5-Year Cash Flow',        cfRows, cf?.map(pLabel) || [])
-       + `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Source: Twelve Data · SAR · B = Billions · Cached 7 days in browser</div>`;
+       + `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Source: Yahoo Finance · SAR · B = Billions · Cached 7 days in browser</div>`;
 }
 
 async function buildAnnual(d){
-  // ── Cache check: in-memory then localStorage ──
   if (!d.rawTwelveData) {
     const cached = tdCacheGet(d.ticker);
     if (cached) d.rawTwelveData = cached;
   }
   if (d.rawTwelveData?.annual) return renderTwelveStatements(d.rawTwelveData.annual, 'annual', d.ticker);
 
-  // ── No key → prompt ──
-  const key = getTwelveKey();
-  if (!key) return `<div style="padding:18px;font-family:var(--mono);font-size:11px;text-align:center">
-    <div style="color:var(--amb);margin-bottom:8px;font-size:13px">⚙ API Key Required</div>
-    <div style="color:var(--tx3);margin-bottom:12px;line-height:1.65">Annual financial statements are fetched from Twelve Data.<br>Free tier: 800 calls/day, no credit card needed.</div>
-    <button class="sp-btn" onclick="showSettings()">⚙ Open Settings to add key</button>
-  </div>`;
+  tdLog('Fetching annual financial statements…', true);
+  const summary = await fetchYahooFinancials(d.ticker);
+  const annual = parseYahooFinancials(summary, 'annual');
+  tdLog('Income statement: ' + (annual.is ? 'ok' : 'no data'), !!annual.is);
+  tdLog('Balance sheet: '    + (annual.bs ? 'ok' : 'no data'), !!annual.bs);
+  tdLog('Cash flow: '        + (annual.cf ? 'ok' : 'no data'), !!annual.cf);
 
-  // ── Fetch from Twelve Data ──
-  tdLog('Fetching annual income statement…', true);
-  const [is, bs, cf] = await Promise.all([
-    fetchTwelveStatement(d.ticker, 'income_statement', 'annual'),
-    fetchTwelveStatement(d.ticker, 'balance_sheet',    'annual'),
-    fetchTwelveStatement(d.ticker, 'cash_flow',        'annual'),
-  ]);
-  tdLog('Income statement: ' + (is ? 'ok' : 'failed'), !!is);
-  tdLog('Balance sheet: '    + (bs ? 'ok' : 'failed'), !!bs);
-  tdLog('Cash flow: '        + (cf ? 'ok' : 'failed'), !!cf);
-
-  const annual = { is, bs, cf };
   if (!d.rawTwelveData) d.rawTwelveData = {};
   d.rawTwelveData.annual = annual;
   tdCacheSet(d.ticker, d.rawTwelveData?.quarterly || null, annual);
@@ -2835,7 +2807,6 @@ function buildSectorPerf() {
 
   // Step 2: Open DB async in background, then check cache, then fetch prices
   restoreUIState();
-  updateGearDot();
   // Fetch TASI market summary
   fetchMarketSummary();
 
@@ -2855,27 +2826,19 @@ function buildSectorPerf() {
 <div class="settings-overlay" id="settings-overlay" style="display:none" onclick="if(event.target===this)hideSettings()">
   <div class="settings-panel">
     <div class="sp-close" onclick="hideSettings()">×</div>
-    <div class="sp-title">⚙ API Settings</div>
+    <div class="sp-title">⚙ Settings</div>
     <div class="sp-desc">
-      Financial statements (Quarterly &amp; Annual tabs) are fetched from <strong>Twelve Data</strong> — a real API with proper CORS support, no proxy needed.<br>
-      Free tier: <strong>800 API calls/day</strong>. Statements are cached in your browser for 7 days so each stock only uses 6 calls once.<br>
-      Get your free key at <strong>twelvedata.com/register</strong> (no credit card required).
+      Financial statements (Quarterly &amp; Annual tabs) are fetched from <strong>Yahoo Finance</strong> via a CORS proxy — no API key required.<br>
+      Statements are cached in your browser for <strong>7 days</strong> so each stock only fetches once per week.
     </div>
     <hr class="sp-divider">
-    <label class="sp-label">Twelve Data API Key</label>
     <div class="sp-row">
-      <input class="sp-input" id="td-key-input" type="text" placeholder="Paste your API key here…" autocomplete="off" spellcheck="false">
+      <button class="sp-btn sp-btn-red" onclick="clearTwelveCache()">🗑 Clear Statement Cache</button>
     </div>
-    <div class="sp-row">
-      <button class="sp-btn" onclick="saveTwelveKey()">💾 Save Key</button>
-      <button class="sp-btn sp-btn-sec" onclick="testTwelveKey()">▷ Test Key</button>
-      <button class="sp-btn sp-btn-red" onclick="clearTwelveCache()">🗑 Clear Cache</button>
-    </div>
-    <div class="sp-log" id="td-log">Status will appear here after saving or testing.</div>
+    <div class="sp-log" id="td-log">Clear cache to force fresh data on the next Quarterly / Annual tab click.</div>
     <hr class="sp-divider">
     <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);line-height:1.65">
-      Your API key is stored only in this browser's localStorage and never sent anywhere except Twelve Data's servers.<br>
-      Price charts and technical scores continue using Yahoo Finance (no key needed).
+      All data is fetched from Yahoo Finance. No personal data is collected or stored beyond your browser's localStorage.
     </div>
   </div>
 </div>
