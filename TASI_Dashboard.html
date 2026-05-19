@@ -194,6 +194,56 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 .sp-close:hover{border-color:var(--red);color:var(--red)}
 .gear-wrap{position:relative;display:inline-block}
 .gear-dot{display:none;position:absolute;top:0;right:0;width:7px;height:7px;background:var(--green);border-radius:50%;border:1.5px solid var(--bg2);pointer-events:none}
+/* ─── MOBILE BOTTOM NAV ─── */
+.mob-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:var(--bg2);border-top:1px solid var(--b1);z-index:200;padding:6px 0 calc(6px + env(safe-area-inset-bottom));gap:0}
+.mob-nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px 2px;background:none;border:none;color:var(--tx3);cursor:pointer;font-family:var(--mono);font-size:8px;text-transform:uppercase;letter-spacing:.04em;min-height:48px}
+.mob-nav-btn:active{background:rgba(255,255,255,.05)}
+.mob-nav-ico{font-size:18px;line-height:1}
+.mob-nav-btn.active{color:var(--acc)}
+/* ─── MOBILE MORE MENU ─── */
+.mob-more-menu{display:none;position:absolute;top:calc(100% + 4px);right:0;background:var(--bg2);border:1px solid var(--b2);border-radius:8px;padding:6px;min-width:160px;z-index:500;box-shadow:0 8px 24px rgba(0,0,0,.5);flex-direction:column;gap:4px}
+.mob-more-menu.open{display:flex}
+.mob-menu-item{font-family:var(--mono);font-size:10px;padding:7px 10px;background:none;border:none;color:var(--tx2);cursor:pointer;border-radius:5px;text-align:left;width:100%}
+.mob-menu-item:active,.mob-menu-item:hover{background:var(--bg3);color:var(--tx)}
+.mob-more-wrap{position:relative;display:none}
+/* ─── MOBILE RESPONSIVE ─── */
+@media (max-width: 640px) {
+  body { padding-bottom: 60px; }
+  .mob-nav { display: flex; }
+  .mob-more-wrap { display: inline-block; }
+  .hdr-sec { display: none !important; }
+  .main { padding: 8px 10px; }
+  .logo-sub { display: none; }
+  .logo-icon { width: 28px; height: 28px; font-size: 10px; }
+  .logo-text { font-size: 11px; letter-spacing: .05em; }
+  .topbar { padding: 7px 10px; }
+  .metrics { grid-template-columns: repeat(4,1fr); gap: 4px; }
+  .mc { padding: 6px 7px; }
+  .mc-v { font-size: 13px; }
+  .mc-l { font-size: 7px; }
+  #market-bar { overflow-x:auto; flex-wrap:nowrap; font-size:9px; gap:8px; padding:5px 10px; scrollbar-width:none; }
+  #market-bar::-webkit-scrollbar { display:none; }
+  .secperf { font-size:8px; gap:4px; padding:5px 10px; overflow-x:auto; flex-wrap:nowrap; scrollbar-width:none; }
+  .secperf::-webkit-scrollbar { display:none; }
+  .sb { font-size:8px; padding:3px 7px; }
+  .ctrl { gap:4px; }
+  .sw { min-width:100%; max-width:100%; order:-1; flex-basis:100%; }
+  .ctrl select,.ctrl button { font-size:9px; padding:5px 7px; }
+  /* table: hide non-essential columns */
+  .col-co,.col-pe,.col-eg,.col-peg,.col-fu,.col-te,.col-bu,.col-tr,.col-st,.col-cp,.col-vw { display:none !important; }
+  table { table-layout:auto; }
+  td { padding:10px 5px; }
+  th { padding:6px 5px; font-size:8px; }
+  .bw { gap:2px; }
+  .bt { min-width:16px; }
+  .bn { font-size:9px; min-width:14px; }
+  .mob-company { display:block !important; }
+  .pv { font-size:12px; }
+  /* modal: bottom sheet style */
+  .modal-overlay { align-items:flex-end; padding:0; }
+  .modal { width:100% !important; border-radius:12px 12px 0 0; max-height:94vh; }
+  .tab { font-size:9px; padding:6px 8px; }
+}
 </style>
 </head>
 <body>
@@ -204,19 +254,31 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
-    <span id="cache-info" style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Checking cache...</span>
+    <span id="cache-info" class="hdr-sec" style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Checking cache...</span>
     <button class="rbtn" id="rbtn" onclick="refreshAll(false)">↻ Load Data</button>
-
-    <button class="rbtn" style="background:var(--rdim);border-color:var(--red);color:var(--red)" onclick="if(confirm('Force re-fetch? Takes 2-3 min.'))refreshAll(true)">⟳ Force</button>
-    <button class="rbtn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showExportMenu()">⤓ Export ▾</button>
-    <label class="rbtn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3);cursor:pointer">⤒ Import<input type="file" id="importFile" accept=".json" style="display:none" onchange="importCache(this)"></label>
-    <button class="rbtn" id="theme-btn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="toggleTheme()">☀ Light</button>
-    <button class="rbtn" id="lang-btn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="toggleArabic()">عر</button>
-    <button class="rbtn" id="cmpbtn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showComparePanel()">Compare</button>
-    <button class="rbtn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showPortfolioPanel()">💼 Portfolio</button>
+    <button class="rbtn hdr-sec" style="background:var(--rdim);border-color:var(--red);color:var(--red)" onclick="if(confirm('Force re-fetch? Takes 2-3 min.'))refreshAll(true)">⟳ Force</button>
+    <button class="rbtn hdr-sec" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showExportMenu()">⤓ Export ▾</button>
+    <label class="rbtn hdr-sec" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3);cursor:pointer">⤒ Import<input type="file" id="importFile" accept=".json" style="display:none" onchange="importCache(this)"></label>
+    <button class="rbtn hdr-sec" id="theme-btn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="toggleTheme()">☀ Light</button>
+    <button class="rbtn hdr-sec" id="lang-btn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="toggleArabic()">عر</button>
+    <button class="rbtn hdr-sec" id="cmpbtn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showComparePanel()">Compare</button>
+    <button class="rbtn hdr-sec" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showPortfolioPanel()">💼 Portfolio</button>
     <div class="gear-wrap">
-      <button class="rbtn" id="gear-btn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showSettings()">⚙ Settings</button>
+      <button class="rbtn" id="gear-btn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="showSettings()">⚙</button>
       <span class="gear-dot" id="gear-dot"></span>
+    </div>
+    <!-- Mobile ⋯ More menu -->
+    <div class="mob-more-wrap" id="mob-more-wrap">
+      <button class="rbtn" style="background:#1a1a2e;border-color:var(--b2);color:var(--tx2);font-size:14px;padding:4px 9px;letter-spacing:1px" onclick="toggleMobMenu()" id="mob-more-btn">⋯</button>
+      <div class="mob-more-menu" id="mob-more-menu">
+        <button class="mob-menu-item" onclick="refreshAll(true);closeMobMenu()">⟳ Force Reload</button>
+        <button class="mob-menu-item" onclick="showExportMenu();closeMobMenu()">⤓ Export Data</button>
+        <button class="mob-menu-item" onclick="document.getElementById('importFile').click();closeMobMenu()">⤒ Import Data</button>
+        <button class="mob-menu-item" onclick="toggleTheme();closeMobMenu()" id="mob-theme-item">☀ Light Mode</button>
+        <button class="mob-menu-item" onclick="toggleArabic();closeMobMenu()">عر Arabic Names</button>
+        <button class="mob-menu-item" onclick="showComparePanel();closeMobMenu()">⊕ Compare Stocks</button>
+        <button class="mob-menu-item" onclick="showPortfolioPanel();closeMobMenu()">💼 Portfolio</button>
+      </div>
     </div>
   </div>
 </header>
@@ -287,21 +349,21 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
       <thead><tr>
         <th style="width:26px">#</th>
         <th style="width:58px">Ticker</th>
-        <th style="width:145px">Company</th>
+        <th class="col-co" style="width:145px">Company</th>
         <th style="width:60px">SAR <span style="font-size:8px;opacity:.5">▼price</span></th>
         <th style="width:50px">Chg%</th>
-        <th style="width:46px" onclick="sk('pe')" title="P/E Ratio">P/E↕</th>
-        <th style="width:52px" onclick="sk('eg')" title="Earnings Growth">EG%↕</th>
-        <th style="width:46px" onclick="sk('peg')" title="PEG Ratio — P/E÷EarningsGrowth">PEG↕</th>
-        <th style="width:82px" onclick="sk('fundamental')">Fund.↕</th>
-        <th style="width:82px" onclick="sk('technical')">Tech.↕</th>
-        <th style="width:82px" onclick="sk('buffett')">Buffett↕</th>
-        <th style="width:82px" onclick="sk('combined')">Combined↕</th>
+        <th class="col-pe" style="width:46px" onclick="sk('pe')" title="P/E Ratio">P/E↕</th>
+        <th class="col-eg" style="width:52px" onclick="sk('eg')" title="Earnings Growth">EG%↕</th>
+        <th class="col-peg" style="width:46px" onclick="sk('peg')" title="PEG Ratio — P/E÷EarningsGrowth">PEG↕</th>
+        <th class="col-fu" style="width:82px" onclick="sk('fundamental')">Fund.↕</th>
+        <th class="col-te" style="width:82px" onclick="sk('technical')">Tech.↕</th>
+        <th class="col-bu" style="width:82px" onclick="sk('buffett')">Buffett↕</th>
+        <th style="width:82px" onclick="sk('combined')">Score↕</th>
         <th style="width:48px">Signal</th>
-        <th style="width:50px">Trend</th>
-        <th style="width:32px">★</th>
-        <th style="width:32px">⊕</th>
-        <th style="width:40px">Info</th>
+        <th class="col-tr" style="width:50px">Trend</th>
+        <th class="col-st" style="width:32px">★</th>
+        <th class="col-cp" style="width:32px">⊕</th>
+        <th class="col-vw" style="width:40px">Info</th>
       </tr></thead>
       <tbody id="tbody"><tr><td colspan="17" class="ls"><span class="spin"></span> Loading scores...</td></tr></tbody>
     </table>
@@ -556,12 +618,80 @@ function showSettings() {
   if (gdInp) gdInp.value = getGDClientId();
   document.getElementById('td-log').innerHTML = '';
   updateGDStatus();
+  renderWeightsUI();
   ov.style.display = 'flex';
 }
 
 function hideSettings() {
   const ov = document.getElementById('settings-overlay');
   if (ov) ov.style.display = 'none';
+}
+
+function toggleMobMenu() {
+  const m = document.getElementById('mob-more-menu');
+  if (!m) return;
+  m.classList.toggle('open');
+  if (m.classList.contains('open')) {
+    document.addEventListener('click', function _close(e) {
+      if (!document.getElementById('mob-more-wrap')?.contains(e.target)) {
+        m.classList.remove('open');
+        document.removeEventListener('click', _close);
+      }
+    }, {once: false, capture: true});
+  }
+}
+
+function closeMobMenu() {
+  document.getElementById('mob-more-menu')?.classList.remove('open');
+}
+
+function renderWeightsUI() {
+  const el = document.getElementById('score-weights-ui');
+  if (!el) return;
+  const W = SCORE_WEIGHTS;
+  const items = [
+    {k:'fundamental', label:'Fundamental'},
+    {k:'technical',   label:'Technical'},
+    {k:'buffett',     label:'Buffett'},
+    {k:'peg',         label:'PEG Score'},
+    {k:'dcf',         label:'DCF / DDM'},
+  ];
+  el.innerHTML = items.map(({k, label}) => `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+      <span style="font-family:var(--mono);font-size:9px;color:var(--tx2);width:88px;flex-shrink:0">${label}</span>
+      <input type="range" min="0" max="70" step="5" value="${W[k]||0}" id="ws-${k}"
+        oninput="document.getElementById('wv-${k}').textContent=this.value+'%';updateWeightTotal()"
+        style="flex:1;accent-color:var(--acc)">
+      <span id="wv-${k}" style="font-family:var(--mono);font-size:10px;color:var(--acc);width:34px;text-align:right">${W[k]||0}%</span>
+    </div>`).join('');
+  updateWeightTotal();
+}
+
+function updateWeightTotal() {
+  const keys = ['fundamental','technical','buffett','peg','dcf'];
+  const total = keys.reduce((s,k) => s + (+(document.getElementById('ws-'+k)?.value||0)), 0);
+  const el = document.getElementById('weights-total-lbl');
+  if (el) el.innerHTML = `Total: <span style="color:${total===100?'var(--green)':total===0?'var(--tx3)':'var(--amb)'};font-weight:600">${total}%</span>${total!==100&&total!==0?' — weights will be normalized to 100%':''}`;
+}
+
+function saveScoreWeights() {
+  const keys = ['fundamental','technical','buffett','peg','dcf'];
+  keys.forEach(k => { SCORE_WEIGHTS[k] = +(document.getElementById('ws-'+k)?.value||0); });
+  localStorage.setItem('tasi_score_weights', JSON.stringify(SCORE_WEIGHTS));
+  allData.forEach(d => { d.combined = calcCombined(d); });
+  if (window._fd) window._fd.forEach(d => { d.combined = calcCombined(d); });
+  doFilter();
+  document.getElementById('td-log').innerHTML = '<span style="color:var(--green)">✓ Weights saved and scores recalculated.</span>';
+}
+
+function resetScoreWeights() {
+  SCORE_WEIGHTS = {fundamental:30, technical:20, buffett:35, peg:15, dcf:0};
+  localStorage.removeItem('tasi_score_weights');
+  allData.forEach(d => { d.combined = calcCombined(d); });
+  if (window._fd) window._fd.forEach(d => { d.combined = calcCombined(d); });
+  doFilter();
+  renderWeightsUI();
+  document.getElementById('td-log').innerHTML = '<span style="color:var(--tx3)">Weights reset to defaults.</span>';
 }
 
 function saveFMPKey() {
@@ -636,12 +766,23 @@ async function validateTickers() {
     const col = !r.found ? 'var(--red)' : r.match && r.nameSimilar ? 'var(--green)' : r.match ? 'var(--amb)' : 'var(--red)';
     return `<tr><td style="color:${col};text-align:center">${icon}</td><td style="font-family:var(--mono)">${r.ticker}</td><td>${r.appName}</td><td style="color:var(--tx3)">${r.yhName}</td></tr>`;
   }).join('');
+
+  // Build copy-friendly text of issues only
+  const issueText = issues.length
+    ? 'Ticker Validation Issues (' + issues.length + '):\n' +
+      issues.map(r => (!r.found ? '✗' : '⚠') + ' ' + r.ticker + ' — ' + r.appName + (r.yhName && r.yhName !== '—' ? ' | Yahoo: ' + r.yhName : ' | not found on Yahoo')).join('\n')
+    : 'No issues found.';
+
   logEl.innerHTML = `<div style="font-size:9px;margin-bottom:5px;color:var(--tx2)">✓ OK  ~ name mismatch  ⚠ ticker mismatch  ✗ not found on Yahoo · ${results.filter(r=>r.found&&r.match&&r.nameSimilar).length}/${total} fully confirmed · ${issues.length} issues</div>
     <div style="overflow-x:auto;max-height:320px"><table style="width:100%;font-family:var(--mono);font-size:9px;border-collapse:collapse">
       <thead style="position:sticky;top:0;background:var(--bg3)"><tr style="color:var(--tx3)"><th></th><th>Ticker</th><th>App Name</th><th>Yahoo Name</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
-    ${issues.length?`<div style="margin-top:5px;color:var(--amb);font-size:9px;font-family:var(--mono)">⚠ ${issues.length} ticker(s) need review — run again or check Tadawul.com.sa</div>`:''}`;
+    ${issues.length ? `
+    <div style="display:flex;gap:8px;align-items:center;margin-top:7px;flex-wrap:wrap">
+      <div style="color:var(--amb);font-size:9px;font-family:var(--mono)">⚠ ${issues.length} ticker(s) need review</div>
+      <button onclick="navigator.clipboard.writeText(${JSON.stringify(issueText)}).then(()=>{this.textContent='✓ Copied!';setTimeout(()=>this.textContent='📋 Copy Issues',1500)})" style="font-family:var(--mono);font-size:9px;padding:3px 9px;background:var(--bg2);border:1px solid var(--b2);border-radius:4px;color:var(--tx2);cursor:pointer">📋 Copy Issues</button>
+    </div>` : '<div style="margin-top:5px;color:var(--green);font-size:9px;font-family:var(--mono)">✓ All tickers confirmed!</div>'}`;
 }
 
 function tdLog(msg, ok = true) {
@@ -983,7 +1124,13 @@ function enrichFundamentalsFromStatements(d, stmtData) {
     const curNI  = parseFloat(cur.net_income), prvNI = parseFloat(prv.net_income);
     const curEPS = parseFloat(cur.eps), prvEPS = parseFloat(prv.eps);
     if (!isNaN(curRev) && !isNaN(prvRev) && prvRev !== 0) { d.rg = (curRev - prvRev) / Math.abs(prvRev); changed = true; }
-    if (!isNaN(curNI) && !isNaN(prvNI) && prvNI !== 0)   { d.eg = (curNI - prvNI)  / Math.abs(prvNI);  changed = true; }
+    // Prefer EPS growth (accounts for dilution); fall back to NI growth
+    if (!isNaN(curEPS) && !isNaN(prvEPS) && prvEPS !== 0) {
+      d.eg = (curEPS - prvEPS) / Math.abs(prvEPS); changed = true;
+    } else if (!isNaN(curNI) && !isNaN(prvNI) && prvNI !== 0) {
+      d.eg = (curNI - prvNI) / Math.abs(prvNI); changed = true;
+    }
+    d.egSource = 'statements';
     if (!isNaN(curNI) && !isNaN(curRev) && curRev !== 0)  { d.npm = curNI / curRev; changed = true; }
     // Update rev/ni for overview display
     if (!isNaN(curRev)) { d.rev  = curRev / 1e9; changed = true; }
@@ -1016,7 +1163,7 @@ function enrichFundamentalsFromStatements(d, stmtData) {
     d.fundamental = fRes.score; d.fundSteps = fRes.steps;
     d.buffett = bRes.buffett; d.criteria = bRes.criteria; d.buffSteps = bRes.steps;
     d.peg = pegRes.peg; d.pegScore = pegRes.score; d.pegSteps = pegRes.steps;
-    d.combined = Math.round(fRes.score * 0.30 + (d.technical || 50) * 0.20 + bRes.buffett * 0.35 + pegRes.score * 0.15);
+    d.combined = calcCombined(d);
     d.stmtEnriched = true;
   }
   return changed;
@@ -1531,18 +1678,18 @@ const MORE_TICKERS = [
 {t:"8310.SR",n:"Amana Insurance",s:"Insurance",r:false},
 {t:"8311.SR",n:"Saudi Enaya Insurance",s:"Insurance",r:false},
 // Technology
-{t:"7201.SR",n:"Arabian Internet & Communications (solutions by stc)",s:"Technology",r:false},
+// 7201.SR removed — duplicate of 7202.SR (SOLUTIONS by STC) already in main STOCKS
 {t:"7204.SR",n:"Tiqniyat",s:"Technology",r:false},
 // Other / Media / Hotels
 {t:"4070.SR",n:"Tihama",s:"Consumer",r:false},
-{t:"4010.SR",n:"Saudi Hotels",s:"Real Estate",r:false},
 {t:"4011.SR",n:"Dur Hospitality",s:"Real Estate",r:false},
-{t:"6002.SR",n:"Herfy",s:"Consumer",r:false},
+// 6002.SR (Herfy) removed — taken private / delisted 2021
 {t:"6004.SR",n:"Catering Holding",s:"Consumer",r:false},
 {t:"6010.SR",n:"NADEC",s:"Consumer",r:false},
 {t:"6012.SR",n:"Halwani Brothers",s:"Consumer",r:false},
 {t:"6013.SR",n:"Tanmia Food",s:"Consumer",r:false},
 {t:"6014.SR",n:"Al Jouf Agri",s:"Consumer",r:false},
+// 4010.SR (Saudi Hotels) removed — suspended/delisted
 {t:"6015.SR",n:"United Electronics (eXtra)",s:"Consumer",r:false},
 {t:"6020.SR",n:"JADCO (AlDawaa)",s:"Healthcare",r:false},
 {t:"6040.SR",n:"Tabuk Agricultural",s:"Consumer",r:false},
@@ -1560,6 +1707,31 @@ const MORE_TICKERS = [
 // STATE
 // ═══════════════════════════════════════
 let allData=[],filtData=[],activeSector="All",sortKey="combined",curPage=1;
+
+// ── COMBINED SCORE WEIGHTS ──
+let SCORE_WEIGHTS = JSON.parse(localStorage.getItem('tasi_score_weights') || 'null') || {fundamental:30,technical:20,buffett:35,peg:15,dcf:0};
+
+function dcfUpsideToScore(upside) {
+  if (upside == null) return 50;
+  if (upside >= 0.50) return 100;
+  if (upside >= 0)    return Math.round(50 + (upside / 0.50) * 50);
+  if (upside >= -0.50) return Math.max(0, Math.round(50 + (upside / 0.50) * 50));
+  return 0;
+}
+
+function calcCombined(d) {
+  const W = SCORE_WEIGHTS;
+  const total = (W.fundamental||0) + (W.technical||0) + (W.buffett||0) + (W.peg||0) + (W.dcf||0);
+  if (total === 0) return 50;
+  const dcfScore = (W.dcf > 0 && d.dcfUpside != null) ? dcfUpsideToScore(d.dcfUpside) : 50;
+  return Math.round(
+    (d.fundamental||50) * (W.fundamental||0) / total +
+    (d.technical||50)   * (W.technical||0)   / total +
+    (d.buffett||50)     * (W.buffett||0)      / total +
+    (d.pegScore||50)    * (W.peg||0)          / total +
+    dcfScore            * (W.dcf||0)          / total
+  );
+}
 const PG=30;
 let chartInst=null;
 
@@ -2186,25 +2358,27 @@ function renderTable(){
     const reit=d.isReit?`<span class="badge b-reit">REIT</span>`:"";
     const lv=d.priceLoaded?`<span class="badge b-live" style="margin-left:2px">LIVE</span>`:`<span class="badge b-est" style="margin-left:2px">EST</span>`;
     const pegStr=d.peg!=null?`<span style="font-family:var(--mono);font-size:10px;color:${d.peg<1?"var(--green)":d.peg<2?"var(--amb)":"var(--red)"}">${d.peg.toFixed(2)}</span>`:`<span class="nav">—</span>`;
-    const egStr=d.eg!=null?`<span class="${d.eg>=0?'pos':'neg'}">${d.eg>=0?"+":""}${(d.eg*100).toFixed(0)}%</span>`:`<span class="nav">—</span>`;
+    const egSrc=d.egSource==='statements'?'<span title="From annual financial statements" style="font-size:7px;vertical-align:super;color:var(--blue);margin-left:1px">s</span>':'';
+    const egStr=d.eg!=null?`<span class="${d.eg>=0?'pos':'neg'}">${d.eg>=0?"+":""}${(d.eg*100).toFixed(0)}%${egSrc}</span>`:`<span class="nav">—</span>`;
+    const shortName = d.name.split(' ').slice(0,3).join(' ') + (d.name.split(' ').length > 3 ? '…' : '');
     return`<tr class="data-row" onclick="openModal(${start+i})">
       <td class="rk">${start+i+1}</td>
-      <td class="tk">${d.ticker.replace(".SR","")}</td>
-      <td title="${d.name}" style="color:var(--tx)">${getStockName(d)}${moat}${reit}</td>
-      <td><span class="pv">${hasPx?d.price.toFixed(2):'—'}</span>${lv}</td>
-      <td class="${cc}">${cs}</td>
-      <td><span style="font-family:var(--mono);font-size:10px;color:var(--tx)">${d.pe!=null?d.pe.toFixed(1):'<span class="nav">—</span>'}</span></td>
-      <td>${egStr}</td>
-      <td>${pegStr}</td>
-      <td>${bar(d.fundamental)}</td>
-      <td>${bar(d.technical)}</td>
-      <td>${bar(d.buffett)}</td>
-      <td>${bar(d.combined)}</td>
-      <td><span class="badge ${sig.cls}">${sig.label}</span></td>
-      <td>${makeSparkline(d.closes)}</td>
-      <td><span id="star-${d.ticker}" onclick="event.stopPropagation();toggleWatch('${d.ticker}')" style="cursor:pointer;font-size:14px;color:${watchlist.has(d.ticker)?'var(--amb)':'var(--tx3)'}">${watchlist.has(d.ticker)?'★':'☆'}</span></td>
-      <td><span onclick="event.stopPropagation();toggleCompare('${d.ticker}')" style="cursor:pointer;font-size:13px;color:${compareList.includes(d.ticker)?'var(--acc)':'var(--tx3)'}">${compareList.includes(d.ticker)?'✓':'⊕'}</span></td>
-      <td><button class="dbtn" onclick="event.stopPropagation();openModal(${start+i})">View</button></td>
+      <td class="tk" style="white-space:normal;min-width:54px">${d.ticker.replace(".SR","")}<span class="mob-company" style="display:none">${shortName}${moat}${reit}</span></td>
+      <td class="col-co" title="${d.name}" style="color:var(--tx)">${getStockName(d)}${moat}${reit}</td>
+      <td style="min-width:52px"><span class="pv">${hasPx?d.price.toFixed(2):'—'}</span>${lv}</td>
+      <td class="${cc}" style="min-width:44px">${cs}</td>
+      <td class="col-pe"><span style="font-family:var(--mono);font-size:10px;color:var(--tx)">${d.pe!=null?d.pe.toFixed(1):'<span class="nav">—</span>'}</span></td>
+      <td class="col-eg">${egStr}</td>
+      <td class="col-peg">${pegStr}</td>
+      <td class="col-fu">${bar(d.fundamental)}</td>
+      <td class="col-te">${bar(d.technical)}</td>
+      <td class="col-bu">${bar(d.buffett)}</td>
+      <td style="min-width:60px">${bar(d.combined)}</td>
+      <td style="min-width:40px"><span class="badge ${sig.cls}">${sig.label}</span></td>
+      <td class="col-tr">${makeSparkline(d.closes)}</td>
+      <td class="col-st"><span id="star-${d.ticker}" onclick="event.stopPropagation();toggleWatch('${d.ticker}')" style="cursor:pointer;font-size:14px;color:${watchlist.has(d.ticker)?'var(--amb)':'var(--tx3)'}">${watchlist.has(d.ticker)?'★':'☆'}</span></td>
+      <td class="col-cp"><span onclick="event.stopPropagation();toggleCompare('${d.ticker}')" style="cursor:pointer;font-size:13px;color:${compareList.includes(d.ticker)?'var(--acc)':'var(--tx3)'}">${compareList.includes(d.ticker)?'✓':'⊕'}</span></td>
+      <td class="col-vw"><button class="dbtn" onclick="event.stopPropagation();openModal(${start+i})">View</button></td>
     </tr>`;
   }).join("");
   window._fd=filtData;
@@ -2415,7 +2589,7 @@ async function openModal(idx){
             realD.peg=pegRes.peg; realD.pegScore=pegRes.score; realD.pegSteps=pegRes.steps;
             realD.technical=tRes.score; realD.techSteps=tRes.steps;
             realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
-            realD.combined=Math.round(fRes.score*0.30+tRes.score*0.20+bRes.buffett*0.35+pegRes.score*0.15);
+            realD.combined=calcCombined(realD);
             if(window._fd?.[idx]) Object.assign(window._fd[idx], realD);
             usedDriveCache = true;
           }
@@ -2453,7 +2627,7 @@ async function openModal(idx){
           realD.peg=pegRes.peg; realD.pegScore=pegRes.score; realD.pegSteps=pegRes.steps;
           realD.technical=tRes.score; realD.techSteps=tRes.steps;
           realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
-          realD.combined=Math.round(fRes.score*0.30+tRes.score*0.20+bRes.buffett*0.35+pegRes.score*0.15);
+          realD.combined=calcCombined(realD);
           if(window._fd?.[idx]) Object.assign(window._fd[idx], realD);
         }
       }
@@ -2552,8 +2726,7 @@ function buildOverview(d){
     <div class="scard hl"><div class="slbl">Combined</div><div class="sval" style="color:${sc(d.combined)}">${d.combined}</div></div>
   </div>
   <div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:8px 10px;font-family:var(--mono);font-size:9px;color:var(--tx3);margin-bottom:8px">
-    Combined = (Fundamental × 30%) + (Technical × 20%) + (Buffett × 35%) + (PEG Score × 15%)
-    = (${d.fundamental}×0.30) + (${d.technical}×0.20) + (${d.buffett}×0.35) + (${d.pegScore}×0.15) = <span style="color:var(--acc);font-weight:600">${d.combined}</span>
+    ${(()=>{const W=SCORE_WEIGHTS;const t=(W.fundamental||0)+(W.technical||0)+(W.buffett||0)+(W.peg||0)+(W.dcf||0)||100;const parts=[];if(W.fundamental>0)parts.push(`Fund×${W.fundamental}%`);if(W.technical>0)parts.push(`Tech×${W.technical}%`);if(W.buffett>0)parts.push(`Buffett×${W.buffett}%`);if(W.peg>0)parts.push(`PEG×${W.peg}%`);if(W.dcf>0)parts.push(`DCF×${W.dcf}%`);return`Combined = ${parts.join(' + ')} = <span style="color:var(--acc);font-weight:600">${d.combined}</span>`;})()}
   </div>
   <div class="secl">Market & Valuation</div>
   <div class="mgrid4">
@@ -2562,9 +2735,10 @@ function buildOverview(d){
     <div class="mi"><div class="mil">P/E Ratio</div><div class="miv">${d.pe!=null?d.pe.toFixed(1):"—"}</div></div>
     <div class="mi"><div class="mil">P/B Ratio</div><div class="miv">${d.pb!=null?d.pb.toFixed(2):"—"}</div></div>
     <div class="mi"><div class="mil">PEG Ratio</div><div class="miv" style="color:${peg!=null?(peg<1?"var(--green)":peg<2?"var(--amb)":"var(--red)"):"var(--tx3)"}">${peg!=null?peg.toFixed(2):"—"}</div></div>
-    <div class="mi"><div class="mil">Earnings Growth</div><div class="miv ${d.eg!=null?(d.eg>=0?'pos':'neg'):''}">${d.eg!=null?(d.eg>=0?"+":"")+(d.eg*100).toFixed(1)+"%":"—"}</div></div>
+    <div class="mi"><div class="mil">Earnings Growth${d.egSource==='statements'?'<span title="From annual statements" style="font-size:8px;color:var(--blue);margin-left:3px">★stmt</span>':''}</div><div class="miv ${d.eg!=null?(d.eg>=0?'pos':'neg'):''}">${d.eg!=null?(d.eg>=0?"+":"")+(d.eg*100).toFixed(1)+"%":"—"}</div></div>
     <div class="mi"><div class="mil">Div. Yield</div><div class="miv">${d.dy!=null?(d.dy*100).toFixed(2)+"%":"—"}</div></div>
     <div class="mi"><div class="mil">ROE</div><div class="miv ${d.roe!=null?(d.roe>0.12?"pos":d.roe<0?"neg":""):''}">${d.roe!=null?(d.roe*100).toFixed(1)+"%":"—"}</div></div>
+    ${d.dcfPS!=null&&d.price?`<div class="mi"><div class="mil">${d.dcfMethod||'DCF'} Fair Value</div><div class="miv" style="color:${d.dcfUpside>0.10?'var(--green)':d.dcfUpside>-0.10?'var(--amb)':'var(--red)'}"><span style="font-weight:600">${d.dcfPS.toFixed(2)} SAR</span> <span style="font-size:9px;font-family:var(--mono)">${d.dcfUpside>=0?'+':''}${(d.dcfUpside*100).toFixed(1)}%</span></div></div>`:`<div class="mi"><div class="mil">DCF Fair Value</div><div class="miv" style="font-size:9px;color:var(--tx3)">Open DCF tab ↗</div></div>`}
   </div>
   <div class="secl">Key Financials (SAR B, FY2024)</div>
   <div class="mgrid">
@@ -2665,7 +2839,17 @@ async function buildFinancials(d, period) {
   function enrichAndRender(stmtData, src) {
     if (period === 'annual' && !d.stmtEnriched) {
       const realD = allData.find(a => a.ticker === d.ticker);
-      if (realD) enrichFundamentalsFromStatements(realD, stmtData);
+      if (realD) {
+        const changed = enrichFundamentalsFromStatements(realD, stmtData);
+        if (changed) {
+          Object.assign(d, realD);
+          if (window._fd) {
+            const fdIdx = window._fd.findIndex(f => f.ticker === d.ticker);
+            if (fdIdx >= 0) Object.assign(window._fd[fdIdx], realD);
+          }
+          setTimeout(() => doFilter(), 50);
+        }
+      }
     }
     return renderTwelveStatements(stmtData, period, d.ticker, src, d);
   }
@@ -2938,7 +3122,7 @@ async function buildAnnual(d){ return buildFinancials(d, 'annual'); }
 
 // ── DCF ANALYSIS ──
 async function buildDCF(d) {
-  // Try to get FCF from statements
+  // ── DATA FETCHING ──
   let baseFCF = null, fcfSource = 'N/A', stmtRevenue = null;
   const annualData = d.rawTwelveData?.annual || (await (async()=>{
     const cached = tdCacheGet(d.ticker); return cached?.annual || null;
@@ -2946,44 +3130,115 @@ async function buildDCF(d) {
   if (annualData?.cf?.length) {
     const fcfRaw = parseFloat(annualData.cf[0].free_cash_flow);
     if (!isNaN(fcfRaw)) { baseFCF = fcfRaw; fcfSource = 'financial statements'; }
-    if (annualData.is?.length) {
-      const rv = parseFloat(annualData.is[0].revenue);
-      if (!isNaN(rv)) stmtRevenue = rv;
-    }
+    if (annualData.is?.length) { const rv = parseFloat(annualData.is[0].revenue); if (!isNaN(rv)) stmtRevenue = rv; }
   }
   if (baseFCF === null && d.ni != null) {
     baseFCF = d.fcf ? d.ni * 0.85e9 : d.ni * 0.3e9;
-    fcfSource = `estimated (net income ${d.ni?.toFixed(2)}B × factor)`;
+    fcfSource = `estimated (NI ${d.ni?.toFixed(2)}B × factor)`;
   }
 
-  // Saudi market WACC parameters
-  const rfRate = 0.055;
-  const erp = 0.065;
-  const kd = 0.055;
-  const taxRate = 0.20;
-  const termGrowth = 0.025;
-
+  // ── WACC ──
+  const rfRate=0.055, erp=0.065, kd=0.055, taxRate=0.20, termGrowth=0.025;
   const beta = d.beta || 1.0;
   const ke = rfRate + beta * erp;
   const deRatio = d.de ? d.de / 100 : 0.3;
   const eWeight = 1 / (1 + deRatio);
   const dWeight = deRatio / (1 + deRatio);
   const wacc = ke * eWeight + kd * dWeight * (1 - taxRate);
-
   const growthRate = Math.min(Math.max(d.rg != null ? d.rg : 0.04, -0.10), 0.20);
 
+  // ── FCF COMPUTATION (all upfront) ──
+  let fcfProj=[], pvFCFs=[], sumPvFCF=0, termVal=0, pvTerm=0;
+  let enterpriseValue=0, netDebt=0, netDebtNote='assumed 0';
+  let equityValue=0, shareCount=null, intrinsicPS=null, upside=null;
+  if (baseFCF !== null) {
+    let fcf = baseFCF;
+    for (let i=1;i<=5;i++) { fcf *= (1+growthRate); fcfProj.push(fcf); }
+    pvFCFs = fcfProj.map((f,i) => f / Math.pow(1+wacc, i+1));
+    sumPvFCF = pvFCFs.reduce((a,b) => a+b, 0);
+    termVal = fcfProj[4] * (1+termGrowth) / (wacc - termGrowth);
+    pvTerm = termVal / Math.pow(1+wacc, 5);
+    enterpriseValue = sumPvFCF + pvTerm;
+    if (d.assets && d.de) {
+      const totalDebt = (d.de/100) * (d.assets*1e9 / (1+d.de/100));
+      const cash = annualData?.bs?.[0]?.cash_and_equivalents ? parseFloat(annualData.bs[0].cash_and_equivalents) : totalDebt * 0.15;
+      netDebt = totalDebt - (!isNaN(cash) ? cash : 0);
+      netDebtNote = `total debt ${(totalDebt/1e9).toFixed(1)}B − cash ${(!isNaN(cash)?cash/1e9:0).toFixed(1)}B`;
+    }
+    equityValue = Math.max(enterpriseValue - netDebt, 0);
+    shareCount = (d.mktCap && d.price && d.price > 0) ? d.mktCap / d.price : null;
+    intrinsicPS = shareCount ? equityValue / shareCount : null;
+    upside = (intrinsicPS && d.price) ? (intrinsicPS - d.price) / d.price : null;
+  }
+
+  // ── DDM FOR BANKING STOCKS ──
+  // Banks have D/E 400–600% (deposits = liabilities) → EV − Net Debt ≈ 0 → FCF-DCF useless.
+  // Use Gordon Growth DDM: Fair Value = DPS / (ke − g_sustainable)
+  const isBanking = d.sector === 'Banking';
+  let ddmPS=null, ddmUpside=null, ddmNotes='';
+  if (isBanking && d.dy && d.price && d.price > 0) {
+    const dps = d.dy * d.price;
+    const payoutRatio = Math.min(d.dy * (d.pe||15), 0.95);
+    const gSustain = Math.min((d.roe||0.12) * (1-payoutRatio), ke - 0.005);
+    if (ke > gSustain + 0.003 && dps > 0) {
+      ddmPS = dps / (ke - gSustain);
+      ddmUpside = (ddmPS - d.price) / d.price;
+      ddmNotes = `DPS ≈ ${dps.toFixed(3)} SAR · payout ≈ ${(payoutRatio*100).toFixed(0)}% · g = ${(gSustain*100).toFixed(2)}% · ke = ${(ke*100).toFixed(1)}%`;
+    }
+  }
+
+  // ── PRIMARY VALUATION ──
+  const primaryPS = isBanking ? (ddmPS ?? intrinsicPS) : intrinsicPS;
+  const primaryUpside = isBanking ? (ddmUpside ?? upside) : upside;
+  const primaryMethod = isBanking && ddmPS ? 'DDM' : 'FCF-DCF';
+  if (primaryPS != null) { d.dcfPS = primaryPS; d.dcfUpside = primaryUpside; d.dcfMethod = primaryMethod; }
+
+  // ── HTML ──
   let html = `<div class="secl">DCF Valuation — Saudi Market Parameters</div>`;
 
-  // Parameter table
+  // PROMINENT PRICE vs FAIR VALUE CARD
+  if (primaryPS != null && d.price) {
+    const uColor = primaryUpside > 0.10 ? 'var(--green)' : primaryUpside > -0.10 ? 'var(--amb)' : 'var(--red)';
+    const uLabel = primaryUpside > 0.10 ? '▲ Undervalued' : primaryUpside > -0.10 ? '● Fairly Valued' : '▼ Overvalued';
+    html += `<div style="background:var(--bg2);border:2px solid ${uColor};border-radius:10px;padding:14px 16px;margin-bottom:12px">
+  <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">${primaryMethod} — Market Price vs Fair Value</div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <div style="flex:1;min-width:90px;text-align:center;background:var(--bg3);border-radius:7px;padding:10px 8px;border:1px solid var(--b1)">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:5px">Market Price</div>
+      <div style="font-size:24px;font-weight:700;color:var(--tx1);font-family:var(--mono)">${d.price.toFixed(2)}</div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--tx3)">SAR</div>
+    </div>
+    <div style="flex:1;min-width:90px;text-align:center;background:var(--bg3);border-radius:7px;padding:10px 8px;border:1px solid ${uColor}55">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:5px">Fair Value (${primaryMethod})</div>
+      <div style="font-size:24px;font-weight:700;color:${uColor};font-family:var(--mono)">${primaryPS.toFixed(2)}</div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--tx3)">SAR</div>
+    </div>
+    <div style="flex:1;min-width:90px;text-align:center;background:var(--bg3);border-radius:7px;padding:10px 8px;border:1px solid ${uColor}55">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:5px">Upside / Downside</div>
+      <div style="font-size:24px;font-weight:700;color:${uColor};font-family:var(--mono)">${primaryUpside>=0?'+':''}${(primaryUpside*100).toFixed(1)}%</div>
+      <div style="font-family:var(--mono);font-size:9px;color:${uColor};font-weight:600">${uLabel}</div>
+    </div>
+  </div>
+</div>`;
+  }
+
+  // BANK WARNING
+  if (isBanking) {
+    html += `<div style="background:#1a1000;border:1px solid var(--amb);border-radius:7px;padding:10px 12px;margin-bottom:10px;font-family:var(--mono);font-size:9px;line-height:1.6">
+  <span style="color:var(--amb);font-weight:600">⚠ Bank Valuation:</span> <span style="color:var(--tx2)">FCF-DCF is unreliable for banks — deposits inflate D/E 400–600%, making EV − Net Debt ≈ 0. ${ddmPS?`Primary fair value uses <strong style="color:var(--acc)">DDM (Gordon Growth)</strong>: Fair Value = DPS ÷ (ke − g_sustainable).<br><span style="color:var(--tx3)">${ddmNotes}</span>`:'DDM unavailable (missing dividend/ROE data).'}</span>
+</div>`;
+  }
+
+  // MODEL INPUTS TABLE
   html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
   <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">Model Inputs</div>
   <div class="mgrid4">
     <div class="mi"><div class="mil">Risk-Free Rate</div><div class="miv">${(rfRate*100).toFixed(1)}%</div></div>
     <div class="mi"><div class="mil">Equity Risk Premium</div><div class="miv">${(erp*100).toFixed(1)}%</div></div>
     <div class="mi"><div class="mil">Beta</div><div class="miv">${beta.toFixed(2)}</div></div>
-    <div class="mi"><div class="mil">Cost of Equity</div><div class="miv" style="color:var(--acc)">${(ke*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil">Cost of Equity (ke)</div><div class="miv" style="color:var(--acc)">${(ke*100).toFixed(1)}%</div></div>
     <div class="mi"><div class="mil">Cost of Debt</div><div class="miv">${(kd*100).toFixed(1)}%</div></div>
-    <div class="mi"><div class="mil">D/E Ratio</div><div class="miv">${(deRatio*100).toFixed(0)}%</div></div>
+    <div class="mi"><div class="mil">D/E Ratio</div><div class="miv">${(deRatio*100).toFixed(0)}%${isBanking?'<span style="font-size:8px;color:var(--amb)"> (incl. deposits)</span>':''}</div></div>
     <div class="mi"><div class="mil">WACC</div><div class="miv" style="color:var(--acc);font-weight:600">${(wacc*100).toFixed(1)}%</div></div>
     <div class="mi"><div class="mil">Terminal Growth</div><div class="miv">${(termGrowth*100).toFixed(1)}%</div></div>
     <div class="mi"><div class="mil">FCF Growth (5Y)</div><div class="miv ${growthRate>=0?'pos':'neg'}">${growthRate>=0?'+':''}${(growthRate*100).toFixed(1)}%</div></div>
@@ -2992,67 +3247,31 @@ async function buildDCF(d) {
 
   if (baseFCF === null) {
     html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:10px 12px;font-family:var(--mono);font-size:10px;color:var(--amb)">
-      ⚠ Cannot calculate DCF — no Free Cash Flow data available.<br>
-      <span style="color:var(--tx3)">Open the 5-Year tab first to load financial statements, then return here.</span></div>`;
-    html += `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:10px;border-top:1px solid var(--b1);padding-top:8px">
-      Saudi DCF parameters: Risk-free rate = SAIBOR 3M + sovereign spread (~5.5%). ERP = 6.5% for TASI equity market.
-      Terminal growth = 2.5% (Saudi Vision 2030 nominal GDP target). WACC validated against ACWA Power, Saudi Aramco filings.
-      Not financial advice — for educational purposes only.</div>`;
+  ⚠ No Free Cash Flow data — open the 5-Year tab first to load statements.</div>`;
+    html += `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:10px;border-top:1px solid var(--b1);padding-top:8px">Not financial advice.</div>`;
     return html;
   }
 
-  // 5-year FCF projections
-  const fcfProj = [];
-  let fcf = baseFCF;
-  for (let i = 1; i <= 5; i++) { fcf *= (1 + growthRate); fcfProj.push(fcf); }
-
-  // PV of FCFs
-  const pvFCFs = fcfProj.map((f, i) => f / Math.pow(1 + wacc, i + 1));
-  const sumPvFCF = pvFCFs.reduce((a, b) => a + b, 0);
-
-  // Terminal value
-  const termFCF = fcfProj[4] * (1 + termGrowth);
-  const termVal  = termFCF / (wacc - termGrowth);
-  const pvTerm   = termVal / Math.pow(1 + wacc, 5);
-
-  const enterpriseValue = sumPvFCF + pvTerm;
-
-  // Equity value: EV minus net debt
-  let netDebt = 0, netDebtNote = 'assumed 0';
-  if (d.assets && d.de) {
-    const totalDebt = (d.de / 100) * (d.assets * 1e9 / (1 + d.de / 100));
-    const cash = annualData?.bs?.[0]?.cash_and_equivalents ? parseFloat(annualData.bs[0].cash_and_equivalents) : totalDebt * 0.15;
-    netDebt = totalDebt - (!isNaN(cash) ? cash : 0);
-    netDebtNote = `total debt ${(totalDebt/1e9).toFixed(1)}B − cash ${(!isNaN(cash)?cash/1e9:0).toFixed(1)}B`;
-  }
-  const equityValue = Math.max(enterpriseValue - netDebt, 0);
-
-  // Per-share value
-  const shareCount = (d.mktCap && d.price && d.price > 0) ? d.mktCap / d.price : null;
-  const intrinsicPS = shareCount ? equityValue / shareCount : null;
-  const upside = (intrinsicPS && d.price) ? (intrinsicPS - d.price) / d.price : null;
-
-  // Sensitivity: WACC ± 1%, growth ± 1%
   function dcfEV(w, g, bg) {
-    let f = baseFCF;
-    let pv = 0;
-    for (let i = 1; i <= 5; i++) { f *= (1 + g); pv += f / Math.pow(1 + w, i); }
-    const tv = f * (1 + bg) / (w - bg);
-    return (pv + tv / Math.pow(1 + w, 5) - netDebt) / (shareCount || 1);
+    let f=baseFCF, pv=0;
+    for (let i=1;i<=5;i++) { f*=(1+g); pv+=f/Math.pow(1+w,i); }
+    return (pv + f*(1+bg)/(w-bg)/Math.pow(1+w,5) - netDebt) / (shareCount||1);
   }
 
+  // FCF PROJECTIONS TABLE
   html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
-  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">5-Year FCF Projection (SAR B)</div>
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">5-Year FCF Projection (SAR B)${isBanking?' — Reference only':''}</div>
   <div style="overflow-x:auto"><table class="ft">
     <thead><tr><th>Year</th><th>FCF (B SAR)</th><th>Growth</th><th>PV @ ${(wacc*100).toFixed(1)}%</th></tr></thead>
     <tbody>
       <tr><td style="color:var(--tx3)">Base</td><td style="font-family:var(--mono)">${(baseFCF/1e9).toFixed(3)}</td><td>—</td><td>—</td></tr>
-      ${fcfProj.map((f,i)=>`<tr><td>Year ${i+1}</td><td class="ft-pos">${(f/1e9).toFixed(3)}</td><td style="font-size:9px;color:var(--tx3)">${growthRate>=0?'+':''}${(growthRate*100).toFixed(1)}%</td><td style="color:var(--acc);font-family:var(--mono)">${(pvFCFs[i]/1e9).toFixed(3)}</td></tr>`).join('')}
+      ${fcfProj.map((f,i)=>`<tr><td>Year ${i+1}</td><td class="${f>=0?'ft-pos':'neg'}">${(f/1e9).toFixed(3)}</td><td style="font-size:9px;color:var(--tx3)">${growthRate>=0?'+':''}${(growthRate*100).toFixed(1)}%</td><td style="color:var(--acc);font-family:var(--mono)">${(pvFCFs[i]/1e9).toFixed(3)}</td></tr>`).join('')}
     </tbody>
   </table></div></div>`;
 
+  // FCF VALUATION SUMMARY
   html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
-  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">Valuation Summary</div>
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">${isBanking?'FCF-DCF Summary (reference — see DDM below)':'Valuation Summary'}</div>
   <div class="mgrid">
     <div class="mi"><div class="mil">PV of FCFs (5Y)</div><div class="miv">${(sumPvFCF/1e9).toFixed(1)}B SAR</div></div>
     <div class="mi"><div class="mil">PV of Terminal Value</div><div class="miv">${(pvTerm/1e9).toFixed(1)}B SAR</div></div>
@@ -3060,34 +3279,55 @@ async function buildDCF(d) {
     <div class="mi"><div class="mil">Net Debt</div><div class="miv" style="font-size:9px">${(netDebt/1e9).toFixed(1)}B SAR <span style="color:var(--tx3)">(${netDebtNote})</span></div></div>
     <div class="mi"><div class="mil">Equity Value</div><div class="miv">${(equityValue/1e9).toFixed(1)}B SAR</div></div>
     ${shareCount?`<div class="mi"><div class="mil">Shares Outstanding</div><div class="miv">${(shareCount/1e9).toFixed(2)}B</div></div>`:''}
-    ${intrinsicPS?`<div class="mi hl"><div class="mil">Intrinsic Value/Share</div><div class="miv" style="color:var(--acc);font-weight:600;font-size:16px">${intrinsicPS.toFixed(2)} SAR</div></div>`:''}
+    ${intrinsicPS!=null?`<div class="mi ${isBanking?'':'hl'}"><div class="mil">FCF Intrinsic/Share</div><div class="miv" style="color:${isBanking?'var(--tx3)':'var(--acc)'};font-weight:600;font-size:${isBanking?12:16}px">${intrinsicPS.toFixed(2)} SAR${isBanking?' <span style="font-size:8px">(ignore)</span>':''}</div></div>`:''}
     ${d.price?`<div class="mi"><div class="mil">Current Price</div><div class="miv">${d.price.toFixed(2)} SAR</div></div>`:''}
-    ${upside!=null?`<div class="mi hl"><div class="mil">Upside / Downside</div><div class="miv" style="font-size:16px;font-weight:600;color:${upside>0.10?'var(--green)':upside>-0.10?'var(--amb)':'var(--red)'}">${upside>=0?'+':''}${(upside*100).toFixed(1)}%</div></div>`:''}
+    ${upside!=null&&!isBanking?`<div class="mi hl"><div class="mil">Upside / Downside</div><div class="miv" style="font-size:16px;font-weight:600;color:${upside>0.10?'var(--green)':upside>-0.10?'var(--amb)':'var(--red)'}">${upside>=0?'+':''}${(upside*100).toFixed(1)}%</div></div>`:''}
   </div></div>`;
 
-  // Sensitivity table (WACC vs Growth)
-  if (shareCount) {
-    const waccRange = [wacc-0.02, wacc-0.01, wacc, wacc+0.01, wacc+0.02];
-    const grRange   = [growthRate-0.02, growthRate-0.01, growthRate, growthRate+0.01, growthRate+0.02];
+  // DDM BREAKDOWN FOR BANKS
+  if (isBanking && ddmPS) {
+    const dps=d.dy*d.price, pe=d.pe||15;
+    const payoutRatio=Math.min(d.dy*pe,0.95);
+    const roe=d.roe||0.12;
+    const gSustain=Math.min(roe*(1-payoutRatio),ke-0.005);
+    const uClr=ddmUpside>0.10?'var(--green)':ddmUpside>-0.10?'var(--amb)':'var(--red)';
     html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
-    <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">Sensitivity Analysis — Intrinsic Value/Share (SAR)</div>
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">Dividend Discount Model — Bank Fair Value</div>
+  <div class="mgrid4">
+    <div class="mi"><div class="mil">Dividend Yield</div><div class="miv">${(d.dy*100).toFixed(2)}%</div></div>
+    <div class="mi"><div class="mil">DPS (est.)</div><div class="miv">${dps.toFixed(3)} SAR</div></div>
+    <div class="mi"><div class="mil">Payout Ratio</div><div class="miv">${(payoutRatio*100).toFixed(0)}%</div></div>
+    <div class="mi"><div class="mil">ROE</div><div class="miv">${(roe*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil">Sustainable Growth (g)</div><div class="miv">${(gSustain*100).toFixed(2)}%</div></div>
+    <div class="mi"><div class="mil">Cost of Equity (ke)</div><div class="miv">${(ke*100).toFixed(1)}%</div></div>
+    <div class="mi hl"><div class="mil">DDM Fair Value</div><div class="miv" style="color:${uClr};font-weight:600;font-size:16px">${ddmPS.toFixed(2)} SAR</div></div>
+    <div class="mi hl"><div class="mil">DDM Upside</div><div class="miv" style="font-size:16px;font-weight:600;color:${uClr}">${ddmUpside>=0?'+':''}${(ddmUpside*100).toFixed(1)}%</div></div>
+  </div>
+  <div style="font-size:8px;color:var(--tx3);margin-top:6px">Formula: ${dps.toFixed(3)} ÷ (${(ke*100).toFixed(2)}% − ${(gSustain*100).toFixed(2)}%) = ${ddmPS.toFixed(2)} SAR</div>
+</div>`;
+  }
+
+  // SENSITIVITY TABLE
+  if (shareCount) {
+    const waccRange=[wacc-0.02,wacc-0.01,wacc,wacc+0.01,wacc+0.02];
+    const grRange=[growthRate-0.02,growthRate-0.01,growthRate,growthRate+0.01,growthRate+0.02];
+    html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
+    <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">FCF Sensitivity — Intrinsic Value/Share (SAR)${isBanking?' · Reference only':''}</div>
     <div style="font-size:8px;color:var(--tx3);margin-bottom:5px">Rows = WACC ± 2%  ·  Columns = FCF Growth ± 2%</div>
     <div style="overflow-x:auto"><table class="ft">
       <thead><tr><th>WACC \\ Growth</th>${grRange.map(g=>`<th>${(g*100).toFixed(1)}%</th>`).join('')}</tr></thead>
       <tbody>${waccRange.map(w=>{
         if(w<=termGrowth+0.005)return'';
-        return`<tr>${w===wacc?'<td style="color:var(--acc);font-weight:600">'+( w*100).toFixed(1)+'% ★</td>':'<td>'+(w*100).toFixed(1)+'%</td>'}${grRange.map(g=>{const iv=dcfEV(w,g,termGrowth);const ud=(iv-(d.price||0))/(d.price||1);const col=ud>0.10?'var(--green)':ud>-0.10?'var(--amb)':'var(--red)';return`<td style="color:${col};font-family:var(--mono)">${iv>0?iv.toFixed(1):'—'}</td>`;}).join('')}</tr>`;
+        return`<tr>${w===wacc?'<td style="color:var(--acc);font-weight:600">'+(w*100).toFixed(1)+'% ★</td>':'<td>'+(w*100).toFixed(1)+'%</td>'}${grRange.map(g=>{const iv=dcfEV(w,g,termGrowth);const ud=(iv-(d.price||0))/(d.price||1);const col=ud>0.10?'var(--green)':ud>-0.10?'var(--amb)':'var(--red)';return`<td style="color:${col};font-family:var(--mono)">${iv>0?iv.toFixed(1):'—'}</td>`;}).join('')}</tr>`;
       }).join('')}</tbody>
     </table></div></div>`;
   }
 
   html += `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px;border-top:1px solid var(--b1);padding-top:8px;line-height:1.7">
     <strong style="color:var(--tx2)">Saudi DCF Assumptions:</strong><br>
-    Risk-free rate (5.5%): SAIBOR 3M + SAR sovereign spread, approximating USD T-bill equivalent.<br>
-    Equity Risk Premium (6.5%): TASI market premium based on Damodaran 2024 MENA data.<br>
-    Terminal growth (2.5%): Aligned with Saudi Vision 2030 nominal GDP and Aramco long-term guidance.<br>
-    WACC range 9–12%: Lower for regulated utilities/Vision 2030 sectors, higher for cyclicals/REITs.<br>
-    ⚠ DCF is highly sensitive to assumptions — a 1% WACC change can shift intrinsic value by 15–30%. This is a range, not a price target. NOT financial advice.
+    Risk-free rate (5.5%): SAIBOR 3M + SAR sovereign spread. ERP (6.5%): Damodaran 2024 MENA. Terminal growth (2.5%): Vision 2030 nominal GDP.<br>
+    Banks use DDM — FCF-DCF breaks for deposit-funded balance sheets. WACC 9–12% typical range for TASI.<br>
+    ⚠ A 1% ke change shifts fair value 15–30%. This is a range, not a price target. NOT financial advice.
   </div>`;
 
   return html;
@@ -3421,7 +3661,8 @@ function init(){
     const fRes=scoreFundamental(s);
     const bRes=scoreBuffett(s);
     const pegRes=scorePEG(s.pe,s.eg);
-    const combined=Math.round(fRes.score*0.30+50*0.20+bRes.buffett*0.35+pegRes.score*0.15);
+    const _init={fundamental:fRes.score,technical:50,buffett:bRes.buffett,pegScore:pegRes.score,dcfUpside:null};
+    const combined=calcCombined(_init);
     return{
       ticker:s.t,name:s.n,sector:s.s,isReit:s.r,
       pe:s.pe,pb:s.pb,roe:s.roe,npm:s.npm,de:s.de,dy:s.dy,
@@ -3491,7 +3732,7 @@ async function refreshAll(forceRefresh=false){
           dataDate: fetched.dataDate || allData[idx].dataDate,
           technical:tRes.score, techSteps:tRes.steps,
           rsi:tRes.rsi, sma20:tRes.sma20, sma50:tRes.sma50, momentum:tRes.momentum,
-          combined: Math.round(allData[idx].fundamental*0.30+tRes.score*0.20+allData[idx].buffett*0.35+(allData[idx].pegScore||50)*0.15),
+          combined: calcCombined({...allData[idx], technical:tRes.score}),
         };
       }catch(e){allData[idx].priceLoaded=false;}
     }));
@@ -3695,6 +3936,14 @@ function buildSectorPerf() {
 })();
 </script>
 <!-- ── SETTINGS OVERLAY ─────────────────────────────────────────────────── -->
+<!-- Mobile bottom nav -->
+<nav class="mob-nav" id="mob-nav">
+  <button class="mob-nav-btn" onclick="refreshAll(false)"><span class="mob-nav-ico">↻</span>Reload</button>
+  <button class="mob-nav-btn" onclick="document.getElementById('search').focus();document.getElementById('search').scrollIntoView({behavior:'smooth'})"><span class="mob-nav-ico">⌕</span>Search</button>
+  <button class="mob-nav-btn" onclick="showPortfolioPanel()"><span class="mob-nav-ico">💼</span>Portfolio</button>
+  <button class="mob-nav-btn" onclick="showSettings()"><span class="mob-nav-ico">⚙</span>Settings</button>
+</nav>
+
 <div class="settings-overlay" id="settings-overlay" style="display:none" onclick="if(event.target===this)hideSettings()">
   <div class="settings-panel">
     <div class="sp-close" onclick="hideSettings()">×</div>
@@ -3722,6 +3971,20 @@ function buildSectorPerf() {
       <button class="sp-btn sp-btn-sec" onclick="connectGoogleDrive()">🔗 Connect</button>
       <button class="sp-btn" onclick="disconnectGoogleDrive()" style="font-size:9px">Disconnect</button>
       <span id="gd-status" style="font-family:var(--mono);font-size:9px;color:var(--tx3)">● Not connected</span>
+    </div>
+
+    <hr class="sp-divider">
+
+    <!-- Combined Score Weights -->
+    <div style="font-family:var(--mono);font-size:10px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Combined Score Weights</div>
+    <div class="sp-desc" style="margin-bottom:10px">
+      Adjust how each criteria contributes to the Combined Score. Set to 0 to exclude. Include DCF to factor in fair value upside. Weights auto-normalize to 100%.
+    </div>
+    <div id="score-weights-ui"></div>
+    <div style="font-family:var(--mono);font-size:9px;margin:6px 0 10px" id="weights-total-lbl"></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="sp-btn" onclick="saveScoreWeights()">✓ Apply Weights</button>
+      <button class="sp-btn sp-btn-sec" onclick="resetScoreWeights()">Reset to Default</button>
     </div>
 
     <hr class="sp-divider">
