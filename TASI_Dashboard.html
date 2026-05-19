@@ -2126,12 +2126,21 @@ function buildBreakdown(d){
 }
 
 async function buildQuarterly(d){
+  // Use already-fetched Yahoo data from fetchStockFull if available
+  if (d.rawYahoo) {
+    const quarterly = parseYahooFinancials(d.rawYahoo, 'quarterly');
+    if (quarterly.is || quarterly.bs || quarterly.cf) return renderTwelveStatements(quarterly, 'quarterly', d.ticker);
+  }
+
+  // Fall back to cache
   if (!d.rawTwelveData) {
     const cached = tdCacheGet(d.ticker);
     if (cached) d.rawTwelveData = cached;
   }
-  if (d.rawTwelveData?.quarterly) return renderTwelveStatements(d.rawTwelveData.quarterly, 'quarterly', d.ticker);
+  const q = d.rawTwelveData?.quarterly;
+  if (q && (q.is || q.bs || q.cf)) return renderTwelveStatements(q, 'quarterly', d.ticker);
 
+  // Fetch from Yahoo Finance
   tdLog('Fetching quarterly financial statements…', true);
   const summary = await fetchYahooFinancials(d.ticker);
   const quarterly = parseYahooFinancials(summary, 'quarterly');
@@ -2139,9 +2148,11 @@ async function buildQuarterly(d){
   tdLog('Balance sheet: '    + (quarterly.bs ? 'ok' : 'no data'), !!quarterly.bs);
   tdLog('Cash flow: '        + (quarterly.cf ? 'ok' : 'no data'), !!quarterly.cf);
 
-  if (!d.rawTwelveData) d.rawTwelveData = {};
-  d.rawTwelveData.quarterly = quarterly;
-  tdCacheSet(d.ticker, quarterly, d.rawTwelveData?.annual || null);
+  if (quarterly.is || quarterly.bs || quarterly.cf) {
+    if (!d.rawTwelveData) d.rawTwelveData = {};
+    d.rawTwelveData.quarterly = quarterly;
+    tdCacheSet(d.ticker, quarterly, d.rawTwelveData?.annual || null);
+  }
 
   return renderTwelveStatements(quarterly, 'quarterly', d.ticker);
 }
@@ -2151,7 +2162,7 @@ function renderTwelveStatements(data, period, ticker) {
   const noData = (arr) => !arr || !arr.length;
   if (noData(is) && noData(bs) && noData(cf)) {
     return `<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">
-      <div style="color:var(--amb);margin-bottom:6px">⚠ No ${period} data available for this stock on Twelve Data.</div>
+      <div style="color:var(--amb);margin-bottom:6px">⚠ No ${period} data available for this stock on Yahoo Finance.</div>
       <div>Some Saudi stocks may have limited coverage on Yahoo Finance. Try the other tab or clear the cache in ⚙ Settings.</div>
     </div>`;
   }
@@ -2201,12 +2212,21 @@ function renderTwelveStatements(data, period, ticker) {
 }
 
 async function buildAnnual(d){
+  // Use already-fetched Yahoo data from fetchStockFull if available
+  if (d.rawYahoo) {
+    const annual = parseYahooFinancials(d.rawYahoo, 'annual');
+    if (annual.is || annual.bs || annual.cf) return renderTwelveStatements(annual, 'annual', d.ticker);
+  }
+
+  // Fall back to cache
   if (!d.rawTwelveData) {
     const cached = tdCacheGet(d.ticker);
     if (cached) d.rawTwelveData = cached;
   }
-  if (d.rawTwelveData?.annual) return renderTwelveStatements(d.rawTwelveData.annual, 'annual', d.ticker);
+  const a = d.rawTwelveData?.annual;
+  if (a && (a.is || a.bs || a.cf)) return renderTwelveStatements(a, 'annual', d.ticker);
 
+  // Fetch from Yahoo Finance
   tdLog('Fetching annual financial statements…', true);
   const summary = await fetchYahooFinancials(d.ticker);
   const annual = parseYahooFinancials(summary, 'annual');
@@ -2214,9 +2234,11 @@ async function buildAnnual(d){
   tdLog('Balance sheet: '    + (annual.bs ? 'ok' : 'no data'), !!annual.bs);
   tdLog('Cash flow: '        + (annual.cf ? 'ok' : 'no data'), !!annual.cf);
 
-  if (!d.rawTwelveData) d.rawTwelveData = {};
-  d.rawTwelveData.annual = annual;
-  tdCacheSet(d.ticker, d.rawTwelveData?.quarterly || null, annual);
+  if (annual.is || annual.bs || annual.cf) {
+    if (!d.rawTwelveData) d.rawTwelveData = {};
+    d.rawTwelveData.annual = annual;
+    tdCacheSet(d.ticker, d.rawTwelveData?.quarterly || null, annual);
+  }
 
   return renderTwelveStatements(annual, 'annual', d.ticker);
 }
