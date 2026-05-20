@@ -452,8 +452,9 @@ function checkAlerts() {
 // ── PORTFOLIO SIMULATOR ──
 let portfolio = {}; // ticker -> {shares, avgCost}
 function setPortfolioPosition(ticker, shares, avgCost) {
-  if(shares <= 0) { delete portfolio[ticker]; }
-  else portfolio[ticker] = {shares: parseFloat(shares), avgCost: parseFloat(avgCost)||0};
+  const sh = parseFloat(shares);
+  if (!isFinite(sh) || sh <= 0) { delete portfolio[ticker]; }
+  else portfolio[ticker] = {shares: sh, avgCost: parseFloat(avgCost)||0};
   try { localStorage.setItem('TASI_portfolio', JSON.stringify(portfolio)); } catch(e){}
   if(document.getElementById('portfolio-panel')) renderPortfolioPanel();
 }
@@ -543,14 +544,14 @@ function showComparePanel() {
     <div class="mhead">
       <div class="mhtop">
         <div><div class="mtitle">Side-by-Side Comparison</div>
-        <div class="msub">${stocks.map(s=>s.name).join(' vs ')}</div></div>
+        <div class="msub">${stocks.map(s=>escapeHTML(s.name)).join(' vs ')}</div></div>
         <div class="mclose" onclick="document.getElementById('compare-modal').remove()">×</div>
       </div>
     </div>
     <div class="mbody">
     <div style="overflow-x:auto">
     <table class="ft">
-      <thead><tr><th style="text-align:left">Metric</th>${stocks.map(s=>`<th style="text-align:center">${s.name.split(' ').slice(0,2).join(' ')}</th>`).join('')}</tr></thead>
+      <thead><tr><th style="text-align:left">Metric</th>${stocks.map(s=>`<th style="text-align:center">${escapeHTML(s.name.split(' ').slice(0,2).join(' '))}</th>`).join('')}</tr></thead>
       <tbody>
         ${metrics.map(m => {
           const vals = stocks.map(s => m.fn(s));
@@ -590,6 +591,11 @@ const DIV_CONSISTENCY = {
   '4240.SR':{years:6,growing:true},'5110.SR':{years:8,growing:false},
 };
 function getDivConsistency(ticker) { return DIV_CONSISTENCY[ticker] || {years:0,growing:false}; }
+
+// ── HTML ESCAPING ──
+function escapeHTML(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
 
 // ── TOAST NOTIFICATIONS ──
 function showToast(msg, duration=3000) {
@@ -635,9 +641,9 @@ function toggleMobMenu() {
     document.addEventListener('click', function _close(e) {
       if (!document.getElementById('mob-more-wrap')?.contains(e.target)) {
         m.classList.remove('open');
-        document.removeEventListener('click', _close);
+        document.removeEventListener('click', _close, true);
       }
-    }, {once: false, capture: true});
+    }, {once: true, capture: true});
   }
 }
 
@@ -721,6 +727,7 @@ function clearTwelveCache() {
   Object.keys(localStorage).filter(k => k.startsWith('TASI_td_')).forEach(k => localStorage.removeItem(k));
   // Also clear Drive in-memory cache so next open re-reads from Drive
   Object.keys(_gdCache).forEach(k => delete _gdCache[k]);
+  Object.keys(_gdFileIdCache).forEach(k => delete _gdFileIdCache[k]);
   showToast('✓ Financial statement cache cleared');
   document.getElementById('td-log').textContent = 'Cache cleared — next tab click will fetch fresh data.';
 }
@@ -762,7 +769,7 @@ async function validateTickers() {
   const rows = results.map(r => {
     const icon = !r.found ? '✗' : r.match && r.nameSimilar ? '✓' : r.match ? '~' : '⚠';
     const col = !r.found ? 'var(--red)' : r.match && r.nameSimilar ? 'var(--green)' : r.match ? 'var(--amb)' : 'var(--red)';
-    return `<tr><td style="color:${col};text-align:center">${icon}</td><td style="font-family:var(--mono)">${r.ticker}</td><td>${r.appName}</td><td style="color:var(--tx3)">${r.yhName}</td></tr>`;
+    return `<tr><td style="color:${col};text-align:center">${icon}</td><td style="font-family:var(--mono)">${escapeHTML(r.ticker)}</td><td>${escapeHTML(r.appName)}</td><td style="color:var(--tx3)">${escapeHTML(r.yhName)}</td></tr>`;
   }).join('');
 
   // Build copy-friendly text of issues only
@@ -985,6 +992,7 @@ let GD_TOKEN = null;
 const GD_FUND_TTL = 24 * 60 * 60 * 1000;       // 1 day TTL for fundamentals
 const GD_STMT_TTL = 30 * 24 * 60 * 60 * 1000;  // 30 days TTL for financial statements
 const _gdCache = {};                              // in-memory per-ticker Drive cache
+const _gdFileIdCache = {};                        // ticker → Drive file ID (avoids double list+fetch)
 
 function getGDClientId() { return localStorage.getItem('TASI_gd_clientid') || ''; }
 function initGDToken() { const t = sessionStorage.getItem('TASI_gd_token'); if (t) GD_TOKEN = t; }
@@ -1036,6 +1044,7 @@ function saveGDClientId() {
 // Contains: { fundamentals, quarterly:{is,bs,cf}, annual:{is,bs,cf}, fundUpdated, quarterlyUpdated, annualUpdated }
 async function gdFindFile(ticker) {
   if (!GD_TOKEN) return null;
+  if (_gdFileIdCache[ticker]) return { id: _gdFileIdCache[ticker] };
   const name = `TASI_stock_${ticker.replace(/\./g,'_')}.json`;
   try {
     const r = await fetch(
@@ -1043,7 +1052,9 @@ async function gdFindFile(ticker) {
       { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(8000) }
     );
     const d = await r.json();
-    return d.files?.[0] || null;
+    const file = d.files?.[0] || null;
+    if (file) _gdFileIdCache[ticker] = file.id;
+    return file;
   } catch(e) { return null; }
 }
 
@@ -1288,7 +1299,7 @@ const AR_NAMES = {
   '2010.SR':'سابك','4001.SR':'سابك للمغذيات الزراعية','1010.SR':'بنك الرياض',
   '1050.SR':'بنك السعودي الفرنسي','1150.SR':'مصرف الإنماء','4030.SR':'الاتصالات السعودية',
   '4040.SR':'موبايلي','4050.SR':'زين السعودية','4013.SR':'مجموعة سليمان الحبيب',
-  '4161.SR':'مواساة','4100.SR':'دله الصحية','4150.SR':'النهدي الطبية',
+  '4161.SR':'مواساة','4100.SR':'مكة للإنشاء والتعمير','4150.SR':'النهدي الطبية',
   '4270.SR':'المراعي','4290.SR':'مكتبة جرير','4240.SR':'أسواق عبد الله العثيم',
   '4230.SR':'إكسترا','6001.SR':'أكوا باور','5110.SR':'الكهرباء السعودية',
   '2080.SR':'سافكو','8100.SR':'بوبا العربية','8200.SR':'التعاونية',
@@ -1348,8 +1359,9 @@ function printReport(ticker) {
   const div_c = getDivConsistency(ticker);
   const v2030 = getVision2030(ticker);
   const w = window.open('','_blank');
+  const rEsc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <title>TASI Report — ${d.name}</title>
+  <title>TASI Report — ${rEsc(d.name)}</title>
   <style>
     body{font-family:Arial,sans-serif;max-width:800px;margin:30px auto;color:#1a1f2e;font-size:13px;line-height:1.6}
     h1{font-size:22px;margin-bottom:4px} h2{font-size:14px;color:#4a5568;border-bottom:2px solid #e5e7eb;padding-bottom:6px;margin:18px 0 10px}
@@ -1366,8 +1378,8 @@ function printReport(ticker) {
     .footer{margin-top:30px;font-size:10px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:10px}
     @media print{body{margin:10px}}
   </style></head><body>
-  <h1>${d.name} <span style="font-size:14px;color:#9ca3af">${d.ticker}</span></h1>
-  <div style="margin-bottom:12px">${d.sector} · <span class="badge ${sig.label.toLowerCase()}">${sig.label}</span> ${d.criteria?.hasMoat?'· <strong>Moat Stock</strong>':''} · Generated ${new Date().toLocaleDateString('en-SA')}</div>
+  <h1>${rEsc(d.name)} <span style="font-size:14px;color:#9ca3af">${rEsc(d.ticker)}</span></h1>
+  <div style="margin-bottom:12px">${rEsc(d.sector)} · <span class="badge ${sig.label.toLowerCase()}">${sig.label}</span> ${d.criteria?.hasMoat?'· <strong>Moat Stock</strong>':''} · Generated ${new Date().toLocaleDateString('en-SA')}</div>
   <div class="grid">
     <div class="card"><div class="card-l">Combined</div><div class="card-v ${d.combined>=65?'green':d.combined>=45?'amber':'red'}">${d.combined}</div></div>
     <div class="card"><div class="card-l">Buffett</div><div class="card-v ${d.buffett>=65?'green':d.buffett>=45?'amber':'red'}">${d.buffett}</div></div>
@@ -1391,7 +1403,7 @@ function printReport(ticker) {
     <tr><td>Free Cashflow</td><td>${d.fcf?'✓ Positive':'✗ Negative'}</td><td>—</td></tr>
     <tr><td>Vision 2030 Score</td><td>${v2030}/100</td><td>—</td></tr>
   </table>
-  <h2>About</h2><p>${d.desc}</p>
+  <h2>About</h2><p>${rEsc(d.desc)}</p>
   <div class="footer">Report generated by TASI Screener · Scores are algorithmic estimates for educational purposes only · NOT financial advice · Buffett scoring based on "Warren Buffett and the Interpretation of Financial Statements" (Mary Buffett & David Clark)</div>
   </body></html>`);
   w.document.close();
@@ -1489,6 +1501,7 @@ function buildPeerComparison(d) {
 // ── ALERT PANEL IN OVERVIEW ──
 function buildAlertPanel(d) {
   const alert = priceAlerts[d.ticker];
+  window._alertStockName = d.name;
   return `
   <div class="secl">Price Alert</div>
   <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
@@ -1498,7 +1511,7 @@ function buildAlertPanel(d) {
     </select>
     <input type="number" id="alert-price" value="${alert?.target||''}" placeholder="Price SAR" step="0.01"
       style="width:110px;background:var(--bg3);border:1px solid var(--b2);border-radius:5px;color:var(--tx);font-family:var(--mono);font-size:11px;padding:4px 8px;outline:none">
-    <button onclick="setAlert('${d.ticker}',document.getElementById('alert-price').value,document.getElementById('alert-dir').value);showToast('Alert set for ${d.name}')" 
+    <button onclick="setAlert('${d.ticker}',document.getElementById('alert-price').value,document.getElementById('alert-dir').value);showToast('Alert set for '+window._alertStockName)"
       style="font-family:var(--mono);font-size:10px;padding:4px 10px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">Set Alert</button>
     ${alert?`<button onclick="removeAlert('${d.ticker}');showToast('Alert removed')" style="font-family:var(--mono);font-size:10px;padding:4px 10px;background:var(--rdim);color:var(--red);border:1px solid var(--red);border-radius:4px;cursor:pointer">Remove</button>
     <span style="font-family:var(--mono);font-size:10px;color:var(--amb)">Current: ${alert.dir} ${alert.target} SAR</span>`:''}
@@ -1665,7 +1678,6 @@ const MORE_TICKERS = [
 {t:"8160.SR",n:"Al Sagr Insurance",s:"Insurance",r:false},
 {t:"8170.SR",n:"Allianz SF Insurance",s:"Insurance",r:false},
 {t:"8180.SR",n:"Alinma Tokio Marine",s:"Insurance",r:false},
-{t:"8210.SR",n:"BUPA Arabia",s:"Insurance",r:false},
 {t:"8230.SR",n:"AXA Cooperative",s:"Insurance",r:false},
 {t:"8240.SR",n:"CHUBB Arabia",s:"Insurance",r:false},
 {t:"8270.SR",n:"Buruj Insurance",s:"Insurance",r:false},
@@ -2411,7 +2423,8 @@ function updateMetrics(){
   document.getElementById("m-pl").textContent=pct+"%";
   document.getElementById("m-pl").style.color=pct===100?"var(--green)":pct>50?"var(--amb)":"var(--tx)";
   document.getElementById("lu").textContent=`${loaded}/${allData.length} prices loaded`;
-  fetchMarketSummary();
+  clearTimeout(updateMetrics._t);
+  updateMetrics._t = setTimeout(fetchMarketSummary, 600);
 }
 
 function buildSectors(){
@@ -2520,7 +2533,10 @@ async function importCache(input){
     const meta={savedAt:Date.now(),count:p.stocks.length,ttl:CACHE_TTL};
     await dbPut(CACHE_KEY,p.stocks);
     await dbPut(META_KEY,meta);
-    p.stocks.forEach(c=>{const idx=allData.findIndex(d=>d.ticker===c.ticker);if(idx>=0)allData[idx]={...allData[idx],...c};});
+    p.stocks.forEach(c=>{
+      ['name','desc','sector','website'].forEach(k=>{if(typeof c[k]==='string')c[k]=c[k].replace(/<[^>]*>/g,'');});
+      const idx=allData.findIndex(d=>d.ticker===c.ticker);if(idx>=0)allData[idx]={...allData[idx],...c};
+    });
     updateCacheUI(meta);
     doFilter();updateMetrics();
     showToast('Imported '+p.stocks.length+' stocks from cache');
@@ -2544,16 +2560,18 @@ function saveUIState(){
   }catch(e){}
 }
 
+const VALID_SORT_KEYS = new Set(['combined','fundamental','technical','buffett','pegScore','pe','peg','dy','roe','npm','rg','eg','price','change','mktCap']);
 function restoreUIState(){
   try{
     const raw=localStorage.getItem('TASI_ui_state');
     if(!raw)return;
     const s=JSON.parse(raw);
-    if(s.sortKey){sortKey=s.sortKey;const el=document.getElementById('ss');if(el)el.value=s.sortKey;}
-    if(s.search){const el=document.getElementById('search');if(el)el.value=s.search;}
+    if(s.sortKey && VALID_SORT_KEYS.has(s.sortKey)){sortKey=s.sortKey;const el=document.getElementById('ss');if(el)el.value=s.sortKey;}
+    if(s.search){const el=document.getElementById('search');if(el)el.value=String(s.search).slice(0,100);}
     if(s.viewSel){const el=document.getElementById('vs');if(el)el.value=s.viewSel;}
     if(s.sigSel){const el=document.getElementById('sigs');if(el)el.value=s.sigSel;}
-    if(s.activeSector)activeSector=s.activeSector;
+    const validSectors=new Set(['All',...allData.map(d=>d.sector)]);
+    if(s.activeSector && validSectors.has(s.activeSector))activeSector=s.activeSector;
   }catch(e){}
 }
 
@@ -2756,8 +2774,8 @@ function buildOverview(d){
   </div>
   <div class="secl">About</div>
   <div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:9px 11px;font-size:11px;color:var(--tx2);line-height:1.7;margin-bottom:8px">
-    ${d.desc}
-    ${d.website?`<br><a href="${d.website}" target="_blank" style="color:var(--acc);font-family:var(--mono);font-size:9px">${d.website}</a>`:''}
+    ${escapeHTML(d.desc)}
+    ${d.website&&/^https?:\/\//i.test(d.website)?`<br><a href="${escapeHTML(d.website)}" target="_blank" rel="noopener noreferrer" style="color:var(--acc);font-family:var(--mono);font-size:9px">${escapeHTML(d.website)}</a>`:''}
   </div>
   <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
     <span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Data source:</span>
@@ -3010,7 +3028,7 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
               return `<td style="color:${col};font-size:9px">${v}</td>`;
             }
             if (isRatio) return `<td style="color:var(--tx2);font-size:9px">${v}</td>`;
-            return `<td class="${v.startsWith('-')?'ft-neg':'ft-pos'}">${v}</td>`;
+            return `<td class="${v.startsWith('-')?'ft-neg':parseFloat(v)===0?'':'ft-pos'}">${v}</td>`;
           }).join('');
           return `<tr style="${trStyle}"><td style="${isDim?'color:var(--tx3);font-style:italic':''}">${row.label}</td>${cells}</tr>`;
         }).join('')}</tbody>
@@ -3494,11 +3512,17 @@ async function fetchChartData(){
 function computeRSIArr(closes,period=14){
   const rsiArr=new Array(closes.length).fill(null);
   if(closes.length<period+1)return rsiArr;
-  for(let i=period;i<closes.length;i++){
-    let g=0,l=0;
-    for(let j=i-period+1;j<=i;j++){const d=closes[j]-closes[j-1];if(d>0)g+=d;else l-=d;}
-    const al=l/period;
-    rsiArr[i]=al===0?100:100-(100/(1+(g/period)/al));
+  // Seed with simple averages for the first window
+  let ag=0,al=0;
+  for(let i=1;i<=period;i++){const d=closes[i]-closes[i-1];if(d>0)ag+=d;else al-=d;}
+  ag/=period;al/=period;
+  rsiArr[period]=al===0?100:100-(100/(1+ag/al));
+  // Wilder's smoothing — O(n) instead of O(n×period)
+  for(let i=period+1;i<closes.length;i++){
+    const d=closes[i]-closes[i-1];
+    ag=(ag*(period-1)+(d>0?d:0))/period;
+    al=(al*(period-1)+(d<0?-d:0))/period;
+    rsiArr[i]=al===0?100:100-(100/(1+ag/al));
   }
   return rsiArr;
 }
@@ -3780,7 +3804,7 @@ async function refreshAll(forceRefresh=false){
         };
       }catch(e){allData[idx].priceLoaded=false;}
     }));
-    if(window._fd)window._fd=window._fd.map(d=>{const found=allData.find(a=>a.ticker===d.ticker);return found||d;});
+    if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
     doFilter();updateMetrics();
   }
 
