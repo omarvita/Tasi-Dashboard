@@ -323,6 +323,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
       <option value="pe">Sort: P/E (low→high)</option>
       <option value="peg">Sort: PEG (low→high)</option>
       <option value="change">Sort: Daily Chg%</option>
+      <option value="vsTasi">Sort: vs TASI</option>
     </select>
     <select id="vs" onchange="doFilter()">
       <option value="all">All securities</option>
@@ -2445,6 +2446,12 @@ function renderTable(){
       <td style="min-width:60px">${(d.noHardcodedData&&!d.priceLoaded)?'<span class="nav" style="font-size:11px">Unscored</span>':bar(d.combined??50)}</td>
       <td style="min-width:40px"><span class="badge ${sig.cls}">${(d.noHardcodedData&&!d.priceLoaded)?'—':sig.label}</span></td>
       <td class="col-tr">${makeSparkline(d.closes)}</td>
+      <td class="col-vs">${(()=>{
+        const v=d.vsTasi;
+        if(v==null)return'<span class="nav" style="font-size:9px">—</span>';
+        const col=v>=0?'var(--green)':'var(--red)';
+        return`<span style="font-family:var(--mono);font-size:9px;color:${col}">${v>=0?'+':''}${v.toFixed(1)}%</span>`;
+      })()}</td>
       <td class="col-st"><span id="star-${d.ticker}" onclick="event.stopPropagation();toggleWatch('${d.ticker}')" style="cursor:pointer;font-size:14px;color:${watchlist.has(d.ticker)?'var(--amb)':'var(--tx3)'}">${watchlist.has(d.ticker)?'★':'☆'}</span></td>
       <td class="col-cp"><span onclick="event.stopPropagation();toggleCompare('${d.ticker}')" style="cursor:pointer;font-size:13px;color:${compareList.includes(d.ticker)?'var(--acc)':'var(--tx3)'}">${compareList.includes(d.ticker)?'✓':'⊕'}</span></td>
       <td class="col-vw"><button class="dbtn" onclick="event.stopPropagation();openModal(${start+i})">View</button></td>
@@ -4040,6 +4047,18 @@ async function fetchTASIIndex() {
     if(ytdEl && ytdReturn != null) {
       const col = ytdReturn >= 0 ? 'var(--green)' : 'var(--red)';
       ytdEl.innerHTML = `<span style="color:var(--tx3)">YTD: <span style="color:${col}">${ytdReturn>=0?'+':''}${(ytdReturn*100).toFixed(1)}%</span></span>`;
+    }
+    // Compute vsTasi for all stocks (6-month return of stock vs TASI 6-month return)
+    const tasiReturn6M = closes.length > 0 ? (closes[closes.length-1] - closes[0]) / closes[0] : null;
+    if(tasiReturn6M != null) {
+      allData.forEach(d => {
+        if(d.closes && d.closes.length >= 10) {
+          const stockReturn6M = (d.closes[d.closes.length-1] - d.closes[0]) / d.closes[0];
+          d.vsTasi = parseFloat(((stockReturn6M - tasiReturn6M)*100).toFixed(1));
+        }
+      });
+      if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
+      renderTable();
     }
   } catch(e) { console.warn('TASI index fetch failed:', e); }
 }
