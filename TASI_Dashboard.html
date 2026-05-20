@@ -1120,60 +1120,10 @@ async function fetchDividendSchedule(ticker) {
 }
 
 // ── ENRICH FUNDAMENTALS FROM STATEMENTS ──
+// Overview data is intentionally NOT overwritten by statement data.
+// Use the Financial Statements tab to compare statement vs Yahoo Live values.
 function enrichFundamentalsFromStatements(d, stmtData) {
-  const { is, bs, cf } = stmtData || {};
-  if (!is?.length && !bs?.length && !cf?.length) return false;
-  let changed = false;
-
-  if (is?.length >= 2) {
-    const cur = is[0], prv = is[1];
-    const curRev = parseFloat(cur.revenue), prvRev = parseFloat(prv.revenue);
-    const curNI  = parseFloat(cur.net_income), prvNI = parseFloat(prv.net_income);
-    const curEPS = parseFloat(cur.eps), prvEPS = parseFloat(prv.eps);
-    if (!isNaN(curRev) && !isNaN(prvRev) && prvRev !== 0) { d.rg = (curRev - prvRev) / Math.abs(prvRev); changed = true; }
-    // Prefer EPS growth (accounts for dilution); fall back to NI growth
-    if (!isNaN(curEPS) && !isNaN(prvEPS) && prvEPS !== 0) {
-      d.eg = (curEPS - prvEPS) / Math.abs(prvEPS); changed = true;
-    } else if (!isNaN(curNI) && !isNaN(prvNI) && prvNI !== 0) {
-      d.eg = (curNI - prvNI) / Math.abs(prvNI); changed = true;
-    }
-    d.egSource = 'statements';
-    if (!isNaN(curNI) && !isNaN(curRev) && curRev !== 0)  { d.npm = curNI / curRev; changed = true; }
-    // Update rev/ni for overview display
-    if (!isNaN(curRev)) { d.rev  = curRev / 1e9; changed = true; }
-    if (!isNaN(curNI))  { d.ni   = curNI  / 1e9; changed = true; }
-  }
-
-  if (bs?.length >= 1) {
-    const cur = bs[0];
-    const te = parseFloat(cur.total_equity), tl = parseFloat(cur.total_liabilities), ta = parseFloat(cur.total_assets);
-    if (!isNaN(te) && te !== 0 && !isNaN(tl)) { d.de = (tl / te) * 100; changed = true; }
-    if (!isNaN(ta)) { d.assets = ta / 1e9; changed = true; }
-    // ROE uses latest NI / latest equity
-    if (is?.length >= 1) {
-      const ni = parseFloat(is[0].net_income);
-      if (!isNaN(ni) && !isNaN(te) && te > 0) { d.roe = ni / te; changed = true; }
-    }
-  }
-
-  if (cf?.length >= 1) {
-    const cur = cf[0];
-    const fcfVal = parseFloat(cur.free_cash_flow);
-    if (!isNaN(fcfVal)) { d.fcf = fcfVal > 0; changed = true; }
-  }
-
-  if (changed) {
-    // Re-run scoring with enriched data
-    const fRes = scoreFundamental(d);
-    const bRes = scoreBuffett(d);
-    const pegRes = scorePEG(d.pe, d.eg);
-    d.fundamental = fRes.score; d.fundSteps = fRes.steps;
-    d.buffett = bRes.buffett; d.criteria = bRes.criteria; d.buffSteps = bRes.steps;
-    d.peg = pegRes.peg; d.pegScore = pegRes.score; d.pegSteps = pegRes.steps;
-    d.combined = calcCombined(d);
-    d.stmtEnriched = true;
-  }
-  return changed;
+  return false;
 }
 
 // ── WEB SCRAPING — StockAnalysis.com ──
@@ -2502,8 +2452,7 @@ function renderTable(){
     const reit=d.isReit?`<span class="badge b-reit">REIT</span>`:"";
     const lv=d.priceLoaded?`<span class="badge b-live" style="margin-left:2px">LIVE</span>`:`<span class="badge b-est" style="margin-left:2px">EST</span>`;
     const pegStr=d.peg!=null?`<span style="font-family:var(--mono);font-size:10px;color:${d.peg<1?"var(--green)":d.peg<2?"var(--amb)":"var(--red)"}">${d.peg.toFixed(2)}</span>`:`<span class="nav">—</span>`;
-    const egSrc=d.egSource==='statements'?'<span title="From annual financial statements" style="font-size:7px;vertical-align:super;color:var(--blue);margin-left:1px">s</span>':'';
-    const egStr=d.eg!=null?`<span class="${d.eg>=0?'pos':'neg'}">${d.eg>=0?"+":""}${(d.eg*100).toFixed(0)}%${egSrc}</span>`:`<span class="nav">—</span>`;
+    const egStr=d.eg!=null?`<span class="${d.eg>=0?'pos':'neg'}">${d.eg>=0?"+":""}${(d.eg*100).toFixed(0)}%</span>`:`<span class="nav">—</span>`;
     const shortName = d.name.split(' ').slice(0,3).join(' ') + (d.name.split(' ').length > 3 ? '…' : '');
     return`<tr class="data-row" onclick="openModal(${start+i})">
       <td class="rk">${start+i+1}</td>
@@ -2891,7 +2840,7 @@ function buildOverview(d){
     </div><div class="miv">${d.pe!=null?d.pe.toFixed(1):"—"}</div></div>
     <div class="mi"><div class="mil">P/B Ratio</div><div class="miv">${d.pb!=null?d.pb.toFixed(2):"—"}</div></div>
     <div class="mi"><div class="mil">PEG Ratio</div><div class="miv" style="color:${peg!=null?(peg<1?"var(--green)":peg<2?"var(--amb)":"var(--red)"):"var(--tx3)"}">${peg!=null?peg.toFixed(2):"—"}</div></div>
-    <div class="mi"><div class="mil">Earnings Growth${d.egSource==='statements'?'<span title="From annual statements" style="font-size:8px;color:var(--blue);margin-left:3px">★stmt</span>':''}</div><div class="miv ${d.eg!=null?(d.eg>=0?'pos':'neg'):''}">${d.eg!=null?(d.eg>=0?"+":"")+(d.eg*100).toFixed(1)+"%":"—"}</div></div>
+    <div class="mi"><div class="mil">Earnings Growth</div><div class="miv ${d.eg!=null?(d.eg>=0?'pos':'neg'):''}">${d.eg!=null?(d.eg>=0?"+":"")+(d.eg*100).toFixed(1)+"%":"—"}</div></div>
     <div class="mi"><div class="mil">Div. Yield</div><div class="miv">${d.dy!=null?(d.dy*100).toFixed(2)+"%":"—"}</div></div>
     <div class="mi"><div class="mil">ROE</div><div class="miv ${d.roe!=null?(d.roe>0.12?"pos":d.roe<0?"neg":""):''}">${d.roe!=null?(d.roe*100).toFixed(1)+"%":"—"}</div></div>
     ${d.dcfPS!=null&&d.price?`<div class="mi"><div class="mil">${d.dcfMethod||'DCF'} Fair Value</div><div class="miv" style="color:${d.dcfUpside>0.10?'var(--green)':d.dcfUpside>-0.10?'var(--amb)':'var(--red)'}"><span style="font-weight:600">${d.dcfPS.toFixed(2)} SAR</span> <span style="font-size:9px;font-family:var(--mono)">${d.dcfUpside>=0?'+':''}${(d.dcfUpside*100).toFixed(1)}%</span></div></div>`:`<div class="mi"><div class="mil">DCF Fair Value</div><div class="miv" style="font-size:9px;color:var(--tx3)">Open DCF tab ↗</div></div>`}
@@ -2940,7 +2889,6 @@ function buildOverview(d){
       '<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:#1a1a2e;color:var(--blue);border:1px solid var(--blue)">✓ Yahoo Finance Live</span>':
       '<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:var(--bg3);color:var(--tx3);border:1px solid var(--b1)">Hardcoded estimates</span>'}
     ${d.fullLoaded?'<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:var(--gdim);color:var(--green);border:1px solid #166534">✓ Full data loaded</span>':'<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Full fundamentals load when you click a stock</span>'}
-    ${d.stmtEnriched?'<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:#1a1a2e;color:var(--blue);border:1px solid var(--blue)">↻ Scores updated from statements</span>':''}
     ${d.beta!=null?`<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Beta: ${d.beta.toFixed(2)}</span>`:''}
     ${d.mktCap!=null?`<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Market cap: ${(d.mktCap/1e9).toFixed(1)}B SAR</span>`:''}
   </div>
@@ -3075,20 +3023,6 @@ async function buildFinancials(d, period) {
   const cacheKey = isQ ? 'quarterly' : 'annual';
 
   function enrichAndRender(stmtData, src) {
-    if (period === 'annual' && !d.stmtEnriched) {
-      const realD = allData.find(a => a.ticker === d.ticker);
-      if (realD) {
-        const changed = enrichFundamentalsFromStatements(realD, stmtData);
-        if (changed) {
-          Object.assign(d, realD);
-          if (window._fd) {
-            const fdIdx = window._fd.findIndex(f => f.ticker === d.ticker);
-            if (fdIdx >= 0) Object.assign(window._fd[fdIdx], realD);
-          }
-          setTimeout(() => doFilter(), 50);
-        }
-      }
-    }
     return renderTwelveStatements(stmtData, period, d.ticker, src, d);
   }
 
@@ -3325,37 +3259,100 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
     return rows;
   })() : [];
 
-  // ── Data cross-check vs overview ──
-  // Skipped for financial sectors (banks, insurance) where revenue denominator differs
+  // ── Statement vs Overview comparison table ──
   let validationHtml = '';
-  if (stockObj && is?.length && !isFinancial) {
-    const latestIS = is[0];
-    const checks = [];
-    if (stockObj.eps != null && latestIS.eps != null) {
-      const stmtEps = parseFloat(latestIS.eps), ovEps = parseFloat(stockObj.eps);
-      if (!isNaN(stmtEps) && !isNaN(ovEps)) {
-        const diff = Math.abs(stmtEps - ovEps) / Math.max(Math.abs(ovEps), 0.01);
-        const icon = diff < 0.15 ? '✓' : '⚠';
-        const col  = diff < 0.15 ? 'var(--green)' : 'var(--amb)';
-        checks.push(`<span style="color:${col}">${icon} EPS: stmt ${stmtEps.toFixed(2)} SAR vs overview ${ovEps.toFixed(2)} SAR${diff >= 0.15 ? ' (diff >15% — likely trailing vs FY period)' : ''}</span>`);
+  if (stockObj && (is?.length || bs?.length)) {
+    const latestIS = is?.[0], prevIS = is?.[1], latestBS = bs?.[0];
+
+    const stmtRev  = latestIS ? parseFloat(latestIS.revenue)    : NaN;
+    const stmtNI   = latestIS ? parseFloat(latestIS.net_income) : NaN;
+    const stmtEPS  = latestIS ? parseFloat(latestIS.eps)        : NaN;
+    const stmtNPM  = (!isNaN(stmtNI) && !isNaN(stmtRev) && stmtRev !== 0) ? stmtNI / stmtRev : NaN;
+
+    let stmtRG = NaN, stmtEG = NaN;
+    if (prevIS) {
+      const prevRev = parseFloat(prevIS.revenue), prevNI = parseFloat(prevIS.net_income), prevEPS = parseFloat(prevIS.eps);
+      if (!isNaN(stmtRev) && !isNaN(prevRev) && prevRev !== 0) stmtRG = (stmtRev - prevRev) / Math.abs(prevRev);
+      if (!isNaN(stmtEPS) && !isNaN(prevEPS) && prevEPS !== 0) stmtEG = (stmtEPS - prevEPS) / Math.abs(prevEPS);
+      else if (!isNaN(stmtNI) && !isNaN(prevNI) && prevNI !== 0) stmtEG = (stmtNI - prevNI) / Math.abs(prevNI);
+    }
+
+    let stmtDE = NaN, stmtROE = NaN, stmtAssets = NaN;
+    if (latestBS) {
+      const te = parseFloat(latestBS.total_equity), tl = parseFloat(latestBS.total_liabilities), ta = parseFloat(latestBS.total_assets);
+      if (!isNaN(te) && te !== 0 && !isNaN(tl)) stmtDE = (tl / te) * 100;
+      if (!isNaN(stmtNI) && !isNaN(te) && te > 0) stmtROE = stmtNI / te;
+      if (!isNaN(ta)) stmtAssets = ta / 1e9;
+    }
+
+    // compRow: returns a <tr> comparing stmt vs overview values
+    // relMode=true uses relative diff; false uses absolute diff (for rates/margins)
+    function compRow(label, sVal, oVal, fmtFn, t1, t2, relMode = true) {
+      const hasS = isFinite(sVal), hasO = isFinite(oVal);
+      const sStr = hasS ? fmtFn(sVal) : '—';
+      const oStr = hasO ? fmtFn(oVal) : '—';
+      let icon = '', color = 'var(--tx3)';
+      if (hasS && hasO) {
+        const diff = relMode
+          ? Math.abs(sVal - oVal) / Math.max(Math.abs(oVal), 0.001)
+          : Math.abs(sVal - oVal);
+        if (diff <= t1)      { icon = '✓'; color = 'var(--green)'; }
+        else if (diff <= t2) { icon = '⚠'; color = 'var(--amb)'; }
+        else                 { icon = '✗'; color = 'var(--red)'; }
       }
+      const sColor = hasS ? 'var(--tx2)' : 'var(--tx3)';
+      const oColor = hasO ? 'var(--tx2)' : 'var(--tx3)';
+      return `<tr>
+        <td style="color:var(--tx3);padding:4px 8px;border-bottom:1px solid var(--b1)">${label}</td>
+        <td style="color:${sColor};padding:4px 8px;border-bottom:1px solid var(--b1);font-weight:${hasS?500:400}">${sStr}</td>
+        <td style="color:${oColor};padding:4px 8px;border-bottom:1px solid var(--b1)">${oStr}</td>
+        <td style="color:${color};padding:4px 8px;border-bottom:1px solid var(--b1);text-align:center;font-size:10px">${icon}</td>
+      </tr>`;
     }
-    const rv = parseFloat(latestIS.revenue), ni = parseFloat(latestIS.net_income);
-    if (!isNaN(rv) && !isNaN(ni) && rv !== 0 && stockObj.npm != null) {
-      const stmtNpm = ni / rv, ovNpm = parseFloat(stockObj.npm);
-      if (!isNaN(ovNpm)) {
-        const diff = Math.abs(stmtNpm - ovNpm);
-        const icon = diff < 0.05 ? '✓' : '⚠';
-        const col  = diff < 0.05 ? 'var(--green)' : 'var(--amb)';
-        checks.push(`<span style="color:${col}">${icon} Net margin: stmt ${(stmtNpm*100).toFixed(1)}% vs overview ${(ovNpm*100).toFixed(1)}%${diff >= 0.05 ? ' (>5pp diff)' : ''}</span>`);
-      }
-    }
-    if (checks.length) {
-      validationHtml = `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:7px 10px;margin-bottom:8px;font-family:var(--mono);font-size:9px;line-height:1.8">
-        <div style="color:var(--tx2);margin-bottom:3px;font-size:8px;text-transform:uppercase;letter-spacing:.07em">⚡ Data Cross-Check (Statement vs Overview)</div>
-        ${checks.join('<br>')}
-      </div>`;
-    }
+
+    const fB   = v => (v/1e9).toFixed(2) + ' B';
+    const fSAR = v => v.toFixed(2) + ' SAR';
+    const fPct = v => (v>=0?'+':'') + (v*100).toFixed(1) + '%';
+    const fPP  = v => (v>=0?'+':'') + (v*100).toFixed(1) + 'pp';
+
+    const ovRev  = stockObj.rev  != null ? stockObj.rev  * 1e9 : NaN;
+    const ovNI   = stockObj.ni   != null ? stockObj.ni   * 1e9 : NaN;
+    const ovEPS  = stockObj.eps  != null ? stockObj.eps        : NaN;
+    const ovNPM  = stockObj.npm  != null ? stockObj.npm        : NaN;
+    const ovRG   = stockObj.rg   != null ? stockObj.rg         : NaN;
+    const ovEG   = stockObj.eg   != null ? stockObj.eg         : NaN;
+    const ovROE  = stockObj.roe  != null ? stockObj.roe        : NaN;
+    const ovDE   = stockObj.de   != null ? stockObj.de         : NaN;
+    const ovAssets = stockObj.assets != null ? stockObj.assets : NaN;
+
+    const rows = [
+      compRow('Revenue',                 stmtRev,    ovRev,    fB,   0.05, 0.20, true),
+      compRow('Net Income',              stmtNI,     ovNI,     fB,   0.10, 0.30, true),
+      compRow('EPS',                     stmtEPS,    ovEPS,    fSAR, 0.10, 0.25, true),
+      ...(!isFinancial ? [compRow('Net Margin',   stmtNPM,  ovNPM,  v=>(v*100).toFixed(1)+'%', 0.03, 0.08, false)] : []),
+      compRow('Revenue Growth (YoY)',    stmtRG,     ovRG,     fPct, 0.03, 0.10, false),
+      compRow('Earnings Growth (YoY)',   stmtEG,     ovEG,     fPct, 0.05, 0.15, false),
+      compRow('ROE',                     stmtROE,    ovROE,    v=>(v*100).toFixed(1)+'%', 0.03, 0.08, false),
+      compRow('Total Assets',            isFinite(stmtAssets)?stmtAssets*1e9:NaN, isFinite(ovAssets)?ovAssets*1e9:NaN, fB, 0.05, 0.20, true),
+      ...(!isFinancial ? [compRow('D/E Ratio',    stmtDE,   ovDE,   v=>v.toFixed(0)+'%', 0.10, 0.30, true)] : []),
+    ];
+
+    validationHtml = `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;margin-bottom:8px;overflow:hidden">
+      <div style="padding:6px 10px;border-bottom:1px solid var(--b1);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px">
+        <span style="font-family:var(--mono);font-size:9px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.06em">Statement vs Overview</span>
+        <span style="font-family:var(--mono);font-size:8px;color:var(--tx3)">✓ close &nbsp;⚠ notable gap &nbsp;✗ large gap</span>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:9px">
+        <thead><tr>
+          <th style="color:var(--tx3);padding:4px 8px;border-bottom:1px solid var(--b1);text-align:left;font-weight:400;font-size:8px;text-transform:uppercase;letter-spacing:.05em">Metric</th>
+          <th style="color:var(--tx3);padding:4px 8px;border-bottom:1px solid var(--b1);text-align:left;font-weight:400;font-size:8px;text-transform:uppercase;letter-spacing:.05em">Statements (FY)</th>
+          <th style="color:var(--tx3);padding:4px 8px;border-bottom:1px solid var(--b1);text-align:left;font-weight:400;font-size:8px;text-transform:uppercase;letter-spacing:.05em">Overview (Yahoo TTM)</th>
+          <th style="color:var(--tx3);padding:4px 8px;border-bottom:1px solid var(--b1);text-align:center;font-weight:400;font-size:8px"></th>
+        </tr></thead>
+        <tbody>${rows.join('')}</tbody>
+      </table>
+      <div style="padding:5px 10px;font-family:var(--mono);font-size:8px;color:var(--tx3)">Statements = annual FY data &nbsp;·&nbsp; Overview = Yahoo TTM/live &nbsp;·&nbsp; Small gaps are expected; large gaps may indicate stale or estimated data</div>
+    </div>`;
   }
 
   return validationHtml
