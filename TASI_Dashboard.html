@@ -38,12 +38,7 @@ input[type=text]:focus{border-color:var(--acc)}
 input[type=text]::placeholder{color:var(--tx3)}
 select{background:var(--bg2);border:1px solid var(--b2);border-radius:5px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none;cursor:pointer}
 /* SECTORS */
-.secw{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}
-.sb{font-family:var(--mono);font-size:9px;padding:3px 7px;border:1px solid var(--b2);border-radius:14px;background:transparent;color:var(--tx2);cursor:pointer;transition:all .12s;white-space:nowrap}
-.sb:hover{border-color:var(--tx2);color:var(--tx)}
-.sb.active{background:var(--adm);border-color:var(--acc);color:var(--acc)}
-.sb.reit-btn{border-color:#a855f750;color:var(--pur)}
-.sb.reit-btn.active{background:var(--pdim);border-color:var(--pur)}
+.sp-pill.sp-active{outline:2px solid currentColor;outline-offset:1px;opacity:1!important}
 /* PROGRESS */
 .pw{background:var(--bg2);border:1px solid var(--b1);border-radius:7px;padding:9px 13px;margin-bottom:8px}
 .pl{font-family:var(--mono);font-size:10px;color:var(--tx2);margin-bottom:5px}
@@ -345,8 +340,6 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
     </select>
     <button class="rbtn" id="wl-btn" style="font-size:10px;padding:5px 10px;background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="toggleWatchlistFilter()" title="Show only watchlisted stocks">☆ Watchlist</button>
   </div>
-
-  <div class="secw" id="secw"></div>
 
   <div class="tw">
     <table>
@@ -2487,13 +2480,7 @@ function updateMetrics(){
   updateMetrics._t = setTimeout(fetchMarketSummary, 600);
 }
 
-function buildSectors(){
-  const secs=["All",...new Set(STOCKS.map(s=>s.s))];
-  document.getElementById("secw").innerHTML=secs.map(s=>{
-    const isR=s==="REITs";
-    return`<button class="sb${s===activeSector?" active":""}${isR?" reit-btn":""}" data-s="${s}" onclick="setSector('${s}')">${s}</button>`;
-  }).join("");
-}
+function buildSectors(){} // sector filtering handled by buildSectorPerf pills
 // ═══════════════════════════════════════════════════
 // INDEXEDDB CACHE (with localStorage fallback)
 // ═══════════════════════════════════════════════════
@@ -2637,7 +2624,7 @@ function restoreUIState(){
 
 function setSector(sec){
   activeSector=sec;
-  document.querySelectorAll(".sb").forEach(b=>b.classList.toggle("active",b.dataset.s===sec));
+  document.querySelectorAll('.sp-pill[data-s]').forEach(p=>p.classList.toggle('sp-active',p.dataset.s===sec));
   doFilter();
   saveUIState();
 }
@@ -4192,7 +4179,7 @@ function buildSectorPerf() {
   const loaded = allData.filter(d => d.priceLoaded && d.change != null);
   if (!loaded.length) return;
 
-  // Group by sector, compute avg change%
+  // Group by sector, compute avg daily change%
   const secMap = {};
   loaded.forEach(d => {
     if (!d.sector) return;
@@ -4204,18 +4191,23 @@ function buildSectorPerf() {
     .map(([name, changes]) => ({ name, avg: changes.reduce((s,v)=>s+v,0)/changes.length, count: changes.length }))
     .sort((a,b) => b.avg - a.avg);
 
-  const pills = sectors.map(s => {
-    const pos = s.avg >= 0;
+  // "All" pill — average across all loaded stocks
+  const allAvg = loaded.reduce((s,d)=>s+d.change,0)/loaded.length;
+  const allPos = allAvg >= 0;
+  const makePill = (name, avg, count) => {
+    const pos = avg >= 0;
     const color = pos ? 'var(--green)' : 'var(--red)';
     const bg    = pos ? 'var(--gdim)'  : 'var(--rdim)';
     const border= pos ? '#166534'      : '#991b1b';
-    const sign  = pos ? '+' : '';
-    return `<span class="sp-pill" style="color:${color};background:${bg};border-color:${border}" onclick="setSector('${s.name}')" title="${s.count} stocks">
-      ${s.name} <strong>${sign}${s.avg.toFixed(1)}%</strong>
+    const isActive = activeSector === name;
+    return `<span class="sp-pill${isActive?' sp-active':''}" data-s="${name}" style="color:${color};background:${bg};border-color:${border}" onclick="setSector('${name}')" title="${count} stocks · daily avg">
+      ${name} <strong>${avg>=0?'+':''}${avg.toFixed(1)}%</strong>
     </span>`;
-  }).join('');
+  };
 
-  bar.innerHTML = `<span class="secperf-lbl">Sectors</span>${pills}`;
+  const allPill = makePill('All', allAvg, loaded.length);
+  const pills = sectors.map(s => makePill(s.name, s.avg, s.count)).join('');
+  bar.innerHTML = `<span class="secperf-lbl">Sectors</span>${allPill}${pills}`;
 }
 
 // ═══════════════════════════════════════
