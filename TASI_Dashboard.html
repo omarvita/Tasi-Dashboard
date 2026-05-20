@@ -2213,6 +2213,89 @@ async function fetchWithProxy(url){
 }
 
 // Full Yahoo fetch — chart + fundamentals + financial statements
+async function fetchWithProxyPost(url, body) {
+  // Only corsproxy.io reliably forwards POST bodies; allorigins is GET-only
+  const proxies = [
+    `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  ];
+  for (const proxy of proxies) {
+    try {
+      const resp = await fetch(proxy, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(12000)
+      });
+      if (!resp.ok) continue;
+      const text = await resp.text();
+      try { const d = JSON.parse(text); if (d && Object.keys(d).length) return d; } catch(e) {}
+    } catch(e) { continue; }
+  }
+  return null;
+}
+
+async function autoDiscoverSaudiStocks() {
+  try {
+    const url = 'https://query2.finance.yahoo.com/v1/finance/screener?formatted=false&lang=en-US&region=SA&corsDomain=finance.yahoo.com';
+    const body = {
+      offset: 0, size: 250,
+      sortField: 'ticker', sortType: 'ASC',
+      quoteType: 'EQUITY',
+      query: { operator: 'AND', operands: [{ operator: 'EQ', operands: ['exchange', 'SAU'] }] },
+      userId: '', userIdType: 'guid'
+    };
+    const data = await fetchWithProxyPost(url, body);
+    const quotes = data?.finance?.result?.[0]?.quotes || data?.result?.[0]?.quotes || data?.quotes || [];
+    if (!quotes.length) return;
+
+    // Build set of all tickers already known — hardcoded STOCKS, MORE_TICKERS, and anything
+    // already in allData — so we never overwrite manually curated entries
+    const existing = new Set([
+      ...allData.map(d => d.ticker),
+      ...(typeof STOCKS !== 'undefined' ? STOCKS.map(s => s.t) : []),
+      ...(typeof MORE_TICKERS !== 'undefined' ? MORE_TICKERS.map(s => s.t) : []),
+    ]);
+
+    let added = 0;
+    quotes.forEach(q => {
+      const ticker = q.symbol;
+      if (!ticker || !ticker.endsWith('.SR') || existing.has(ticker)) return;
+      const name = q.shortName || q.longName || ticker;
+      const sector = q.sector || q.industry || 'Other';
+      allData.push({
+        ticker, name, sector, isReit: false,
+        pe: q.trailingPE || null, pb: q.priceToBook || null,
+        roe: null, npm: null, de: null, dy: q.dividendYield || null,
+        fcf: null, cr: null, rg: null, eg: null, rev: null, ni: null, assets: null,
+        desc: 'Auto-discovered from Yahoo Finance screener.',
+        peg: null, pegScore: 50,
+        fundamental: null, fundSteps: [], technical: 50, techSteps: [],
+        rsi: null, sma20: null, sma50: null, momentum: null,
+        buffett: null, criteria: {}, buffSteps: [], pegSteps: [],
+        combined: null, noHardcodedData: true,
+        price: q.regularMarketPrice || null,
+        change: q.regularMarketChangePercent || null,
+        closes: [], timestamps: [], priceLoaded: !!q.regularMarketPrice,
+        rawData: null, dataDate: '—', dataSource: 'auto-discovered',
+        w52high: q.fiftyTwoWeekHigh || null, w52low: q.fiftyTwoWeekLow || null,
+        mktCap: q.marketCap || null, beta: null,
+        _autoDiscovered: true,
+      });
+      existing.add(ticker);
+      added++;
+    });
+
+    if (added > 0) {
+      console.log(`[TASI] Auto-discovered ${added} new Saudi stock(s) from Yahoo Finance`);
+      doFilter();
+      updateMetrics();
+    }
+  } catch(e) {
+    // Silent fail — auto-discovery is best-effort, never blocks the main app
+  }
+}
+
 async function fetchYahoo(ticker) {
   const chartUrl   = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=2y`;
   const summaryUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=incomeStatementHistory,incomeStatementHistoryQuarterly,balanceSheetHistory,balanceSheetHistoryQuarterly,cashflowStatementHistory,cashflowStatementHistoryQuarterly,summaryDetail,financialData,defaultKeyStatistics,earningsHistory,earningsTrend`;
@@ -3327,7 +3410,32 @@ async function buildDCF(d) {
   const eWeight = 1 / (1 + deRatio);
   const dWeight = deRatio / (1 + deRatio);
   const wacc = ke * eWeight + kd * dWeight * (1 - taxRate);
-  const growthRate = Math.min(Math.max(d.rg != null ? d.rg : 0.04, -0.10), 0.20);
+  // Compute average YoY growth from statements if available (handles negatives better than CAGR)
+  function _avgYoY(vals) {
+    const rates = [];
+    for (let i = 0; i < vals.length - 1; i++) {
+      const n = parseFloat(vals[i]), o = parseFloat(vals[i+1]);
+      if (!isNaN(n) && !isNaN(o) && o !== 0) rates.push((n - o) / Math.abs(o));
+    }
+    return rates.length ? rates.reduce((s,r)=>s+r,0)/rates.length : null;
+  }
+  let growthRate, growthSource;
+  const revVals = annualData?.is?.map(r=>r.revenue).filter(v=>v!=null) || [];
+  const fcfVals = annualData?.cf?.map(r=>r.free_cash_flow).filter(v=>v!=null) || [];
+  const revGrowth = revVals.length >= 2 ? _avgYoY(revVals) : null;
+  const fcfGrowth = fcfVals.length >= 2 ? _avgYoY(fcfVals.filter(v=>parseFloat(v)>0)) : null;
+  if (revGrowth != null || fcfGrowth != null) {
+    // Use revenue growth as primary; blend with FCF growth if both exist
+    const base = revGrowth != null && fcfGrowth != null
+      ? (revGrowth * 0.6 + fcfGrowth * 0.4)
+      : (revGrowth ?? fcfGrowth);
+    growthRate = Math.min(Math.max(base, -0.10), 0.25);
+    const yrs = Math.max(revVals.length, fcfVals.length);
+    growthSource = `${yrs}Y avg from statements`;
+  } else {
+    growthRate = Math.min(Math.max(d.rg != null ? d.rg : 0.04, -0.10), 0.20);
+    growthSource = d.rg != null ? 'Yahoo revenue growth (TTM)' : 'default estimate';
+  }
 
   // ── FCF COMPUTATION (all upfront) ──
   let fcfProj=[], pvFCFs=[], sumPvFCF=0, termVal=0, pvTerm=0;
@@ -3424,7 +3532,7 @@ async function buildDCF(d) {
     <div class="mi"><div class="mil">D/E Ratio (fin.)</div><div class="miv">${(deRatio*100).toFixed(0)}%${isBanking?'<span style="font-size:8px;color:var(--amb)"> (incl. deposits)</span>':''}<span style="font-size:8px;color:var(--tx3)"> ${d._deOverride!=null?'(override)':'(est.)'}</span></div></div>
     <div class="mi"><div class="mil">WACC</div><div class="miv" style="color:var(--acc);font-weight:600">${(wacc*100).toFixed(1)}%</div></div>
     <div class="mi"><div class="mil">Terminal Growth</div><div class="miv">${(termGrowth*100).toFixed(1)}%</div></div>
-    <div class="mi"><div class="mil">FCF Growth (5Y)</div><div class="miv ${growthRate>=0?'pos':'neg'}">${growthRate>=0?'+':''}${(growthRate*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil">FCF Growth (5Y)</div><div class="miv ${growthRate>=0?'pos':'neg'}">${growthRate>=0?'+':''}${(growthRate*100).toFixed(1)}%<span style="font-size:8px;color:var(--tx3);font-weight:400;margin-left:4px">${growthSource}</span></div></div>
     <div class="mi"><div class="mil">FCF Source</div><div class="miv" style="font-size:9px">${fcfSource}</div></div>
   </div></div>`;
 
@@ -3870,6 +3978,8 @@ function init(){
   });
   try{buildSectors();}catch(e){console.error('buildSectors:',e);}
   try{setSector("All");}catch(e){console.error('setSector:',e);}
+  // Auto-discover new Saudi stocks Yahoo Finance has added — fire-and-forget, never blocks load
+  setTimeout(autoDiscoverSaudiStocks, 3000);
 }
 
 async function refreshAll(forceRefresh=false){
