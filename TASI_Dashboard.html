@@ -297,7 +297,10 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 
   <div id="market-bar" style="background:var(--bg2);border:1px solid var(--b1);border-radius:7px;padding:7px 12px;margin-bottom:8px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-family:var(--mono);font-size:10px;color:var(--tx3)">
     <span style="color:var(--tx2);font-weight:600">TASI</span>
-    <span id="tasi-val">—</span>
+    <span id="tasi-idx-level" style="font-weight:600;color:var(--tx)">—</span>
+    <span id="tasi-idx-chg">—</span>
+    <span id="tasi-idx-ytd" style="color:var(--tx3)">YTD: —</span>
+    <span style="border-left:1px solid var(--b1);padding-left:10px">Stocks: <span id="tasi-val">—</span></span>
     <span id="tasi-chg">—</span>
     <span style="margin-left:4px">Advancing: <span id="tasi-adv" style="color:var(--green)">—</span></span>
     <span>Declining: <span id="tasi-dec" style="color:var(--red)">—</span></span>
@@ -2350,6 +2353,11 @@ function sk(k){sortKey=k;document.getElementById("ss").value=k;applySort();curPa
 function doSort(){sortKey=document.getElementById("ss").value;applySort();curPage=1;renderTable();saveUIState();}
 function applySort(){
   filtData.sort((a,b)=>{
+    // Unscored stocks (noHardcodedData without live data) always go to bottom
+    const aUnscored = a.noHardcodedData && !a.priceLoaded && a.combined==null;
+    const bUnscored = b.noHardcodedData && !b.priceLoaded && b.combined==null;
+    if(aUnscored && !bUnscored) return 1;
+    if(!aUnscored && bUnscored) return -1;
     if(sortKey==="pe"||sortKey==="peg"){
       const va=a[sortKey]??Infinity,vb=b[sortKey]??Infinity;
       return va-vb;
@@ -2386,11 +2394,11 @@ function renderTable(){
       <td class="col-pe"><span style="font-family:var(--mono);font-size:10px;color:var(--tx)">${d.pe!=null?d.pe.toFixed(1):'<span class="nav">—</span>'}</span></td>
       <td class="col-eg">${egStr}</td>
       <td class="col-peg">${pegStr}</td>
-      <td class="col-fu">${bar(d.fundamental)}</td>
+      <td class="col-fu">${(d.noHardcodedData&&!d.priceLoaded)?'<span class="nav">—</span>':bar(d.fundamental??50)}</td>
       <td class="col-te">${bar(d.technical)}</td>
-      <td class="col-bu">${bar(d.buffett)}</td>
-      <td style="min-width:60px">${bar(d.combined)}</td>
-      <td style="min-width:40px"><span class="badge ${sig.cls}">${sig.label}</span></td>
+      <td class="col-bu">${(d.noHardcodedData&&!d.priceLoaded)?'<span class="nav">—</span>':bar(d.buffett??50)}</td>
+      <td style="min-width:60px">${(d.noHardcodedData&&!d.priceLoaded)?'<span class="nav" style="font-size:11px">Unscored</span>':bar(d.combined??50)}</td>
+      <td style="min-width:40px"><span class="badge ${sig.cls}">${(d.noHardcodedData&&!d.priceLoaded)?'—':sig.label}</span></td>
       <td class="col-tr">${makeSparkline(d.closes)}</td>
       <td class="col-st"><span id="star-${d.ticker}" onclick="event.stopPropagation();toggleWatch('${d.ticker}')" style="cursor:pointer;font-size:14px;color:${watchlist.has(d.ticker)?'var(--amb)':'var(--tx3)'}">${watchlist.has(d.ticker)?'★':'☆'}</span></td>
       <td class="col-cp"><span onclick="event.stopPropagation();toggleCompare('${d.ticker}')" style="cursor:pointer;font-size:13px;color:${compareList.includes(d.ticker)?'var(--acc)':'var(--tx3)'}">${compareList.includes(d.ticker)?'✓':'⊕'}</span></td>
@@ -2741,11 +2749,12 @@ function switchTab(tab){
 function buildOverview(d){
   const peg=d.peg;
   return`
+  ${d.noHardcodedData&&!d.fullLoaded?`<div style="background:#1a0f00;border:1px solid var(--amb);border-radius:6px;padding:9px 12px;margin-bottom:8px;font-family:var(--mono);font-size:9px;color:var(--amb);line-height:1.7">⚠ No hardcoded fundamentals — scores based on live Yahoo data only. Open this stock to load full data.</div>`:''}
   <div class="strio">
-    <div class="scard"><div class="slbl">Fundamental</div><div class="sval" style="color:${sc(d.fundamental)}">${d.fundamental}</div></div>
+    <div class="scard"><div class="slbl">Fundamental</div><div class="sval" style="color:${sc(d.fundamental??50)}">${d.fundamental!=null?d.fundamental:(d.noHardcodedData?'—':'50')}</div></div>
     <div class="scard"><div class="slbl">Technical</div><div class="sval" style="color:${sc(d.technical)}">${d.technical}</div></div>
-    <div class="scard"><div class="slbl">Buffett</div><div class="sval" style="color:${sc(d.buffett)}">${d.buffett}</div></div>
-    <div class="scard hl"><div class="slbl">Combined</div><div class="sval" style="color:${sc(d.combined)}">${d.combined}</div></div>
+    <div class="scard"><div class="slbl">Buffett</div><div class="sval" style="color:${sc(d.buffett??50)}">${d.buffett!=null?d.buffett:(d.noHardcodedData?'—':'50')}</div></div>
+    <div class="scard hl"><div class="slbl">Combined</div><div class="sval" style="color:${sc(d.combined??50)}">${d.combined!=null?d.combined:(d.noHardcodedData?'—':'50')}</div></div>
   </div>
   <div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:8px 10px;font-family:var(--mono);font-size:9px;color:var(--tx3);margin-bottom:8px">
     ${(()=>{const W=SCORE_WEIGHTS;const parts=WEIGHT_KEYS.filter(k=>W[k]>0).map(k=>`${WEIGHT_LABELS[k]}×${W[k]}%`);return`Combined = ${parts.join(' + ')} = <span style="color:var(--acc);font-weight:600">${d.combined}</span>`;})()}
@@ -3200,10 +3209,28 @@ async function buildDCF(d) {
   }
 
   // ── WACC ──
-  const rfRate=0.055, erp=0.065, kd=0.055, taxRate=0.20, termGrowth=0.025;
+  const rfRate=0.055, erp=0.065, kd=0.055, termGrowth=0.025;
+  // Tax/Zakat rate: Saudi domestic companies pay Zakat (~2.5% net assets ≈ 5% effective income rate)
+  // Aramco (2222.SR) and SABIC (2010.SR) pay corporate income tax (20%)
+  // Banks/Insurance: Zakat handled differently, use 5%
+  // All other Saudi stocks: 5% effective Zakat rate
+  const _energyTaxTickers = ['2222.SR','2010.SR'];
+  const taxRate = _energyTaxTickers.includes(d.ticker) ? 0.20 : 0.05;
   const beta = d.beta || 1.0;
   const ke = rfRate + beta * erp;
-  const deRatio = d.de ? d.de / 100 : 0.3;
+  // D/E ratio: prefer net financial debt over total liabilities
+  // d.de = (total_liabilities / total_equity) * 100 — overstates leverage
+  // Apply 35% haircut to convert total liabilities estimate to financial debt
+  let deRatio;
+  const _deOverride = d._deOverride != null ? d._deOverride / 100 : null;
+  if (_deOverride != null) {
+    deRatio = _deOverride;
+  } else if (d.de) {
+    deRatio = (d.de / 100) * 0.35; // haircut to estimate financial debt portion
+  } else {
+    deRatio = 0.3;
+  }
+  deRatio = Math.min(deRatio, 2.0); // cap at 200% D/E to avoid distortion for financials
   const eWeight = 1 / (1 + deRatio);
   const dWeight = deRatio / (1 + deRatio);
   const wacc = ke * eWeight + kd * dWeight * (1 - taxRate);
@@ -3300,7 +3327,8 @@ async function buildDCF(d) {
     <div class="mi"><div class="mil">Beta</div><div class="miv">${beta.toFixed(2)}</div></div>
     <div class="mi"><div class="mil">Cost of Equity (ke)</div><div class="miv" style="color:var(--acc)">${(ke*100).toFixed(1)}%</div></div>
     <div class="mi"><div class="mil">Cost of Debt</div><div class="miv">${(kd*100).toFixed(1)}%</div></div>
-    <div class="mi"><div class="mil">D/E Ratio</div><div class="miv">${(deRatio*100).toFixed(0)}%${isBanking?'<span style="font-size:8px;color:var(--amb)"> (incl. deposits)</span>':''}</div></div>
+    <div class="mi"><div class="mil">Tax/Zakat Rate</div><div class="miv" style="color:var(--acc)">${(taxRate*100).toFixed(0)}%${taxRate===0.05?'<span style="font-size:8px;color:var(--tx3)"> (Zakat)</span>':'<span style="font-size:8px;color:var(--tx3)"> (CIT)</span>'}</div></div>
+    <div class="mi"><div class="mil">D/E Ratio (fin.)</div><div class="miv">${(deRatio*100).toFixed(0)}%${isBanking?'<span style="font-size:8px;color:var(--amb)"> (incl. deposits)</span>':''}<span style="font-size:8px;color:var(--tx3)"> ${d._deOverride!=null?'(override)':'(est.)'}</span></div></div>
     <div class="mi"><div class="mil">WACC</div><div class="miv" style="color:var(--acc);font-weight:600">${(wacc*100).toFixed(1)}%</div></div>
     <div class="mi"><div class="mil">Terminal Growth</div><div class="miv">${(termGrowth*100).toFixed(1)}%</div></div>
     <div class="mi"><div class="mil">FCF Growth (5Y)</div><div class="miv ${growthRate>=0?'pos':'neg'}">${growthRate>=0?'+':''}${(growthRate*100).toFixed(1)}%</div></div>
@@ -3721,26 +3749,28 @@ function init(){
   if(typeof MORE_TICKERS !== 'undefined'){
     MORE_TICKERS.forEach(mt => {
       if(!allStockDefs.find(s => s.t === mt.t)){
-        allStockDefs.push({...mt, pe:null,pb:null,roe:null,npm:null,de:null,dy:null,fcf:null,cr:null,rg:null,eg:null,rev:null,ni:null,assets:null,desc:'Data loaded from Yahoo Finance on click.'});
+        allStockDefs.push({...mt, pe:null,pb:null,roe:null,npm:null,de:null,dy:null,fcf:null,cr:null,rg:null,eg:null,rev:null,ni:null,assets:null,desc:'Data loaded from Yahoo Finance on click.',_fromMoreTickers:true});
       }
     });
   }
   allData=allStockDefs.map(s=>{
+    const noHardcoded = s._fromMoreTickers && s.pe==null && s.pb==null && s.roe==null;
     const fRes=scoreFundamental(s);
     const bRes=scoreBuffett(s);
     const pegRes=scorePEG(s.pe,s.eg);
     const _init={fundamental:fRes.score,technical:50,buffett:bRes.buffett,pegScore:pegRes.score,dcfUpside:null};
-    const combined=calcCombined(_init);
+    const combined=noHardcoded?null:calcCombined(_init);
     return{
       ticker:s.t,name:s.n,sector:s.s,isReit:s.r,
       pe:s.pe,pb:s.pb,roe:s.roe,npm:s.npm,de:s.de,dy:s.dy,
       fcf:s.fcf,cr:s.cr,rg:s.rg,eg:s.eg,rev:s.rev,ni:s.ni,assets:s.assets,desc:s.desc,
       peg:pegRes.peg,pegScore:pegRes.score,
-      fundamental:fRes.score,fundSteps:fRes.steps,
+      fundamental:noHardcoded?null:fRes.score,fundSteps:fRes.steps,
       technical:50,techSteps:[],rsi:null,sma20:null,sma50:null,momentum:null,
-      buffett:bRes.buffett,criteria:bRes.criteria,buffSteps:bRes.steps,
+      buffett:noHardcoded?null:bRes.buffett,criteria:bRes.criteria,buffSteps:bRes.steps,
       pegSteps:pegRes.steps,
       combined,
+      noHardcodedData:noHardcoded,
       price:null,change:null,closes:[],timestamps:[],priceLoaded:false,rawData:null,
       dataDate:'2024-2025 est.',dataSource:'hardcoded',w52high:null,w52low:null,mktCap:null,beta:null
     };
