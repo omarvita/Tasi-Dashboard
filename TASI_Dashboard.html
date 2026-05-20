@@ -230,7 +230,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
   .sw { min-width:100%; max-width:100%; order:-1; flex-basis:100%; }
   .ctrl select,.ctrl button { font-size:9px; padding:5px 7px; }
   /* table: hide non-essential columns */
-  .col-co,.col-pe,.col-eg,.col-peg,.col-fu,.col-te,.col-bu,.col-tr,.col-st,.col-cp,.col-vw { display:none !important; }
+  .col-co,.col-pe,.col-eg,.col-peg,.col-fu,.col-te,.col-bu,.col-tr,.col-st,.col-cp,.col-vw,.col-vs { display:none !important; }
   table { table-layout:auto; }
   td { padding:10px 5px; }
   th { padding:6px 5px; font-size:8px; }
@@ -364,6 +364,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
         <th style="width:82px" onclick="sk('combined')">Score↕</th>
         <th style="width:48px">Signal</th>
         <th class="col-tr" style="width:50px">Trend</th>
+        <th class="col-vs" style="width:52px" onclick="sk('vsTasi')" title="6-month return vs TASI index">vs TASI↕</th>
         <th class="col-st" style="width:32px">★</th>
         <th class="col-cp" style="width:32px">⊕</th>
         <th class="col-vw" style="width:40px">Info</th>
@@ -1718,6 +1719,8 @@ const MORE_TICKERS = [
 // STATE
 // ═══════════════════════════════════════
 let allData=[],filtData=[],activeSector="All",sortKey="combined",curPage=1;
+let sectorMedianPE = {}; // populated after refreshAll completes
+let tasiIndex = { price:null, change:null, closes:[], timestamps:[], ytdReturn:null }; // TASI ^TASI index
 
 // ── COMBINED SCORE WEIGHTS ──
 let SCORE_WEIGHTS = JSON.parse(localStorage.getItem('tasi_score_weights') || 'null') || {fundamental:30,technical:20,buffett:35,peg:15,dcf:0};
@@ -1765,12 +1768,25 @@ function scoreFundamental(d){
   const pe=d.pe,pb=d.pb,roe=d.roe,npm=d.npm,de=d.de,dy=d.dy,fcf=d.fcf,rg=d.rg,eg=d.eg;
 
   if(pe!=null){
-    if(pe<10)add("P/E Ratio",pe.toFixed(1),+22,"Very cheap (P/E < 10)","A P/E below 10 means you pay less than 10 years of earnings. Historically signals deep value or a recovering business. Verify earnings are real — not a one-time event. On Tadawul this is rare for quality stocks and deserves investigation.");
-    else if(pe<15)add("P/E Ratio",pe.toFixed(1),+14,"Below market avg (P/E 10–15)","P/E of 10–15 is the classic Buffett-Graham value zone. You are paying a fair price for a profitable business. TASI average P/E is around 17–20x, so this stock is meaningfully cheaper than the market. Strong buy indicator on valuation alone.");
-    else if(pe<20)add("P/E Ratio",pe.toFixed(1),+8,"Fair value (P/E 15–20)","P/E of 15–20 is in line with the TASI market average. Not cheap, not expensive. Only worth buying if ROE is above 15% and earnings are growing consistently. At this P/E you need growth to generate good returns.");
-    else if(pe<28)add("P/E Ratio",pe.toFixed(1),+3,"Slightly premium (P/E 20–28)","Above market average. You are paying for expected growth. Requires 10–15% annual earnings growth to deliver good returns. At P/E 25 with 10% growth you earn a ~5% earnings yield — acceptable but not exciting. One disappointing quarter can cause a 15–20% correction.");
-    else if(pe<=40)add("P/E Ratio",pe.toFixed(1),-5,"Premium valuation (P/E 28–40)","Expensive by most standards. The market has priced in strong growth already. You need consistent 15%+ earnings growth just to keep the stock flat. Any earnings miss triggers a sharp correction. Requires exceptional conviction in the long-term growth story before buying.");
-    else add("P/E Ratio",pe.toFixed(1),-18,"Very expensive (P/E > 40)","Speculative valuation. You would need 25%+ annual earnings growth sustained for many years to justify this price. Most companies fail at this. On TASI this signals either a high-growth tech/healthcare company or a bubble. Treat with extreme caution.");
+    const secMed = (d.sector && sectorMedianPE[d.sector] && pe > 0 && pe < 200) ? sectorMedianPE[d.sector] : null;
+    if(secMed){
+      // Sector-relative P/E scoring
+      const relPE = pe / secMed;
+      const medLabel = `Sector median ${secMed.toFixed(1)}x`;
+      if(relPE<0.7)add("P/E Ratio",pe.toFixed(1)+'x',+20,`Very cheap vs sector (P/E ${(relPE*100).toFixed(0)}% of ${medLabel})`,`Trading at a large discount to sector peers. ${medLabel} for ${d.sector}. A P/E of ${pe.toFixed(1)}x vs the sector median suggests either a catalyst for re-rating or a structural concern worth investigating. Absolute P/E is only part of the story — sector context matters greatly.`);
+      else if(relPE<0.9)add("P/E Ratio",pe.toFixed(1)+'x',+10,`Attractive vs sector (P/E ${(relPE*100).toFixed(0)}% of ${medLabel})`,`Trading at a 10–30% discount to sector peers. ${medLabel} for ${d.sector}. Meaningful value opportunity if the discount is not explained by structural disadvantages. Check if margins and growth are comparable to sector peers.`);
+      else if(relPE<1.1)add("P/E Ratio",pe.toFixed(1)+'x',0,`In-line with sector (P/E ${(relPE*100).toFixed(0)}% of ${medLabel})`,`Fairly valued relative to ${d.sector} peers. ${medLabel}. No valuation edge or disadvantage vs sector. Decision hinges on relative quality of earnings, margins, and growth.`);
+      else if(relPE<1.3)add("P/E Ratio",pe.toFixed(1)+'x',-8,`Slightly expensive vs sector (P/E ${(relPE*100).toFixed(0)}% of ${medLabel})`,`Trading at a 10–30% premium to ${d.sector} sector peers (median ${secMed.toFixed(1)}x). Requires demonstrably superior growth or margins to justify. Watch for sector rotation that could compress the premium.`);
+      else add("P/E Ratio",pe.toFixed(1)+'x',-15,`Expensive vs sector (P/E ${(relPE*100).toFixed(0)}% of ${medLabel})`,`Trading at a 30%+ premium to ${d.sector} sector peers (median ${secMed.toFixed(1)}x). Speculative premium that requires sustained superior growth. High risk of de-rating if expectations disappoint.`);
+    } else {
+      // Absolute P/E scoring (fallback when sector median not yet available)
+      if(pe<10)add("P/E Ratio",pe.toFixed(1),+22,"Very cheap (P/E < 10)","A P/E below 10 means you pay less than 10 years of earnings. Historically signals deep value or a recovering business. Verify earnings are real — not a one-time event. On Tadawul this is rare for quality stocks and deserves investigation.");
+      else if(pe<15)add("P/E Ratio",pe.toFixed(1),+14,"Below market avg (P/E 10–15)","P/E of 10–15 is the classic Buffett-Graham value zone. You are paying a fair price for a profitable business. TASI average P/E is around 17–20x, so this stock is meaningfully cheaper than the market. Strong buy indicator on valuation alone.");
+      else if(pe<20)add("P/E Ratio",pe.toFixed(1),+8,"Fair value (P/E 15–20)","P/E of 15–20 is in line with the TASI market average. Not cheap, not expensive. Only worth buying if ROE is above 15% and earnings are growing consistently. At this P/E you need growth to generate good returns.");
+      else if(pe<28)add("P/E Ratio",pe.toFixed(1),+3,"Slightly premium (P/E 20–28)","Above market average. You are paying for expected growth. Requires 10–15% annual earnings growth to deliver good returns. At P/E 25 with 10% growth you earn a ~5% earnings yield — acceptable but not exciting. One disappointing quarter can cause a 15–20% correction.");
+      else if(pe<=40)add("P/E Ratio",pe.toFixed(1),-5,"Premium valuation (P/E 28–40)","Expensive by most standards. The market has priced in strong growth already. You need consistent 15%+ earnings growth just to keep the stock flat. Any earnings miss triggers a sharp correction. Requires exceptional conviction in the long-term growth story before buying.");
+      else add("P/E Ratio",pe.toFixed(1),-18,"Very expensive (P/E > 40)","Speculative valuation. You would need 25%+ annual earnings growth sustained for many years to justify this price. Most companies fail at this. On TASI this signals either a high-growth tech/healthcare company or a bubble. Treat with extreme caution.");
+    }
   } else add("P/E Ratio","N/A",-5,"No earnings data available","P/E cannot be calculated — company may be loss-making or data is unavailable. Check Tadawul.com.sa directly for the latest income statement. Cannot assess valuation without this — treat as a significant data gap and investigate before any investment decision.");
 
   if(pb!=null){
@@ -2228,9 +2244,11 @@ async function fetchYahooPrice(ticker){
     return {
       price: meta?.regularMarketPrice??null,
       prev:  meta?.chartPreviousClose??null,
-      closes, timestamps
+      closes, timestamps,
+      volume: meta?.regularMarketVolume??null,
+      avgVolume3M: meta?.averageDailyVolume3Month??null,
     };
-  }catch(e){ return {price:null,prev:null,closes:[],timestamps:[]}; }
+  }catch(e){ return {price:null,prev:null,closes:[],timestamps:[],volume:null,avgVolume3M:null}; }
 }
 
 // ── PRICE-ONLY FETCH: used during main refresh (fast, 1 req per stock) ──
@@ -2238,7 +2256,8 @@ async function fetchStockPrice(stock) {
   const ticker = stock.ticker;
   const result = {
     price:null, change:null, closes:[], timestamps:[],
-    dataSource:'hardcoded', dataDate:stock.dataDate||'2024-2025 est.'
+    dataSource:'hardcoded', dataDate:stock.dataDate||'2024-2025 est.',
+    volume:null, avgVolume3M:null, volatility:null,
   };
   try {
     const quick = await fetchYahooPrice(ticker);
@@ -2251,7 +2270,10 @@ async function fetchStockPrice(stock) {
     if(quick.closes.length>5){
       result.closes = quick.closes;
       result.timestamps = quick.timestamps;
+      result.volatility = computeVolatility(quick.closes);
     }
+    if(quick.volume != null) result.volume = quick.volume;
+    if(quick.avgVolume3M != null) result.avgVolume3M = quick.avgVolume3M;
   } catch(e) {}
   return result;
 }
@@ -2302,6 +2324,22 @@ async function fetchStockFull(stock) {
         cashflowStatementHistory:qs.cashflowStatementHistory,
         cashflowStatementHistoryQuarterly:qs.cashflowStatementHistoryQuarterly,
       };
+      // Change 8: Parse earningsTrend data
+      const trend = qs.earningsTrend?.trend || [];
+      if(trend.length) {
+        result.earningsTrend = trend.map(t => ({
+          period: t.period,
+          endDate: t.endDate?.fmt,
+          epsEst: t.earningsEstimate?.avg?.raw,
+          epsEstLow: t.earningsEstimate?.low?.raw,
+          epsEstHigh: t.earningsEstimate?.high?.raw,
+          epsDelta90d: t.earningsEstimate?.growth?.raw,
+          revUp: t.earningsEstimate?.numberOfAnalystsWithChange?.raw,
+          revDown: t.earningsEstimate?.numberOfAnalystsWithEstimateChange?.raw,
+          revenueEst: t.revenueEstimate?.avg?.raw,
+          numberOfAnalysts: t.earningsEstimate?.numberOfAnalysts?.raw,
+        }));
+      }
       // Save fundamentals to Google Drive (fire-and-forget, 1-day TTL)
       gdWriteStock(ticker, {
         fundamentals: {
@@ -2318,7 +2356,14 @@ async function fetchStockFull(stock) {
     const meta = raw.chart?.chart?.result?.[0]?.meta;
     const closes = (raw.chart?.chart?.result?.[0]?.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
     const timestamps = raw.chart?.chart?.result?.[0]?.timestamp||[];
-    if(closes.length>0){ result.closes=closes; result.timestamps=timestamps; }
+    if(closes.length>0){
+      result.closes=closes;
+      result.timestamps=timestamps;
+      result.volatility = computeVolatility(closes);
+      // Also capture volume from longer chart meta
+      if(meta?.regularMarketVolume != null) result.volume = meta.regularMarketVolume;
+      if(meta?.averageDailyVolume3Month != null) result.avgVolume3M = meta.averageDailyVolume3Month;
+    }
   } catch(e) { console.warn('Full fetch failed for '+ticker, e); }
   return result;
 }
@@ -2647,6 +2692,10 @@ async function openModal(idx){
           if(full.dataDate) realD.dataDate=full.dataDate;
           if(full.closes?.length>realD.closes.length){ realD.closes=full.closes; realD.timestamps=full.timestamps; }
           if(full.rawYahoo) realD.rawYahoo = full.rawYahoo;
+          if(full.earningsTrend) realD.earningsTrend = full.earningsTrend;
+          if(full.volatility != null) realD.volatility = full.volatility;
+          if(full.volume != null) realD.volume = full.volume;
+          if(full.avgVolume3M != null) realD.avgVolume3M = full.avgVolume3M;
           realD.fullLoaded = true;
           const fRes = scoreFundamental(realD);
           const bRes = scoreBuffett(realD);
@@ -2763,13 +2812,36 @@ function buildOverview(d){
   <div class="mgrid4">
     <div class="mi"><div class="mil">Price SAR</div><div class="miv">${d.price!=null?d.price.toFixed(2):"—"}</div></div>
     <div class="mi"><div class="mil">Daily Chg</div><div class="miv ${d.change!=null?(d.change>=0?'pos':'neg'):''}">${d.change!=null?(d.change>=0?"+":"")+d.change.toFixed(2)+"%":"—"}</div></div>
-    <div class="mi"><div class="mil">P/E Ratio</div><div class="miv">${d.pe!=null?d.pe.toFixed(1):"—"}</div></div>
+    <div class="mi"><div class="mil">P/E Ratio${d.pe!=null&&sectorMedianPE[d.sector]?`<span style="font-size:8px;color:var(--tx3);margin-left:3px">sector med ${sectorMedianPE[d.sector].toFixed(1)}x</span>`:''}
+    </div><div class="miv">${d.pe!=null?d.pe.toFixed(1):"—"}</div></div>
     <div class="mi"><div class="mil">P/B Ratio</div><div class="miv">${d.pb!=null?d.pb.toFixed(2):"—"}</div></div>
     <div class="mi"><div class="mil">PEG Ratio</div><div class="miv" style="color:${peg!=null?(peg<1?"var(--green)":peg<2?"var(--amb)":"var(--red)"):"var(--tx3)"}">${peg!=null?peg.toFixed(2):"—"}</div></div>
     <div class="mi"><div class="mil">Earnings Growth${d.egSource==='statements'?'<span title="From annual statements" style="font-size:8px;color:var(--blue);margin-left:3px">★stmt</span>':''}</div><div class="miv ${d.eg!=null?(d.eg>=0?'pos':'neg'):''}">${d.eg!=null?(d.eg>=0?"+":"")+(d.eg*100).toFixed(1)+"%":"—"}</div></div>
     <div class="mi"><div class="mil">Div. Yield</div><div class="miv">${d.dy!=null?(d.dy*100).toFixed(2)+"%":"—"}</div></div>
     <div class="mi"><div class="mil">ROE</div><div class="miv ${d.roe!=null?(d.roe>0.12?"pos":d.roe<0?"neg":""):''}">${d.roe!=null?(d.roe*100).toFixed(1)+"%":"—"}</div></div>
     ${d.dcfPS!=null&&d.price?`<div class="mi"><div class="mil">${d.dcfMethod||'DCF'} Fair Value</div><div class="miv" style="color:${d.dcfUpside>0.10?'var(--green)':d.dcfUpside>-0.10?'var(--amb)':'var(--red)'}"><span style="font-weight:600">${d.dcfPS.toFixed(2)} SAR</span> <span style="font-size:9px;font-family:var(--mono)">${d.dcfUpside>=0?'+':''}${(d.dcfUpside*100).toFixed(1)}%</span></div></div>`:`<div class="mi"><div class="mil">DCF Fair Value</div><div class="miv" style="font-size:9px;color:var(--tx3)">Open DCF tab ↗</div></div>`}
+    ${(()=>{
+      // Change 6: Volatility
+      if(d.volatility==null) return '';
+      const volColor = d.volatility<20?'var(--green)':d.volatility<35?'var(--amb)':'var(--red)';
+      return `<div class="mi"><div class="mil">Volatility (Ann.)</div><div class="miv" style="color:${volColor}">${d.volatility.toFixed(1)}%</div></div>`;
+    })()}
+    ${(()=>{
+      // Change 6: Avg Volume 3M
+      if(d.avgVolume3M==null && d.volume==null) return '';
+      const vol = d.avgVolume3M ?? d.volume;
+      const volStr = vol>=1e9?(vol/1e9).toFixed(2)+'B':vol>=1e6?(vol/1e6).toFixed(1)+'M':vol>=1e3?(vol/1e3).toFixed(0)+'K':vol.toFixed(0);
+      return `<div class="mi"><div class="mil">Avg Vol (3M)</div><div class="miv" style="color:var(--tx2)">${volStr}</div></div>`;
+    })()}
+    ${(()=>{
+      // Change 5: vs TASI 1-year return
+      if(!d.closes||d.closes.length<20||!tasiIndex.closes||tasiIndex.closes.length<20) return '';
+      const stockReturn = (d.closes[d.closes.length-1] - d.closes[0]) / d.closes[0];
+      const tasiReturn = (tasiIndex.closes[tasiIndex.closes.length-1] - tasiIndex.closes[0]) / tasiIndex.closes[0];
+      const vsIdx = stockReturn - tasiReturn;
+      const col = vsIdx >= 0 ? 'var(--green)' : 'var(--red)';
+      return `<div class="mi"><div class="mil">vs TASI (1Y)</div><div class="miv" style="color:${col}">${vsIdx>=0?'+':''}${(vsIdx*100).toFixed(1)}% <span style="font-size:8px;color:var(--tx3)">(stk ${stockReturn>=0?'+':''}${(stockReturn*100).toFixed(1)}%)</span></div></div>`;
+    })()}
   </div>
   <div class="secl">Key Financials (SAR B, FY2024)</div>
   <div class="mgrid">
@@ -2802,6 +2874,35 @@ function buildOverview(d){
     <div class="mi"><div class="mil">52W Low</div><div class="miv">${d.w52low?.toFixed(2)||'—'} SAR</div></div>
     <div class="mi"><div class="mil">52W Range</div><div class="miv" style="font-size:10px">${d.w52low?.toFixed(2)||'?'} – ${d.w52high?.toFixed(2)||'?'}</div></div>
   </div>`:''}
+  ${(()=>{
+    // Change 8: Earnings Estimates from earningsTrend
+    if(!d.earningsTrend||!d.earningsTrend.length) return '';
+    const periodLabels = {'0q':'Current Qtr','1q':'Next Qtr','0y':'Current Year','+1y':'Next Year','-1q':'Last Qtr','2q':'Qtr +2'};
+    const rows = d.earningsTrend.filter(t=>t.epsEst!=null||t.epsDelta90d!=null).map(t=>{
+      const label = periodLabels[t.period]||t.period;
+      const epsStr = t.epsEst!=null?t.epsEst.toFixed(2)+'':'—';
+      const revColor = t.epsDelta90d>0?'var(--green)':t.epsDelta90d<0?'var(--red)':'var(--tx3)';
+      const revStr = t.epsDelta90d!=null?`<span style="color:${revColor}">${t.epsDelta90d>=0?'+':''}${(t.epsDelta90d*100).toFixed(1)}%</span>`:'—';
+      const analystStr = t.numberOfAnalysts!=null?t.numberOfAnalysts+' analysts':'';
+      return `<tr style="border-bottom:1px solid var(--b1)">
+        <td style="padding:3px 5px;color:var(--tx2)">${label}${t.endDate?` <span style="color:var(--tx3)">(${t.endDate})</span>`:''}${analystStr?` <span style="color:var(--tx3);font-size:8px">${analystStr}</span>`:''}</td>
+        <td style="padding:3px 5px;font-family:var(--mono);text-align:right">${epsStr}</td>
+        <td style="padding:3px 5px;font-family:var(--mono);text-align:right">${revStr}</td>
+        <td style="padding:3px 5px;font-family:var(--mono);text-align:right;color:var(--tx3)">${t.revenueEst!=null?(t.revenueEst/1e9).toFixed(2)+'B':'—'}</td>
+      </tr>`;
+    }).join('');
+    if(!rows) return '';
+    return `<div class="secl">Earnings Estimates</div>
+    <table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:8px">
+      <thead><tr style="border-bottom:1px solid var(--b2)">
+        <th style="padding:3px 5px;text-align:left;color:var(--tx3);font-weight:600;font-size:9px">Period</th>
+        <th style="padding:3px 5px;text-align:right;color:var(--tx3);font-weight:600;font-size:9px">EPS Est.</th>
+        <th style="padding:3px 5px;text-align:right;color:var(--tx3);font-weight:600;font-size:9px">90d Revision</th>
+        <th style="padding:3px 5px;text-align:right;color:var(--tx3);font-weight:600;font-size:9px">Rev. Est.</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  })()}
   <div class="secl">Dividend History</div>
   <div id="div-sched-${d.ticker}" style="font-family:var(--mono);font-size:9px;color:var(--tx3);padding:6px 0"><span class="spin"></span> Loading dividend history…</div>
   ${buildPeerComparison(d)}
@@ -3797,6 +3898,18 @@ async function refreshAll(forceRefresh=false){
       setTimeout(()=>{pw.style.display="none";},2000);
       btn.disabled=false;btn.textContent="↻ Reload Data";
       document.getElementById("lu").textContent=`${loaded}/${allData.length} from cache`;
+      // Compute sector medians and fetch TASI index even from cache
+      computeSectorMedianPE();
+      allData.forEach(d => {
+        if(d.pe != null) {
+          const fRes = scoreFundamental(d);
+          d.fundamental = d.noHardcodedData && !d.priceLoaded ? null : fRes.score;
+          d.fundSteps = fRes.steps;
+          d.combined = (d.noHardcodedData && !d.priceLoaded) ? null : calcCombined(d);
+        }
+      });
+      if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
+      fetchTASIIndex();
       doFilter();updateMetrics();
       return;
     }
@@ -3831,6 +3944,10 @@ async function refreshAll(forceRefresh=false){
           technical:tRes.score, techSteps:tRes.steps,
           rsi:tRes.rsi, sma20:tRes.sma20, sma50:tRes.sma50, momentum:tRes.momentum,
           combined: calcCombined({...allData[idx], technical:tRes.score}),
+          // Change 6: volatility and volume
+          volatility: fetched.volatility ?? allData[idx].volatility ?? null,
+          volume: fetched.volume ?? allData[idx].volume ?? null,
+          avgVolume3M: fetched.avgVolume3M ?? allData[idx].avgVolume3M ?? null,
         };
       }catch(e){allData[idx].priceLoaded=false;}
     }));
@@ -3846,8 +3963,94 @@ async function refreshAll(forceRefresh=false){
   setTimeout(()=>{pw.style.display="none";},3000);
   btn.disabled=false;btn.textContent="↻ Reload Data";
   document.getElementById("lu").textContent=`${loaded}/${allData.length} prices · ${new Date().toLocaleTimeString("en-SA",{hour:"2-digit",minute:"2-digit"})}`;
+  // ── Change 7: Compute sector-relative P/E medians after all prices loaded ──
+  computeSectorMedianPE();
+  // Re-score fundamentals with sector-relative P/E now available
+  allData.forEach(d => {
+    if(d.pe != null) {
+      const fRes = scoreFundamental(d);
+      d.fundamental = d.noHardcodedData && !d.priceLoaded ? null : fRes.score;
+      d.fundSteps = fRes.steps;
+      d.combined = (d.noHardcodedData && !d.priceLoaded) ? null : calcCombined(d);
+    }
+  });
+  if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
+
+  // ── Change 5: Fetch TASI index level ──
+  fetchTASIIndex();
+
   doFilter();updateMetrics();
   checkAlerts();
+}
+
+// ── Change 7: Sector-relative P/E median computation ──
+function computeSectorMedianPE() {
+  const bySector = {};
+  allData.forEach(d => {
+    if(d.pe != null && d.pe > 0 && d.pe < 100 && d.sector) {
+      if(!bySector[d.sector]) bySector[d.sector] = [];
+      bySector[d.sector].push(d.pe);
+    }
+  });
+  const medians = {};
+  Object.entries(bySector).forEach(([s, vals]) => {
+    if(vals.length < 2) return; // need at least 2 stocks for meaningful median
+    vals.sort((a,b) => a-b);
+    const mid = Math.floor(vals.length/2);
+    medians[s] = vals.length % 2 === 0 ? (vals[mid-1]+vals[mid])/2 : vals[mid];
+  });
+  sectorMedianPE = medians;
+}
+
+// ── Change 5: TASI Index fetch ──
+async function fetchTASIIndex() {
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/%5ETASI?interval=1d&range=1y`;
+    const data = await fetchWithProxy(url);
+    const res = data?.chart?.result?.[0];
+    if(!res) return;
+    const meta = res.meta;
+    const closes = (res.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
+    const timestamps = res.timestamp||[];
+    const price = meta?.regularMarketPrice ?? null;
+    const prev = meta?.chartPreviousClose ?? null;
+    const change = (price && prev) ? ((price-prev)/prev)*100 : null;
+    // YTD return: find close at or after Jan 1 of current year
+    let ytdReturn = null;
+    if(closes.length > 0 && timestamps.length > 0) {
+      const yearStart = new Date(new Date().getFullYear(), 0, 1).getTime() / 1000;
+      let ytdStartIdx = 0;
+      for(let i=0; i<timestamps.length; i++) {
+        if(timestamps[i] >= yearStart) { ytdStartIdx = i; break; }
+      }
+      const ytdStartPrice = closes[ytdStartIdx];
+      const ytdEndPrice = closes[closes.length-1];
+      if(ytdStartPrice > 0) ytdReturn = (ytdEndPrice - ytdStartPrice) / ytdStartPrice;
+    }
+    tasiIndex = { price, change, closes, timestamps, ytdReturn };
+    // Update market bar with TASI index data
+    const lvlEl = document.getElementById('tasi-idx-level');
+    const chgEl = document.getElementById('tasi-idx-chg');
+    const ytdEl = document.getElementById('tasi-idx-ytd');
+    if(lvlEl && price) lvlEl.textContent = price.toLocaleString('en-SA', {minimumFractionDigits:0, maximumFractionDigits:0});
+    if(chgEl && change != null) {
+      const col = change >= 0 ? 'var(--green)' : 'var(--red)';
+      chgEl.innerHTML = `<span style="color:${col}">${change>=0?'+':''}${change.toFixed(2)}%</span>`;
+    }
+    if(ytdEl && ytdReturn != null) {
+      const col = ytdReturn >= 0 ? 'var(--green)' : 'var(--red)';
+      ytdEl.innerHTML = `<span style="color:var(--tx3)">YTD: <span style="color:${col}">${ytdReturn>=0?'+':''}${(ytdReturn*100).toFixed(1)}%</span></span>`;
+    }
+  } catch(e) { console.warn('TASI index fetch failed:', e); }
+}
+
+// ── Change 6: Compute annualized historical volatility from daily closes ──
+function computeVolatility(closes) {
+  if(!closes || closes.length < 20) return null;
+  const returns = closes.slice(1).map((c, i) => Math.log(c / closes[i]));
+  const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+  const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / (returns.length - 1);
+  return Math.sqrt(variance * 252) * 100; // annualized in %
 }
 
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
