@@ -1667,6 +1667,40 @@ function buildAlertPanel(d) {
 }
 
 
+// ════════════════════════════════════════════════════════════════════════
+// DATA SOURCES — Reference for all financial data used in this dashboard
+// ════════════════════════════════════════════════════════════════════════
+// LIVE PRICES & FUNDAMENTALS:
+//   Primary:  Yahoo Finance v8/finance/chart, v10/finance/quoteSummary,
+//             ws/fundamentals-timeseries (better Saudi coverage)
+//   Screener: Yahoo Finance v1/finance/screener (stock discovery, paginated)
+//   Bulk:     Yahoo Finance v7/finance/quote (batch price check, range probing)
+//
+// FINANCIAL STATEMENTS (waterfall priority):
+//   1. Google Drive personal cache (30-day TTL)
+//   2. Yahoo Finance quoteSummary incomeStatementHistory
+//   3. Yahoo Finance fundamentals-timeseries (dedicated endpoint)
+//   4. localStorage cache (offline fallback)
+//   5. Financial Modeling Prep / FMP (requires user API key at Settings)
+//   6. Wisesheets.io (scraping, Next.js __NEXT_DATA__)
+//   7. Argaam.com (Saudi-specific, argaam.com/en/company/financials/{code})
+//   8. StockAnalysis.com (stockanalysis.com/quote/{ticker}/financials/)
+//   9. Macrotrends (major stocks only)
+//
+// HARDCODED STOCK LIST (curated from these sources, last updated 2025):
+//   - Saudi Exchange / TASI official:  saudiexchange.sa
+//   - Argaam:  argaam.com/en/stocks/saudi-stocks-list
+//   - Yahoo Finance Saudi screener (exchange=SAU)
+//   - Company annual reports & investor relations pages (2024-2025)
+//   - Tadawul ISIN registry
+//
+// STOCK DISCOVERY (runtime, fills gaps beyond hardcoded list):
+//   1. Yahoo screener (up to 500, paginated in batches of 250)
+//   2. Yahoo bulk quote for REIT range 4300-4399
+//   3. Argaam full stock list (Next.js + HTML parsing)
+//   4. Systematic ticker range probe (1010-8320, active listings only)
+// ════════════════════════════════════════════════════════════════════════
+
 const STOCKS=[
 // ── ENERGY ──
 {t:"2222.SR",n:"Saudi Aramco",s:"Energy",r:false,pe:13.2,pb:3.8,roe:0.27,npm:0.24,de:48,dy:0.074,fcf:true,cr:1.2,rg:-0.03,eg:0.02,rev:1622,ni:328,assets:2695,desc:"World's largest oil company. Unmatched reserve base, massive dividend payer."},
@@ -1880,6 +1914,15 @@ const MORE_TICKERS = [
 {t:"8300.SR",n:"Wataniya Insurance",s:"Insurance",r:false},
 {t:"8310.SR",n:"Amana Cooperative Insurance",s:"Insurance",r:false},
 {t:"8311.SR",n:"Saudi Enaya Cooperative Insurance",s:"Insurance",r:false},
+{t:"8080.SR",n:"AXA Cooperative Insurance",s:"Insurance",r:false},
+{t:"8012.SR",n:"Jazira Takaful",s:"Insurance",r:false},
+// ── RECENT IPOs (2021-2024) ──
+{t:"4015.SR",n:"Jamjoom Pharma",s:"Healthcare",r:false},
+{t:"4262.SR",n:"Lumi (Lumi Rental)",s:"Consumer",r:false},
+{t:"4263.SR",n:"SAL Saudi Logistics Services",s:"Transportation",r:false},
+{t:"2382.SR",n:"ADES Holding",s:"Energy",r:false},
+{t:"2346.SR",n:"National Petrochemical Company (NATPET)",s:"Petrochemicals",r:false},
+{t:"4310.SR",n:"Saudi Airlines Catering",s:"Consumer",r:false},
 ];
 
 
