@@ -1227,9 +1227,11 @@ async function scrapeFinancials(ticker, period) {
   if (saNd) {
     const saResult = parseStockAnalysisData(saNd, period);
     if (saResult.is || saResult.bs || saResult.cf) return saResult;
-    // Also try balance sheet and cash flow sub-pages
-    const bsHtml = await fetchHTMLViaProxy(`${saBase}/balance-sheet/${pq === 'quarterly' ? '?p=quarterly' : ''}`);
-    const cfHtml = await fetchHTMLViaProxy(`${saBase}/cash-flow-statement/${pq === 'quarterly' ? '?p=quarterly' : ''}`);
+    // Also try balance sheet and cash flow sub-pages (in parallel)
+    const [bsHtml, cfHtml] = await Promise.all([
+      fetchHTMLViaProxy(`${saBase}/balance-sheet/${pq === 'quarterly' ? '?p=quarterly' : ''}`),
+      fetchHTMLViaProxy(`${saBase}/cash-flow-statement/${pq === 'quarterly' ? '?p=quarterly' : ''}`),
+    ]);
     const bsNd = extractNextData(bsHtml), cfNd = extractNextData(cfHtml);
     const bsResult = bsNd ? parseStockAnalysisData(bsNd, period) : {};
     const cfResult = cfNd ? parseStockAnalysisData(cfNd, period) : {};
@@ -1275,18 +1277,6 @@ async function fetchArgaamFinancials(code, period) {
         const result = parseArgaamNextData(nd, period);
         if (result.is || result.bs || result.cf) return result;
       }
-      // Try direct JSON in script tags (Argaam embeds data as window.__DATA__ or similar)
-      const dataMatch = html.match(/window\.__(?:INITIAL|PAGE|ARGAAM)_DATA__\s*=\s*({[\s\S]*?});\s*(?:window|<\/script>)/);
-      if (dataMatch) {
-        try {
-          const d = JSON.parse(dataMatch[1]);
-          const result = parseArgaamData(d, period);
-          if (result.is || result.bs || result.cf) return result;
-        } catch(e) {}
-      }
-      // Try parsing the HTML table directly
-      const tableResult = parseArgaamHTMLTable(html, period);
-      if (tableResult.is || tableResult.bs || tableResult.cf) return tableResult;
     } catch(e) { continue; }
   }
   // Try Argaam API endpoints (mobile app API, sometimes accessible)
@@ -1311,32 +1301,33 @@ function parseArgaamNextData(nd, period) {
   const isData = isQ ? (fin.quarterly?.incomeStatement || fin.quarterlyIS) : (fin.annual?.incomeStatement || fin.annualIS || fin.incomeStatement);
   const bsData = isQ ? (fin.quarterly?.balanceSheet || fin.quarterlyBS) : (fin.annual?.balanceSheet || fin.annualBS || fin.balanceSheet);
   const cfData = isQ ? (fin.quarterly?.cashFlow || fin.quarterlyCF) : (fin.annual?.cashFlow || fin.annualCF || fin.cashFlow);
+  const pick = (r, ...keys) => { for (const k of keys) if (r[k] != null) return r[k]; return null; };
   const mapArgaamIS = rows => rows?.map(r => ({
-    fiscal_date: r.date || r.period || r.fiscalDate || r.Year || '—',
-    revenue: r.revenue || r.Revenue || r.totalRevenue || null,
-    gross_profit: r.grossProfit || r.GrossProfit || null,
-    ebitda: r.ebitda || r.EBITDA || null,
-    operating_income: r.operatingIncome || r.OperatingIncome || null,
-    net_income: r.netIncome || r.NetIncome || r.netProfit || null,
-    eps: r.eps || r.EPS || r.earningsPerShare || null,
-  })) || null;
+    fiscal_date: pick(r, 'date', 'period', 'fiscalDate', 'Year') ?? '—',
+    revenue: pick(r, 'revenue', 'Revenue', 'totalRevenue'),
+    gross_profit: pick(r, 'grossProfit', 'GrossProfit'),
+    ebitda: pick(r, 'ebitda', 'EBITDA'),
+    operating_income: pick(r, 'operatingIncome', 'OperatingIncome'),
+    net_income: pick(r, 'netIncome', 'NetIncome', 'netProfit'),
+    eps: pick(r, 'eps', 'EPS', 'earningsPerShare'),
+  })) ?? null;
   const mapArgaamBS = rows => rows?.map(r => ({
-    fiscal_date: r.date || r.period || r.fiscalDate || '—',
-    total_assets: r.totalAssets || r.TotalAssets || null,
-    total_liabilities: r.totalLiabilities || r.TotalLiabilities || null,
-    total_equity: r.totalEquity || r.TotalEquity || r.shareholdersEquity || null,
-    cash_and_equivalents: r.cash || r.Cash || r.cashAndEquivalents || null,
-    long_term_debt: r.longTermDebt || r.LongTermDebt || null,
-  })) || null;
+    fiscal_date: pick(r, 'date', 'period', 'fiscalDate') ?? '—',
+    total_assets: pick(r, 'totalAssets', 'TotalAssets'),
+    total_liabilities: pick(r, 'totalLiabilities', 'TotalLiabilities'),
+    total_equity: pick(r, 'totalEquity', 'TotalEquity', 'shareholdersEquity'),
+    cash_and_equivalents: pick(r, 'cash', 'Cash', 'cashAndEquivalents'),
+    long_term_debt: pick(r, 'longTermDebt', 'LongTermDebt'),
+  })) ?? null;
   const mapArgaamCF = rows => rows?.map(r => ({
-    fiscal_date: r.date || r.period || r.fiscalDate || '—',
-    operating_activities: r.operatingCashFlow || r.OperatingCashFlow || r.netCashFromOperations || null,
-    investing_activities: r.investingCashFlow || r.InvestingCashFlow || null,
-    financing_activities: r.financingCashFlow || r.FinancingCashFlow || null,
-    capital_expenditure: r.capex || r.CapEx || r.capitalExpenditures || null,
-    free_cash_flow: r.freeCashFlow || r.FreeCashFlow || null,
-    dividends_paid: r.dividendsPaid || r.DividendsPaid || null,
-  })) || null;
+    fiscal_date: pick(r, 'date', 'period', 'fiscalDate') ?? '—',
+    operating_activities: pick(r, 'operatingCashFlow', 'OperatingCashFlow', 'netCashFromOperations'),
+    investing_activities: pick(r, 'investingCashFlow', 'InvestingCashFlow'),
+    financing_activities: pick(r, 'financingCashFlow', 'FinancingCashFlow'),
+    capital_expenditure: pick(r, 'capex', 'CapEx', 'capitalExpenditures'),
+    free_cash_flow: pick(r, 'freeCashFlow', 'FreeCashFlow'),
+    dividends_paid: pick(r, 'dividendsPaid', 'DividendsPaid'),
+  })) ?? null;
   return { is: mapArgaamIS(isData), bs: mapArgaamBS(bsData), cf: mapArgaamCF(cfData) };
 }
 
@@ -1352,24 +1343,11 @@ function parseArgaamAPIData(data, period) {
     ebitda: toSar(r.EBITDA || r.ebitda),
     operating_income: toSar(r.OperatingIncome || r.operatingIncome),
     net_income: toSar(r.NetProfit || r.netProfit || r.NetIncome),
-    eps: parseFloat(r.EPS || r.eps || 0) || null,
+    eps: r.EPS != null ? parseFloat(r.EPS) : r.eps != null ? parseFloat(r.eps) : null,
   })).filter(r => r.revenue != null || r.net_income != null);
   return is.length ? { is, bs: null, cf: null } : empty;
 }
 
-function parseArgaamHTMLTable(html, period) {
-  const empty = { is: null, bs: null, cf: null };
-  // Look for financial table rows in Argaam's HTML
-  // Argaam HTML tables contain financial data as SAR amounts
-  const tableMatch = html.match(/<table[^>]*class="[^"]*financial[^"]*"[^>]*>([\s\S]*?)<\/table>/i);
-  if (!tableMatch) return empty;
-  // Basic row extraction — we don't attempt full parsing of Arabic tables here
-  return empty;
-}
-
-function parseArgaamData(d, period) {
-  return { is: null, bs: null, cf: null }; // placeholder for window.__DATA__ parsing
-}
 
 // ── STOCK ANALYSIS DATA PARSER ──
 function parseStockAnalysisData(nd, period) {
@@ -2559,8 +2537,8 @@ function _addDiscoveredStock(ticker, name, sector, extra, existing) {
   allData.push({
     ticker, name: name || ticker,
     sector: sector || 'Other', isReit,
-    pe: extra?.pe || null, pb: extra?.pb || null,
-    roe: null, npm: null, de: null, dy: extra?.dy || null,
+    pe: extra?.pe ?? null, pb: extra?.pb ?? null,
+    roe: null, npm: null, de: null, dy: extra?.dy ?? null,
     fcf: null, cr: null, rg: null, eg: null, rev: null, ni: null, assets: null,
     desc: extra?.desc || 'Auto-discovered stock.',
     peg: null, pegScore: 50,
@@ -2633,7 +2611,6 @@ async function autoDiscoverSaudiStocks() {
       const batchQuotes = batchData?.quoteResponse?.result || [];
       for (const q of batchQuotes) {
         if (!q.symbol || !q.regularMarketPrice) continue; // skip if no price (not listed)
-        const isReit = true;
         _addDiscoveredStock(q.symbol, q.shortName || q.longName || q.symbol, 'REITs',
           { price: q.regularMarketPrice, dy: q.dividendYield,
             mktCap: q.marketCap, desc: 'Saudi REIT — auto-discovered.' }, existing);
@@ -2691,6 +2668,7 @@ async function autoDiscoverSaudiStocks() {
     [6001, 6100], // Agriculture/Food
     [7010, 7210], // Telecom/Tech
     [8010, 8320], // Insurance
+    [9500, 9700], // New-gen IPOs (post-2020)
   ];
   const gapTickers = [];
   for (const [start, end] of knownRanges) {
@@ -2699,27 +2677,31 @@ async function autoDiscoverSaudiStocks() {
       if (!existing.has(t)) gapTickers.push(t);
     }
   }
-  // Batch-probe in groups of 50 — only stocks with a valid price are listed
-  for (let i = 0; i < Math.min(gapTickers.length, 400); i += 50) {
-    const batch = gapTickers.slice(i, i + 50);
-    try {
-      const bUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${batch.join(',')}`;
-      const bd = await fetchWithProxy(bUrl);
-      const bq = bd?.quoteResponse?.result || [];
-      for (const q of bq) {
-        if (!q.symbol || !q.regularMarketPrice || q.regularMarketPrice <= 0) continue;
-        const added = _addDiscoveredStock(
-          q.symbol,
-          q.shortName || q.longName || q.symbol,
-          q.sector || q.industry || 'Other',
-          { price: q.regularMarketPrice, change: q.regularMarketChangePercent,
-            mktCap: q.marketCap, dy: q.dividendYield,
-            desc: 'Auto-discovered via range probe.' },
-          existing
-        );
-        if (added) totalAdded++;
-      }
-    } catch(e) {}
+  // Batch-probe in groups of 50, running 4 batches in parallel
+  const probeTickers = gapTickers.slice(0, 400);
+  const probeBatches = [];
+  for (let i = 0; i < probeTickers.length; i += 50) probeBatches.push(probeTickers.slice(i, i + 50));
+  for (let i = 0; i < probeBatches.length; i += 4) {
+    const chunk = probeBatches.slice(i, i + 4);
+    await Promise.all(chunk.map(async batch => {
+      try {
+        const bUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${batch.join(',')}`;
+        const bd = await fetchWithProxy(bUrl);
+        for (const q of bd?.quoteResponse?.result || []) {
+          if (!q.symbol || !q.regularMarketPrice || q.regularMarketPrice <= 0) continue;
+          const added = _addDiscoveredStock(
+            q.symbol,
+            q.shortName || q.longName || q.symbol,
+            q.sector || q.industry || 'Other',
+            { price: q.regularMarketPrice, change: q.regularMarketChangePercent,
+              mktCap: q.marketCap, dy: q.dividendYield,
+              desc: 'Auto-discovered via range probe.' },
+            existing
+          );
+          if (added) totalAdded++;
+        }
+      } catch(e) {}
+    }));
   }
 
   if (totalAdded > 0) {
