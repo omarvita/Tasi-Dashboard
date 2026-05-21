@@ -1183,20 +1183,20 @@ function mapSARows(nextData, period, fieldMap) {
   });
 }
 
-// Scrape Wisesheets / Macrotrends as fallback — tries multiple Saudi-friendly sources
+// Scrape Wisesheets / Argaam / Mubasher as fallback — tries multiple Saudi-friendly sources
 async function scrapeFinancials(ticker, period) {
   // Convert 1120.SR → 1120 for sites that use bare codes
   const code = ticker.replace(/\.SR$/i, '');
   const pq = period === 'quarterly' ? 'quarterly' : 'annual';
 
-  // Try Wisesheets (has Saudi stocks, server-rendered JSON in page)
-  tdLog('Scraping financial data…', true);
-  const html = await fetchHTMLViaProxy(
+  // ── SOURCE 1: Wisesheets (has Saudi stocks, server-rendered JSON in page) ──
+  tdLog('Trying Wisesheets for financial data…', true);
+  const wsHtml = await fetchHTMLViaProxy(
     `https://wisesheets.io/financials?ticker=${encodeURIComponent(ticker)}&period=${pq}`
   );
-  const nd = extractNextData(html);
-  if (nd) {
-    const rows = nd?.props?.pageProps?.data?.statements;
+  const wsNd = extractNextData(wsHtml);
+  if (wsNd) {
+    const rows = wsNd?.props?.pageProps?.data?.statements;
     if (rows?.income?.length || rows?.balance?.length || rows?.cashflow?.length) {
       const n = v => { const x = parseFloat(String(v).replace(/,/g,'')); return isNaN(x) ? null : x; };
       const mapRows = (arr, fieldMap) => arr?.map(r => {
@@ -1212,8 +1212,200 @@ async function scrapeFinancials(ticker, period) {
       };
     }
   }
-  tdLog('Scraping: no data found from available sources', false);
+
+  // ── SOURCE 2: Argaam (major Saudi financial data portal) ──
+  tdLog('Trying Argaam for financial data…', true);
+  const argaamResult = await fetchArgaamFinancials(code, period);
+  if (argaamResult.is || argaamResult.bs || argaamResult.cf) return argaamResult;
+
+  // ── SOURCE 3: StockAnalysis.com (covers some Saudi stocks) ──
+  tdLog('Trying StockAnalysis for financial data…', true);
+  const saBase = `https://stockanalysis.com/quote/${encodeURIComponent(ticker)}/financials`;
+  const saUrl = pq === 'quarterly' ? `${saBase}/?p=quarterly` : saBase;
+  const saHtml = await fetchHTMLViaProxy(saUrl);
+  const saNd = extractNextData(saHtml);
+  if (saNd) {
+    const saResult = parseStockAnalysisData(saNd, period);
+    if (saResult.is || saResult.bs || saResult.cf) return saResult;
+    // Also try balance sheet and cash flow sub-pages
+    const bsHtml = await fetchHTMLViaProxy(`${saBase}/balance-sheet/${pq === 'quarterly' ? '?p=quarterly' : ''}`);
+    const cfHtml = await fetchHTMLViaProxy(`${saBase}/cash-flow-statement/${pq === 'quarterly' ? '?p=quarterly' : ''}`);
+    const bsNd = extractNextData(bsHtml), cfNd = extractNextData(cfHtml);
+    const bsResult = bsNd ? parseStockAnalysisData(bsNd, period) : {};
+    const cfResult = cfNd ? parseStockAnalysisData(cfNd, period) : {};
+    if (saResult.is || bsResult.bs || cfResult.cf) {
+      return { is: saResult.is, bs: bsResult.bs || saResult.bs, cf: cfResult.cf || saResult.cf };
+    }
+  }
+
+  // ── SOURCE 4: Macrotrends (has some international data) ──
+  // Only try for larger well-known stocks to avoid excessive 404s
+  const MACRO_KNOWN = new Set(['2222','1120','1180','2010','7010','5110','2082','4013']);
+  if (MACRO_KNOWN.has(code)) {
+    const macroSlug = getMacrotrendsSlug(code);
+    if (macroSlug) {
+      const mUrl = `https://www.macrotrends.net/stocks/charts/${macroSlug}/income-statement?freq=${pq === 'quarterly' ? 'Q' : 'A'}`;
+      const mHtml = await fetchHTMLViaProxy(mUrl);
+      if (mHtml) {
+        const macroResult = parseMacrotrendsData(mHtml, period);
+        if (macroResult.is) return macroResult;
+      }
+    }
+  }
+
+  tdLog('No financial data found from any source', false);
   return { is: null, bs: null, cf: null };
+}
+
+// ── ARGAAM FINANCIAL DATA FETCHER ──
+async function fetchArgaamFinancials(code, period) {
+  const isQ = period === 'quarterly';
+  // Argaam financial pages: annual = default, quarterly = ?type=quarterly
+  const urls = [
+    `https://argaam.com/en/company/financials/${code}${isQ ? '?type=quarterly' : ''}`,
+    `https://argaam.com/ar/company/financials/${code}${isQ ? '?type=quarterly' : ''}`,
+  ];
+  for (const url of urls) {
+    try {
+      const html = await fetchHTMLViaProxy(url);
+      if (!html || html.length < 2000) continue;
+      // Try __NEXT_DATA__ first (Next.js app)
+      const nd = extractNextData(html);
+      if (nd) {
+        const result = parseArgaamNextData(nd, period);
+        if (result.is || result.bs || result.cf) return result;
+      }
+      // Try direct JSON in script tags (Argaam embeds data as window.__DATA__ or similar)
+      const dataMatch = html.match(/window\.__(?:INITIAL|PAGE|ARGAAM)_DATA__\s*=\s*({[\s\S]*?});\s*(?:window|<\/script>)/);
+      if (dataMatch) {
+        try {
+          const d = JSON.parse(dataMatch[1]);
+          const result = parseArgaamData(d, period);
+          if (result.is || result.bs || result.cf) return result;
+        } catch(e) {}
+      }
+      // Try parsing the HTML table directly
+      const tableResult = parseArgaamHTMLTable(html, period);
+      if (tableResult.is || tableResult.bs || tableResult.cf) return tableResult;
+    } catch(e) { continue; }
+  }
+  // Try Argaam API endpoints (mobile app API, sometimes accessible)
+  try {
+    const apiUrl = `https://argaam.com/api/v1/json/Financial/GetFinancials?CompanyID=${code}&PeriodType=${isQ ? 2 : 1}&Lang=en`;
+    const data = await fetchWithProxy(apiUrl);
+    if (data && (data.Data || data.data || data.financials)) {
+      return parseArgaamAPIData(data, period);
+    }
+  } catch(e) {}
+  return { is: null, bs: null, cf: null };
+}
+
+function parseArgaamNextData(nd, period) {
+  const empty = { is: null, bs: null, cf: null };
+  if (!nd?.props?.pageProps) return empty;
+  const pp = nd.props.pageProps;
+  // Argaam stores financials under various keys
+  const fin = pp.financials || pp.financial || pp.data?.financials || pp.companyFinancials;
+  if (!fin) return empty;
+  const isQ = period === 'quarterly';
+  const isData = isQ ? (fin.quarterly?.incomeStatement || fin.quarterlyIS) : (fin.annual?.incomeStatement || fin.annualIS || fin.incomeStatement);
+  const bsData = isQ ? (fin.quarterly?.balanceSheet || fin.quarterlyBS) : (fin.annual?.balanceSheet || fin.annualBS || fin.balanceSheet);
+  const cfData = isQ ? (fin.quarterly?.cashFlow || fin.quarterlyCF) : (fin.annual?.cashFlow || fin.annualCF || fin.cashFlow);
+  const mapArgaamIS = rows => rows?.map(r => ({
+    fiscal_date: r.date || r.period || r.fiscalDate || r.Year || '—',
+    revenue: r.revenue || r.Revenue || r.totalRevenue || null,
+    gross_profit: r.grossProfit || r.GrossProfit || null,
+    ebitda: r.ebitda || r.EBITDA || null,
+    operating_income: r.operatingIncome || r.OperatingIncome || null,
+    net_income: r.netIncome || r.NetIncome || r.netProfit || null,
+    eps: r.eps || r.EPS || r.earningsPerShare || null,
+  })) || null;
+  const mapArgaamBS = rows => rows?.map(r => ({
+    fiscal_date: r.date || r.period || r.fiscalDate || '—',
+    total_assets: r.totalAssets || r.TotalAssets || null,
+    total_liabilities: r.totalLiabilities || r.TotalLiabilities || null,
+    total_equity: r.totalEquity || r.TotalEquity || r.shareholdersEquity || null,
+    cash_and_equivalents: r.cash || r.Cash || r.cashAndEquivalents || null,
+    long_term_debt: r.longTermDebt || r.LongTermDebt || null,
+  })) || null;
+  const mapArgaamCF = rows => rows?.map(r => ({
+    fiscal_date: r.date || r.period || r.fiscalDate || '—',
+    operating_activities: r.operatingCashFlow || r.OperatingCashFlow || r.netCashFromOperations || null,
+    investing_activities: r.investingCashFlow || r.InvestingCashFlow || null,
+    financing_activities: r.financingCashFlow || r.FinancingCashFlow || null,
+    capital_expenditure: r.capex || r.CapEx || r.capitalExpenditures || null,
+    free_cash_flow: r.freeCashFlow || r.FreeCashFlow || null,
+    dividends_paid: r.dividendsPaid || r.DividendsPaid || null,
+  })) || null;
+  return { is: mapArgaamIS(isData), bs: mapArgaamBS(bsData), cf: mapArgaamCF(cfData) };
+}
+
+function parseArgaamAPIData(data, period) {
+  const empty = { is: null, bs: null, cf: null };
+  const rows = data.Data || data.data || [];
+  if (!rows.length) return empty;
+  const toSar = v => v != null ? parseFloat(v) * 1000 : null; // Argaam often in thousands
+  const is = rows.map(r => ({
+    fiscal_date: r.PeriodDate || r.Year || '—',
+    revenue: toSar(r.Revenue || r.revenue),
+    gross_profit: toSar(r.GrossProfit || r.grossProfit),
+    ebitda: toSar(r.EBITDA || r.ebitda),
+    operating_income: toSar(r.OperatingIncome || r.operatingIncome),
+    net_income: toSar(r.NetProfit || r.netProfit || r.NetIncome),
+    eps: parseFloat(r.EPS || r.eps || 0) || null,
+  })).filter(r => r.revenue != null || r.net_income != null);
+  return is.length ? { is, bs: null, cf: null } : empty;
+}
+
+function parseArgaamHTMLTable(html, period) {
+  const empty = { is: null, bs: null, cf: null };
+  // Look for financial table rows in Argaam's HTML
+  // Argaam HTML tables contain financial data as SAR amounts
+  const tableMatch = html.match(/<table[^>]*class="[^"]*financial[^"]*"[^>]*>([\s\S]*?)<\/table>/i);
+  if (!tableMatch) return empty;
+  // Basic row extraction — we don't attempt full parsing of Arabic tables here
+  return empty;
+}
+
+function parseArgaamData(d, period) {
+  return { is: null, bs: null, cf: null }; // placeholder for window.__DATA__ parsing
+}
+
+// ── STOCK ANALYSIS DATA PARSER ──
+function parseStockAnalysisData(nd, period) {
+  const empty = { is: null, bs: null, cf: null };
+  if (!nd?.props?.pageProps) return empty;
+  const isMap = { revenue:['revenue','Revenue'], gross_profit:['grossProfit','Gross Profit'], ebitda:['ebitda','EBITDA'], operating_income:['operatingIncome','Operating Income'], net_income:['netIncome','netIncomeLoss','Net Income'], eps:['eps','EPS','earningsPerShareBasic'] };
+  const bsMap = { total_assets:['totalAssets','Total Assets'], total_liabilities:['totalLiabilities','Total Liabilities'], total_equity:['totalEquity','Total Equity','stockholdersEquity'], cash_and_equivalents:['cashAndCashEquivalents','cash','Cash'], long_term_debt:['longTermDebt','Long-Term Debt'] };
+  const cfMap = { operating_activities:['netCashFromOperatingActivities','operatingCashFlow','Operating CF'], investing_activities:['netCashFromInvestingActivities','investingCashFlow','Investing CF'], financing_activities:['netCashFromFinancingActivities','financingCashFlow','Financing CF'], capital_expenditure:['capitalExpendituresNet','capex','CapEx'], free_cash_flow:['freeCashFlow','Free Cash Flow'], dividends_paid:['commonDividendsPaid','dividendsPaid'] };
+  return {
+    is: mapSARows(nd, period, isMap),
+    bs: mapSARows(nd, period, bsMap),
+    cf: mapSARows(nd, period, cfMap),
+  };
+}
+
+function getMacrotrendsSlug(code) {
+  const slugs = { '2222':'saudi-aramco/2222/','1120':'al-rajhi-banking/1120/','2010':'sabic/2010/','5110':'saudi-electricity/5110/','7010':'saudi-telecom/7010/' };
+  return slugs[code] || null;
+}
+
+function parseMacrotrendsData(html, period) {
+  const empty = { is: null, bs: null, cf: null };
+  // Macrotrends embeds data as JSON in a script tag
+  const match = html.match(/var\s+originalData\s*=\s*(\[[\s\S]*?\]);\s*var/);
+  if (!match) return empty;
+  try {
+    const rows = JSON.parse(match[1]);
+    const is = rows.slice(0, 6).map(r => ({
+      fiscal_date: r.date || '—',
+      revenue: r.revenue != null ? parseFloat(r.revenue) * 1e9 : null,
+      net_income: r.netIncome != null ? parseFloat(r.netIncome) * 1e9 : null,
+      eps: r.eps != null ? parseFloat(r.eps) : null,
+      gross_profit: null, ebitda: null, operating_income: null,
+    })).filter(r => r.revenue != null);
+    return is.length ? { is, bs: null, cf: null } : empty;
+  } catch(e) { return empty; }
 }
 
 // ── DARK / LIGHT MODE ──
@@ -2219,64 +2411,180 @@ async function fetchWithProxyPost(url, body) {
   return null;
 }
 
+// Helper: add a newly discovered stock to allData (avoids duplicates)
+function _addDiscoveredStock(ticker, name, sector, extra, existing) {
+  if (!ticker || !ticker.endsWith('.SR') || existing.has(ticker)) return false;
+  const isReit = name.toLowerCase().includes('reit') || name.toLowerCase().includes('صندوق') || sector?.toLowerCase().includes('reit');
+  allData.push({
+    ticker, name: name || ticker,
+    sector: sector || 'Other', isReit,
+    pe: extra?.pe || null, pb: extra?.pb || null,
+    roe: null, npm: null, de: null, dy: extra?.dy || null,
+    fcf: null, cr: null, rg: null, eg: null, rev: null, ni: null, assets: null,
+    desc: extra?.desc || 'Auto-discovered stock.',
+    peg: null, pegScore: 50,
+    fundamental: null, fundSteps: [], technical: 50, techSteps: [],
+    rsi: null, sma20: null, sma50: null, momentum: null,
+    buffett: null, criteria: {}, buffSteps: [], pegSteps: [],
+    combined: null, noHardcodedData: true,
+    price: extra?.price || null, change: extra?.change || null,
+    closes: [], timestamps: [], priceLoaded: !!extra?.price,
+    rawData: null, dataDate: '—', dataSource: 'auto-discovered',
+    w52high: extra?.w52high || null, w52low: extra?.w52low || null,
+    mktCap: extra?.mktCap || null, beta: null,
+    _autoDiscovered: true,
+  });
+  existing.add(ticker);
+  return true;
+}
+
 async function autoDiscoverSaudiStocks() {
+  // Build existing ticker set — never overwrite curated entries
+  const existing = new Set([
+    ...allData.map(d => d.ticker),
+    ...(typeof STOCKS !== 'undefined' ? STOCKS.map(s => s.t) : []),
+    ...(typeof MORE_TICKERS !== 'undefined' ? MORE_TICKERS.map(s => s.t) : []),
+  ]);
+  let totalAdded = 0;
+
+  // ── SOURCE 1: Yahoo Finance screener (paginated, up to 500 results) ──
   try {
     const url = 'https://query2.finance.yahoo.com/v1/finance/screener?formatted=false&lang=en-US&region=SA&corsDomain=finance.yahoo.com';
-    const body = {
-      offset: 0, size: 250,
-      sortField: 'ticker', sortType: 'ASC',
+    const makeBody = (offset) => ({
+      offset, size: 250,
+      sortField: 'marketCap', sortType: 'DESC',
       quoteType: 'EQUITY',
       query: { operator: 'AND', operands: [{ operator: 'EQ', operands: ['exchange', 'SAU'] }] },
       userId: '', userIdType: 'guid'
-    };
-    const data = await fetchWithProxyPost(url, body);
-    const quotes = data?.finance?.result?.[0]?.quotes || data?.result?.[0]?.quotes || data?.quotes || [];
-    if (!quotes.length) return;
-
-    // Build set of all tickers already known — hardcoded STOCKS, MORE_TICKERS, and anything
-    // already in allData — so we never overwrite manually curated entries
-    const existing = new Set([
-      ...allData.map(d => d.ticker),
-      ...(typeof STOCKS !== 'undefined' ? STOCKS.map(s => s.t) : []),
-      ...(typeof MORE_TICKERS !== 'undefined' ? MORE_TICKERS.map(s => s.t) : []),
-    ]);
-
-    let added = 0;
-    quotes.forEach(q => {
-      const ticker = q.symbol;
-      if (!ticker || !ticker.endsWith('.SR') || existing.has(ticker)) return;
-      const name = q.shortName || q.longName || ticker;
-      const sector = q.sector || q.industry || 'Other';
-      allData.push({
-        ticker, name, sector, isReit: false,
-        pe: q.trailingPE || null, pb: q.priceToBook || null,
-        roe: null, npm: null, de: null, dy: q.dividendYield || null,
-        fcf: null, cr: null, rg: null, eg: null, rev: null, ni: null, assets: null,
-        desc: 'Auto-discovered from Yahoo Finance screener.',
-        peg: null, pegScore: 50,
-        fundamental: null, fundSteps: [], technical: 50, techSteps: [],
-        rsi: null, sma20: null, sma50: null, momentum: null,
-        buffett: null, criteria: {}, buffSteps: [], pegSteps: [],
-        combined: null, noHardcodedData: true,
-        price: q.regularMarketPrice || null,
-        change: q.regularMarketChangePercent || null,
-        closes: [], timestamps: [], priceLoaded: !!q.regularMarketPrice,
-        rawData: null, dataDate: '—', dataSource: 'auto-discovered',
-        w52high: q.fiftyTwoWeekHigh || null, w52low: q.fiftyTwoWeekLow || null,
-        mktCap: q.marketCap || null, beta: null,
-        _autoDiscovered: true,
-      });
-      existing.add(ticker);
-      added++;
     });
-
-    if (added > 0) {
-      console.log(`[TASI] Auto-discovered ${added} new Saudi stock(s) from Yahoo Finance`);
-      doFilter();
-      updateMetrics();
+    for (const offset of [0, 250]) {
+      const data = await fetchWithProxyPost(url, makeBody(offset));
+      const quotes = data?.finance?.result?.[0]?.quotes || data?.result?.[0]?.quotes || data?.quotes || [];
+      if (!quotes.length) break;
+      for (const q of quotes) {
+        const added = _addDiscoveredStock(
+          q.symbol,
+          q.shortName || q.longName || q.symbol,
+          q.sector || q.industry || 'Other',
+          { pe: q.trailingPE, pb: q.priceToBook, dy: q.dividendYield,
+            price: q.regularMarketPrice, change: q.regularMarketChangePercent,
+            w52high: q.fiftyTwoWeekHigh, w52low: q.fiftyTwoWeekLow,
+            mktCap: q.marketCap, desc: 'Auto-discovered from Yahoo Finance screener.' },
+          existing
+        );
+        if (added) totalAdded++;
+      }
+      if (quotes.length < 250) break; // no more pages
     }
-  } catch(e) {
-    // Silent fail — auto-discovery is best-effort, never blocks the main app
+  } catch(e) {}
+
+  // ── SOURCE 2: Yahoo Finance bulk quote (REIT-specific — ETFs/trusts) ──
+  // REIT tickers span 4300-4399; probe ones not yet known
+  const reitRange = [];
+  for (let i = 4300; i <= 4399; i++) {
+    const t = `${i}.SR`;
+    if (!existing.has(t)) reitRange.push(t);
+  }
+  if (reitRange.length > 0) {
+    try {
+      const batchUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${reitRange.slice(0,100).join(',')}`;
+      const batchData = await fetchWithProxy(batchUrl);
+      const batchQuotes = batchData?.quoteResponse?.result || [];
+      for (const q of batchQuotes) {
+        if (!q.symbol || !q.regularMarketPrice) continue; // skip if no price (not listed)
+        const isReit = true;
+        _addDiscoveredStock(q.symbol, q.shortName || q.longName || q.symbol, 'REITs',
+          { price: q.regularMarketPrice, dy: q.dividendYield,
+            mktCap: q.marketCap, desc: 'Saudi REIT — auto-discovered.' }, existing);
+      }
+    } catch(e) {}
+  }
+
+  // ── SOURCE 3: Argaam full stock list ──
+  try {
+    const argaamListUrls = [
+      'https://argaam.com/en/stocks/saudi-stocks-list',
+      'https://argaam.com/ar/stocks/saudi-stocks-list',
+    ];
+    for (const listUrl of argaamListUrls) {
+      const html = await fetchHTMLViaProxy(listUrl);
+      if (!html || html.length < 5000) continue;
+      const nd = extractNextData(html);
+      if (nd) {
+        // Argaam's __NEXT_DATA__ has the stock list
+        const stocks = nd?.props?.pageProps?.stocks ||
+                       nd?.props?.pageProps?.data?.stocks ||
+                       nd?.props?.pageProps?.companiesList || [];
+        for (const s of stocks) {
+          const code = s.tickerCode || s.TickerCode || s.code || s.Code || s.ticker;
+          if (!code) continue;
+          const ticker = String(code).padStart(4, '0') + '.SR';
+          const name = s.companyNameEn || s.CompanyNameEn || s.name || s.Name || ticker;
+          const sector = s.sectorNameEn || s.SectorNameEn || s.sector || 'Other';
+          const added = _addDiscoveredStock(ticker, name, sector, { desc: 'Auto-discovered from Argaam.' }, existing);
+          if (added) totalAdded++;
+        }
+        if (stocks.length > 0) break; // got data, skip second URL
+      }
+      // If no __NEXT_DATA__, try parsing HTML table
+      const tickerMatches = html.matchAll(/href="[^"]*\/(\d{4})(?:\.SR)?[^"]*"/g);
+      for (const m of tickerMatches) {
+        const ticker = m[1] + '.SR';
+        if (ticker.match(/^\d{4}\.SR$/) && !existing.has(ticker)) {
+          _addDiscoveredStock(ticker, ticker, 'Other', { desc: 'Auto-discovered from Argaam.' }, existing);
+          totalAdded++;
+        }
+      }
+      if (totalAdded > 0) break;
+    }
+  } catch(e) {}
+
+  // ── SOURCE 4: Bulk-probe known ticker ranges for gaps ──
+  // TASI uses systematic numbering; probe gaps in known ranges to find delisted/new ones
+  const knownRanges = [
+    [1010, 1230], // Banking
+    [2001, 2400], // Petrochem / Energy
+    [3001, 3100], // Cement
+    [4001, 4330], // Various
+    [5110, 5120], // Utilities
+    [6001, 6100], // Agriculture/Food
+    [7010, 7210], // Telecom/Tech
+    [8010, 8320], // Insurance
+  ];
+  const gapTickers = [];
+  for (const [start, end] of knownRanges) {
+    for (let i = start; i <= end; i++) {
+      const t = `${i}.SR`;
+      if (!existing.has(t)) gapTickers.push(t);
+    }
+  }
+  // Batch-probe in groups of 50 — only stocks with a valid price are listed
+  for (let i = 0; i < Math.min(gapTickers.length, 400); i += 50) {
+    const batch = gapTickers.slice(i, i + 50);
+    try {
+      const bUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${batch.join(',')}`;
+      const bd = await fetchWithProxy(bUrl);
+      const bq = bd?.quoteResponse?.result || [];
+      for (const q of bq) {
+        if (!q.symbol || !q.regularMarketPrice || q.regularMarketPrice <= 0) continue;
+        const added = _addDiscoveredStock(
+          q.symbol,
+          q.shortName || q.longName || q.symbol,
+          q.sector || q.industry || 'Other',
+          { price: q.regularMarketPrice, change: q.regularMarketChangePercent,
+            mktCap: q.marketCap, dy: q.dividendYield,
+            desc: 'Auto-discovered via range probe.' },
+          existing
+        );
+        if (added) totalAdded++;
+      }
+    } catch(e) {}
+  }
+
+  if (totalAdded > 0) {
+    console.log(`[TASI] Auto-discovered ${totalAdded} new Saudi stock(s) from all sources`);
+    doFilter();
+    updateMetrics();
   }
 }
 
