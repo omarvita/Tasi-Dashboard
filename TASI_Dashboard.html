@@ -985,6 +985,36 @@ function parseYahooFinancials(summary, period) {
   return { is, bs, cf };
 }
 
+// Merge two statement datasets — primary wins; secondary fills nulls and supplies older years
+function mergeStatements(primary, secondary) {
+  if (!secondary || (!secondary.is && !secondary.bs && !secondary.cf)) return primary;
+  function mergeArr(arr1, arr2, maxRows) {
+    if (!arr1?.length && !arr2?.length) return null;
+    if (!arr1?.length) return arr2?.slice(0, maxRows) ?? null;
+    if (!arr2?.length) return arr1;
+    const byDate = {};
+    for (const r of arr2) {
+      const key = (r.fiscal_date ?? '').slice(0, 7);
+      if (!key || key.startsWith('—')) continue;
+      byDate[key] = { ...r };
+    }
+    for (const r of arr1) {
+      const key = (r.fiscal_date ?? '').slice(0, 7);
+      if (!key || key.startsWith('—')) continue;
+      if (!byDate[key]) byDate[key] = { ...r };
+      else for (const [k, v] of Object.entries(r)) { if (v != null) byDate[key][k] = v; }
+    }
+    return Object.values(byDate)
+      .sort((a, b) => (b.fiscal_date ?? '').localeCompare(a.fiscal_date ?? ''))
+      .slice(0, maxRows);
+  }
+  return {
+    is: mergeArr(primary.is, secondary.is, 6),
+    bs: mergeArr(primary.bs, secondary.bs, 6),
+    cf: mergeArr(primary.cf, secondary.cf, 6),
+  };
+}
+
 // ── GOOGLE DRIVE STORAGE ──
 let GD_TOKEN = null;
 const GD_FUND_TTL = 24 * 60 * 60 * 1000;       // 1 day TTL for fundamentals
@@ -2734,8 +2764,21 @@ async function fetchYahooPrice(ticker){
 }
 
 // ── PRICE-ONLY FETCH: used during main refresh (fast, 1 req per stock) ──
+const GD_PRICE_TTL = 30 * 60 * 1000; // 30-minute price cache in Drive
 async function fetchStockPrice(stock) {
   const ticker = stock.ticker;
+  // Check Drive price cache first — avoids a Yahoo round-trip on page reload
+  if (GD_TOKEN) {
+    const driveData = _gdCache[ticker] || await gdReadStock(ticker);
+    if (driveData?.priceData && Date.now() - (driveData.priceUpdated || 0) < GD_PRICE_TTL) {
+      const p = driveData.priceData;
+      return {
+        price: p.price, change: p.change, closes: p.closes || [], timestamps: p.timestamps || [],
+        dataSource: 'google-drive', dataDate: new Date(driveData.priceUpdated).toISOString().slice(0, 10),
+        volume: p.volume, avgVolume3M: p.avgVolume3M, volatility: p.volatility,
+      };
+    }
+  }
   const result = {
     price:null, change:null, closes:[], timestamps:[],
     dataSource:'hardcoded', dataDate:stock.dataDate||'2024-2025 est.',
@@ -2756,6 +2799,15 @@ async function fetchStockPrice(stock) {
     }
     if(quick.volume != null) result.volume = quick.volume;
     if(quick.avgVolume3M != null) result.avgVolume3M = quick.avgVolume3M;
+    // Save to Drive so next page load is instant
+    if (result.price && GD_TOKEN) {
+      gdWriteStock(ticker, {
+        priceData: { price: result.price, change: result.change, closes: result.closes,
+          timestamps: result.timestamps, volume: result.volume, avgVolume3M: result.avgVolume3M,
+          volatility: result.volatility },
+        priceUpdated: Date.now(),
+      });
+    }
   } catch(e) {}
   return result;
 }
@@ -3475,6 +3527,201 @@ function buildBreakdown(d){
   ${dcfStepsHtml}`;
 }
 
+// ── AUTOMATED FUND MANAGER ANALYSIS ──
+// Rule-based, no AI. Interprets 5-year or quarterly statement data like a fund manager would.
+function generateFundManagerAnalysis(is, bs, cf, period, stockObj) {
+  const isQ = period === 'quarterly';
+  if (!is?.length || is.length < 2) return '';
+
+  const nv  = v => { const x = parseFloat(v); return isNaN(x) ? null : x; };
+  const pct = (v, sig=true) => v == null ? '—' : (sig && v > 0 ? '+' : '') + (v*100).toFixed(1) + '%';
+  const CAGR = (a, b, y) => (a > 0 && b > 0 && y > 0) ? Math.pow(b/a, 1/y) - 1 : null;
+  const avg  = arr => { const f = arr.filter(v=>v!=null); return f.length ? f.reduce((s,x)=>s+x,0)/f.length : null; };
+  const col  = (v, hi, lo, rev=false) => {
+    if (v == null) return 'var(--tx3)';
+    return (rev ? v <= hi : v >= hi) ? 'var(--green)' : (rev ? v <= lo : v >= lo) ? 'var(--amb)' : 'var(--red)';
+  };
+  const sector = (stockObj?.sector || '').toLowerCase();
+  const isFinancial = /banking|insurance|reit/.test(sector);
+
+  const aRow = (label, content, c='var(--tx2)') =>
+    `<div style="display:flex;gap:6px;padding:3px 0;border-top:1px solid var(--b1)">
+      <span style="color:var(--tx3);font-family:var(--mono);font-size:9px;min-width:130px;flex-shrink:0">${label}</span>
+      <span style="color:${c};font-family:var(--mono);font-size:9px;flex:1">${content}</span>
+    </div>`;
+
+  let rows = [], verdict, vColor, vDetail, title;
+
+  if (isQ) {
+    // ── Quarterly analysis ──
+    const latest = is[0], prior = is[1], sameQlyr = is.length >= 5 ? is[4] : null;
+    const lRev = nv(latest.revenue), pRev = nv(prior.revenue), sRev = sameQlyr ? nv(sameQlyr.revenue) : null;
+    const lNI  = nv(latest.net_income), pNI = nv(prior.net_income), sNI = sameQlyr ? nv(sameQlyr.net_income) : null;
+    const qoqR = (lRev!=null&&pRev!=null&&pRev!==0) ? (lRev-pRev)/Math.abs(pRev) : null;
+    const yoyR = (lRev!=null&&sRev!=null&&sRev!==0) ? (lRev-sRev)/Math.abs(sRev) : null;
+    const qoqN = (lNI !=null&&pNI !=null&&pNI !==0) ? (lNI -pNI )/Math.abs(pNI ) : null;
+    const yoyN = (lNI !=null&&sNI !=null&&sNI !==0) ? (lNI -sNI )/Math.abs(sNI ) : null;
+    const lMgn = (lRev&&lNI) ? lNI/lRev : null;
+    const sMgn = (sRev&&sNI) ? sNI/sRev : null;
+
+    // Consecutive revenue growth streak
+    let streak = 0;
+    for (let i = 0; i < is.length-1; i++) {
+      const c=nv(is[i].revenue), p=nv(is[i+1].revenue);
+      if (c!=null&&p!=null&&c>p) streak++; else break;
+    }
+
+    const qLbl = r => (r.fiscal_date||'—').slice(0,7);
+    rows.push(aRow(`Revenue (${qLbl(latest)})`,
+      `${lRev!=null?(lRev/1e9).toFixed(2)+'B':'—'}${yoyR!=null?' · YoY '+pct(yoyR):''}${qoqR!=null?' · QoQ '+pct(qoqR):''}`,
+      col(yoyR,0.10,0,false)));
+    rows.push(aRow(`Net Income`,
+      `${lNI!=null?(lNI/1e9).toFixed(2)+'B':'—'}${yoyN!=null?' · YoY '+pct(yoyN):''}${qoqN!=null?' · QoQ '+pct(qoqN):''}`,
+      col(yoyN,0.10,0,false)));
+    if (lMgn!=null) {
+      const mStr = `${(lMgn*100).toFixed(1)}%${sMgn!=null?' (was '+(sMgn*100).toFixed(1)+'% yr ago)':''}`;
+      rows.push(aRow('Net Margin', mStr, col(lMgn, isFinancial?0.15:0.10, isFinancial?0.08:0.05, false)));
+    }
+
+    // 4-quarter revenue trend from newest to oldest
+    const revVals = is.slice(0,4).map(r=>nv(r.revenue)).filter(v=>v!=null).reverse();
+    if (revVals.length >= 3) {
+      const trendUp = revVals[revVals.length-1] > revVals[0];
+      rows.push(aRow('4-Qtr Trend', trendUp ? '↑ Growing across last 4 quarters' : '↓ Declining across last 4 quarters', trendUp?'var(--green)':'var(--red)'));
+    }
+    if (streak > 0) rows.push(aRow('Sequential Streak', `${streak} consecutive quarter${streak>1?'s':''} of QoQ revenue growth`, streak>=3?'var(--green)':streak>=1?'var(--tx2)':'var(--tx3)'));
+
+    if (yoyR!=null&&yoyR>=0.10&&yoyN!=null&&yoyN>=0.15) { verdict='STRONG MOMENTUM'; vColor='var(--green)'; vDetail='Double-digit YoY growth with earnings outpacing revenue — operating leverage at work.'; }
+    else if (yoyR!=null&&yoyR>=0.05) { verdict='POSITIVE TREND'; vColor='var(--acc)'; vDetail='Healthy YoY growth trajectory. Monitor whether the trend sustains next quarter.'; }
+    else if (yoyR!=null&&yoyR>=0) { verdict='STEADY'; vColor='var(--tx2)'; vDetail='Low single-digit growth — no immediate red flags but limited upside catalyst visible.'; }
+    else if (yoyR!=null&&yoyR<0) { verdict='CONTRACTION'; vColor='var(--red)'; vDetail='Revenue declined year-on-year. Assess whether cyclical (sector headwinds) or structural.'; }
+    else { verdict='MIXED'; vColor='var(--amb)'; vDetail='Insufficient YoY data — review individual line items for direction.'; }
+    title = 'Quarterly Performance Analysis';
+
+  } else {
+    // ── Annual 5-year analysis ──
+    const validIS = is.filter(r=>nv(r.revenue)!=null);
+    if (validIS.length < 2) return '';
+    const yrs = validIS.length - 1;
+    const rev0=nv(validIS[0].revenue), revN=nv(validIS[yrs].revenue);
+    const yrRng = `(${(validIS[yrs].fiscal_date||'').slice(0,4)}–${(validIS[0].fiscal_date||'').slice(0,4)})`;
+
+    const niVals  = is.map(r=>nv(r.net_income)).filter(v=>v!=null);
+    const epsVals = is.map(r=>nv(r.eps)).filter(v=>v!=null);
+    const ni0 = niVals[0], niN = niVals[niVals.length-1];
+    const eps0 = epsVals[0], epsN = epsVals[epsVals.length-1];
+
+    const revCagr = CAGR(revN, rev0, yrs);
+    // NI CAGR: handle sign changes
+    const niCagr  = (() => {
+      if (ni0==null||niN==null) return null;
+      if (ni0>0&&niN>0) return CAGR(niN,ni0,yrs);
+      if (ni0>0&&niN<=0) return -1.0; // deteriorated to loss
+      if (ni0<=0&&niN>0) return  1.0; // recovered from loss
+      return null;
+    })();
+    const epsCagr = (() => {
+      if (eps0==null||epsN==null||epsN===0||eps0===0) return null;
+      if (eps0>0&&epsN>0) return CAGR(epsN,eps0,yrs);
+      if (eps0>0&&epsN<=0) return -1.0;
+      if (eps0<=0&&epsN>0) return  1.0;
+      return null;
+    })();
+
+    const revYoY = [];
+    for (let i=0;i<validIS.length-1;i++) {
+      const c=nv(validIS[i].revenue),p=nv(validIS[i+1].revenue);
+      if(c!=null&&p!=null&&p!==0) revYoY.push((c-p)/Math.abs(p));
+    }
+    const latestRevYoY=revYoY[0], avgRevYoY=avg(revYoY.slice(1));
+    const revAccel = latestRevYoY!=null&&avgRevYoY!=null ? latestRevYoY>(avgRevYoY+0.03) : null;
+
+    const mgnArr = is.map(r=>{const ni=nv(r.net_income),rv=nv(r.revenue);return(ni!=null&&rv!=null&&rv!==0)?ni/rv:null;});
+    const latestMgn=mgnArr.filter(v=>v!=null)[0], oldestMgn=mgnArr.filter(v=>v!=null).slice(-1)[0];
+    const mgnDelta=(latestMgn!=null&&oldestMgn!=null)?latestMgn-oldestMgn:null;
+
+    const roe = stockObj?.roe ?? null;
+
+    // Balance sheet
+    let assetCagr=null, equityRatio=null, deRatio=null;
+    if (bs?.length>=2) {
+      const vBS=bs.filter(r=>nv(r.total_assets)!=null);
+      if (vBS.length>=2) { const a0=nv(vBS[0].total_assets),aN=nv(vBS[vBS.length-1].total_assets); assetCagr=CAGR(aN,a0,vBS.length-1); }
+      const te=nv(bs[0].total_equity),ta=nv(bs[0].total_assets),tl=nv(bs[0].total_liabilities);
+      if(te!=null&&ta!=null&&ta>0) equityRatio=te/ta;
+      if(te!=null&&tl!=null&&te>0) deRatio=tl/te;
+    }
+    // Cash flow
+    let fcfConv=null, capexI=null;
+    if (cf?.length>=1&&!isFinancial) {
+      const fcf=nv(cf[0].free_cash_flow);
+      if(fcf!=null&&ni0!=null&&ni0!==0) fcfConv=fcf/ni0;
+      const capex=nv(cf[0].capital_expenditure);
+      if(capex!=null&&rev0!=null&&rev0!==0) capexI=Math.abs(capex)/rev0;
+    }
+    let divYrs=0;
+    if (cf?.length>=1) { const paid=cf.filter(r=>nv(r.dividends_paid)!=null&&Math.abs(nv(r.dividends_paid))>1e6).length; divYrs=paid; }
+
+    // Build rows
+    if (revCagr!=null) rows.push(aRow(`Rev CAGR ${yrRng}`,
+      `${pct(revCagr)}${latestRevYoY!=null&&avgRevYoY!=null?' · Latest '+pct(latestRevYoY)+' vs avg '+pct(avgRevYoY):''}`,
+      col(revCagr,0.10,0,false)));
+    if (revAccel!=null) rows.push(aRow('Rev Momentum', revAccel?'↑ Accelerating — latest growth rate above historical average':'↓ Decelerating — latest growth rate below historical average', revAccel?'var(--green)':'var(--amb)'));
+    if (latestMgn!=null&&oldestMgn!=null&&!isFinancial) {
+      rows.push(aRow('Net Margin Trend',
+        `${(oldestMgn*100).toFixed(1)}% → ${(latestMgn*100).toFixed(1)}% (${mgnDelta>=0?'+':''}${(mgnDelta*100).toFixed(1)}pp) — ${mgnDelta>0.01?'Expanding ✓':mgnDelta<-0.01?'Contracting ✗':'Stable'}`,
+        mgnDelta>0.01?'var(--green)':mgnDelta<-0.01?'var(--red)':'var(--tx2)'));
+    } else if (latestMgn!=null&&isFinancial) {
+      rows.push(aRow('Net Margin (latest)', `${(latestMgn*100).toFixed(1)}%${mgnDelta!=null?' ('+pct(mgnDelta,false)+' chg)':''}`, col(latestMgn,0.20,0.10,false)));
+    }
+    if (niCagr!=null) rows.push(aRow(`NI CAGR ${yrRng}`, pct(niCagr), col(niCagr,0.10,0,false)));
+    if (epsCagr!=null) {
+      const dilNote = (niCagr!=null&&epsCagr!=null&&Math.abs(epsCagr-niCagr)>0.03) ? (epsCagr>niCagr?' · Share buybacks / efficiency gain':' · Dilution — EPS growing slower than NI') : '';
+      rows.push(aRow('EPS CAGR', `${pct(epsCagr)}${dilNote}`, col(epsCagr,0.10,0,false)));
+    }
+    if (roe!=null) rows.push(aRow('ROE (latest)', `${(roe*100).toFixed(1)}%`, col(roe,0.15,0.08,false)));
+    if (fcfConv!=null) {
+      const qStr = fcfConv>=0.80?`${(fcfConv*100).toFixed(0)}% — High quality (earnings cash-backed)`:fcfConv>=0.50?`${(fcfConv*100).toFixed(0)}% — Moderate`:fcfConv>=0?`${(fcfConv*100).toFixed(0)}% — Low (accruals may inflate NI)`:'Negative FCF — investment phase or concern';
+      rows.push(aRow('FCF / Net Income', qStr, col(fcfConv,0.80,0.50,false)));
+    }
+    if (capexI!=null) rows.push(aRow('CapEx Intensity', `${(capexI*100).toFixed(1)}% of revenue — ${capexI>=0.15?'Heavy investment phase':capexI>=0.05?'Moderate':'Asset-light model'}`, col(capexI,0.05,0.15,true)));
+    if (bs?.length>=2) {
+      if (assetCagr!=null) rows.push(aRow('Asset Growth CAGR', pct(assetCagr), col(assetCagr,-0.05,0,true)));
+      if (isFinancial&&equityRatio!=null) rows.push(aRow('Equity/Assets', `${(equityRatio*100).toFixed(1)}% — ${equityRatio>=0.12?'Well capitalized':equityRatio>=0.08?'Adequate':'Thin capital buffer'}`, col(equityRatio,0.12,0.08,false)));
+      else if (!isFinancial&&deRatio!=null) rows.push(aRow('D/E Ratio', `${deRatio.toFixed(2)}x — ${deRatio<=1.0?'Conservative':deRatio<=2.5?'Moderate':'High leverage'}`, col(deRatio,1.0,2.5,true)));
+    }
+    if (divYrs>0) rows.push(aRow('Dividends', `Paid in ${divYrs} of ${cf?.length||0} year(s) available${stockObj?.dy!=null?' · Yield '+(stockObj.dy*100).toFixed(1)+'%':''}`, divYrs>=(cf?.length||1)*0.8?'var(--green)':'var(--tx2)'));
+
+    // Verdict
+    const sG=revCagr!=null&&revCagr>=0.12, mG=revCagr!=null&&revCagr>=0.05;
+    const sN=niCagr !=null&&niCagr >=0.12;
+    const mExp=mgnDelta!=null&&mgnDelta>0.01, mStab=mgnDelta!=null&&mgnDelta>-0.02;
+    if (sG&&sN&&(mExp||mStab)) { verdict='QUALITY COMPOUNDER'; vColor='var(--green)'; vDetail=`Consistent double-digit growth across revenue and earnings${mExp?' with expanding margins':''}. ${roe!=null&&roe>=0.15?'High ROE ('+( roe*100).toFixed(0)+'%) reflects efficient capital use.':''}`; }
+    else if (sG&&!mStab) { verdict='GROWTH — WATCH MARGINS'; vColor='var(--amb)'; vDetail=`Revenue CAGR ${pct(revCagr)} but profitability declining. Monitor whether margin compression is temporary or structural.`; }
+    else if (mG&&(mExp||mStab)) { verdict='STEADY COMPOUNDER'; vColor='var(--acc)'; vDetail=`Moderate consistent growth with ${mExp?'improving':'stable'} margins. Suitable for income or defensive allocation.`; }
+    else if (revCagr!=null&&revCagr<-0.03) { verdict='DECLINING'; vColor='var(--red)'; vDetail=`Revenue contracted at ${pct(Math.abs(revCagr))} CAGR. Determine if cyclical (recoverable) or structural before entering.`; }
+    else if (niCagr!=null&&niCagr<0&&mG) { verdict='MARGIN COMPRESSION'; vColor='var(--red)'; vDetail=`Revenue growing but earnings declining — cost pressures exceeding top-line growth. Watch for operating leverage recovery.`; }
+    else if (revCagr!=null&&Math.abs(revCagr)<=0.03) { verdict='MATURE / LOW GROWTH'; vColor='var(--tx3)'; vDetail=`Near-zero revenue CAGR. Likely a mature or defensive business. Value case rests on yield and balance sheet quality.`; }
+    else { verdict='MIXED'; vColor='var(--amb)'; vDetail=`Uneven profile over ${yrs} years. Review sector context and any one-off items before drawing conclusions.`; }
+    title = `5-Year Performance Analysis ${yrRng}`;
+  }
+
+  if (!rows.length) return '';
+  return `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;margin-top:10px;overflow:hidden">
+    <div style="padding:6px 10px;border-bottom:1px solid var(--b1);display:flex;justify-content:space-between;align-items:center">
+      <span style="font-family:var(--mono);font-size:9px;color:var(--acc);text-transform:uppercase;letter-spacing:.06em;font-weight:600">${title}</span>
+      <span style="font-family:var(--mono);font-size:8px;color:var(--tx3)">Rule-based · No AI</span>
+    </div>
+    <div style="padding:8px 10px">
+      ${rows.join('')}
+      <div style="margin-top:8px;padding:6px 8px;background:var(--bg2);border-radius:4px;border-left:3px solid ${vColor}">
+        <span style="font-family:var(--mono);font-size:9px;color:${vColor};font-weight:700">▶ ${verdict}</span>
+        <span style="font-family:var(--mono);font-size:9px;color:var(--tx2);margin-left:8px">${vDetail||''}</span>
+      </div>
+    </div>
+  </div>`;
+}
+
 async function buildFinancials(d, period) {
   const isQ = period === 'quarterly';
   const cacheKey = isQ ? 'quarterly' : 'annual';
@@ -3500,25 +3747,22 @@ async function buildFinancials(d, period) {
     tdLog('Cache stale — new fiscal year available, refreshing…', true);
   }
 
-  // 2. Yahoo quoteSummary rawYahoo (fetched when panel opened)
-  // Skip for annual if rawYahoo only has 4 years — go straight to timeseries which returns 6
-  if (d.rawYahoo && isQ) {
-    const y = parseYahooFinancials(d.rawYahoo, period);
-    if (y.is || y.bs || y.cf) {
-      gdWriteStock(d.ticker, { [cacheKey]: y, [`${cacheKey}Updated`]: Date.now() });
-      return enrichAndRender(y, 'Yahoo Finance');
-    }
-  }
-
-  // 3. Yahoo Finance Timeseries — dedicated endpoint, better Saudi coverage
+  // 2+3. Yahoo quoteSummary + Timeseries in parallel — merge for best coverage
+  // quoteSummary (4 years) + timeseries (up to 6 years) merged fills most gaps
   tdLog(`Fetching ${period} statements from Yahoo Finance…`, true);
-  const yt = await fetchYahooTimeseries(d.ticker, period);
-  if (yt.is || yt.bs || yt.cf) {
+  const [yt, qs] = await Promise.all([
+    fetchYahooTimeseries(d.ticker, period),
+    d.rawYahoo
+      ? Promise.resolve(parseYahooFinancials(d.rawYahoo, period))
+      : fetchYahooFinancials(d.ticker).then(r => parseYahooFinancials(r, period)),
+  ]);
+  const yMerged = mergeStatements(yt, qs);
+  if (yMerged.is || yMerged.bs || yMerged.cf) {
     if (!d.rawTwelveData) d.rawTwelveData = {};
-    d.rawTwelveData[cacheKey] = yt;
+    d.rawTwelveData[cacheKey] = yMerged;
     tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
-    gdWriteStock(d.ticker, { [cacheKey]: yt, [`${cacheKey}Updated`]: Date.now() });
-    return enrichAndRender(yt, 'Yahoo Finance');
+    gdWriteStock(d.ticker, { [cacheKey]: yMerged, [`${cacheKey}Updated`]: Date.now() });
+    return enrichAndRender(yMerged, 'Yahoo Finance');
   }
 
   // 4. localStorage cache
@@ -3812,11 +4056,13 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
     </div>`;
   }
 
+  const analysisHtml = generateFundManagerAnalysis(is, bs, cf, period, stockObj);
   return validationHtml
        + makeTable(period === 'quarterly' ? 'Quarterly Income Statement' : '5-Year Income Statement', isRows, is?.map(pLabel) || [])
        + makeTable(period === 'quarterly' ? 'Quarterly Balance Sheet'    : '5-Year Balance Sheet',    bsRows, bs?.map(pLabel) || [])
        + makeTable(period === 'quarterly' ? 'Quarterly Cash Flow'        : '5-Year Cash Flow',        cfRows, cf?.map(pLabel) || [])
-       + `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Source: ${source} · SAR · B = Billions · Growth rows: YoY vs prior period · Margins are % of Revenue</div>`;
+       + `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Source: ${source} · SAR · B = Billions · Growth rows: YoY vs prior period · Margins are % of Revenue</div>`
+       + analysisHtml;
 }
 
 async function buildAnnual(d){ return buildFinancials(d, 'annual'); }
