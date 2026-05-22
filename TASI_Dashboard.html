@@ -2471,9 +2471,18 @@ function scoreTechnicalWithSteps(closes){
   return{score:Math.min(100,Math.max(0,Math.round(p))),steps,rsi:rsiV,sma20,sma50,momentum:tr};
 }
 
-function scorePEG(pe,eg){
-  if(!pe||!eg||eg<=0)return{score:50,peg:null,steps:[{label:"PEG Ratio",raw:"N/A",delta:0,why:"Cannot calculate — need positive P/E and EG"}]};
-  const peg=pe/(eg*100);
+function scorePEG(pe,eg,annIS){
+  // Use 3-year EPS CAGR from statements if available — more reliable than single-year eg
+  let pegGrowthRate = eg;
+  if (annIS?.length >= 3) {
+    const eps0 = parseFloat(annIS[0]?.eps), eps2 = parseFloat(annIS[2]?.eps);
+    if (!isNaN(eps0) && !isNaN(eps2) && eps2 > 0 && eps0 > 0) {
+      pegGrowthRate = Math.pow(eps0 / eps2, 1/2) - 1; // 2-year CAGR
+    }
+  }
+  const peg = (pe != null && pegGrowthRate != null && pegGrowthRate > 0)
+    ? pe / (pegGrowthRate * 100) : null;
+  if(!pe||!pegGrowthRate||pegGrowthRate<=0||peg==null)return{score:50,peg:null,steps:[{label:"PEG Ratio",raw:"N/A",delta:0,why:"Cannot calculate — need positive P/E and EG"}]};
   let p=50,delta=0,why="";
   if(peg<0.5){delta=+25;why="Exceptional: PEG < 0.5 — very undervalued vs growth";}
   else if(peg<1.0){delta=+18;why="Undervalued: PEG 0.5–1.0 — Buffett sweet spot";}
@@ -3199,7 +3208,7 @@ async function openModal(idx){
             realD.fullLoaded = true;
             const fRes = scoreFundamental(realD);
             const bRes = scoreBuffett(realD);
-            const pegRes = scorePEG(realD.pe, realD.eg);
+            const pegRes = scorePEG(realD.pe, realD.eg, realD.rawTwelveData?.annual?.is);
             const tRes = scoreTechnicalWithSteps(realD.closes);
             realD.fundamental=fRes.score; realD.fundSteps=fRes.steps;
             realD.buffett=bRes.buffett; realD.criteria=bRes.criteria; realD.buffSteps=bRes.steps;
@@ -3241,7 +3250,7 @@ async function openModal(idx){
           realD.fullLoaded = true;
           const fRes = scoreFundamental(realD);
           const bRes = scoreBuffett(realD);
-          const pegRes = scorePEG(realD.pe, realD.eg);
+          const pegRes = scorePEG(realD.pe, realD.eg, realD.rawTwelveData?.annual?.is);
           const tRes = scoreTechnicalWithSteps(realD.closes);
           realD.fundamental=fRes.score; realD.fundSteps=fRes.steps;
           realD.buffett=bRes.buffett; realD.criteria=bRes.criteria; realD.buffSteps=bRes.steps;
@@ -3738,7 +3747,7 @@ function generateFundManagerAnalysis(is, bs, cf, period, stockObj) {
     if (bs?.length>=2) {
       if (assetCagr!=null) rows.push(aRow('Asset Growth CAGR', pct(assetCagr), col(assetCagr,-0.05,0,true)));
       if (isFinancial&&equityRatio!=null) rows.push(aRow('Equity/Assets', `${(equityRatio*100).toFixed(1)}% — ${equityRatio>=0.12?'Well capitalized':equityRatio>=0.08?'Adequate':'Thin capital buffer'}`, col(equityRatio,0.12,0.08,false)));
-      else if (!isFinancial&&deRatio!=null) rows.push(aRow('D/E Ratio', `${deRatio.toFixed(2)}x — ${deRatio<=1.0?'Conservative':deRatio<=2.5?'Moderate':'High leverage'}`, col(deRatio,1.0,2.5,true)));
+      else if (!isFinancial&&deRatio!=null) rows.push(aRow('D/E (tot.liab/equity)', `${deRatio.toFixed(2)}x — ${deRatio<=1.0?'Conservative':deRatio<=2.5?'Moderate':'High leverage'}`, col(deRatio,1.0,2.5,true)));
     }
     if (divYrs>0) rows.push(aRow('Dividends', `Paid in ${divYrs} of ${cf?.length||0} year(s) available${stockObj?.dy!=null?' · Yield '+(stockObj.dy*100).toFixed(1)+'%':''}`, divYrs>=(cf?.length||1)*0.8?'var(--green)':'var(--tx2)'));
 
@@ -3981,7 +3990,7 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
         return (!isNaN(te) && !isNaN(ta) && ta !== 0) ? fmtPct(te/ta) : '—';
       }), type:'pct'});
     } else {
-      rows.push({label:'D/E Ratio', vals: bs.map(r => {
+      rows.push({label:'D/E (liab/equity)', vals: bs.map(r => {
         const tl = parseFloat(r.total_liabilities), te = parseFloat(r.total_equity);
         return (!isNaN(tl) && !isNaN(te) && te !== 0) ? fmtRatio(tl/te) : '—';
       }), type:'ratio'});
