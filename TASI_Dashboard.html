@@ -2423,7 +2423,7 @@ const MORE_TICKERS = [
 
 // ── TRANSPORTATION ──
 // (4030 Bahri, 4040 SAPTCO, 4260 United Int'l Transport, 4261 Theeb in STOCKS)
-{t:"4262.SR",n:"Lumi (Lumi Rental Co.)",s:"Transportation",r:false},
+{t:"4262.SR",n:"Lumi (Lumi Rental Co.)",s:"Transportation",r:false,pe:9.5,pb:1.8,roe:0.10,npm:0.119,de:50,dy:0.020,fcf:false,cr:1.2,rg:0.12,eg:0.10,rev:1.669,ni:0.198,assets:7.0,desc:"Saudi Arabia's largest car rental company. Fleet of 100K+ vehicles serving corporate, government and retail clients. High CapEx fleet business — negative FCF during growth phase is normal. Vision 2030 mobility beneficiary."},
 {t:"4263.SR",n:"SAL Saudi Logistics Services Co.",s:"Transportation",r:false},
 {t:"4264.SR",n:"flynas Co.",s:"Transportation",r:false},
 
@@ -4994,6 +4994,8 @@ async function buildDCF(d) {
         if (!isNaN(ep) && ep !== 0 && !isNaN(ni) && ni !== 0) { shareCount = ni / ep; break; }
       }
     }
+    // last resort: derive from hardcoded/Yahoo fundamentals (covers stocks with no statement cache)
+    if (!shareCount && d.ni && d.eps && d.eps > 0) shareCount = (d.ni * 1e9) / d.eps;
     intrinsicPS = shareCount ? equityValue / shareCount : null;
     upside = (intrinsicPS && d.price) ? (intrinsicPS - d.price) / d.price : null;
   }
