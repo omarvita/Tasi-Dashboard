@@ -458,6 +458,7 @@ function checkAlerts() {
 
 // ── PORTFOLIO SIMULATOR ──
 let portfolio = {}; // ticker -> {shares, avgCost}
+
 function setPortfolioPosition(ticker, shares, avgCost) {
   const sh = parseFloat(shares);
   if (!isFinite(sh) || sh <= 0) { delete portfolio[ticker]; }
@@ -465,29 +466,107 @@ function setPortfolioPosition(ticker, shares, avgCost) {
   try { localStorage.setItem('TASI_portfolio', JSON.stringify(portfolio)); } catch(e){}
   if(document.getElementById('portfolio-panel')) renderPortfolioPanel();
 }
+
+function addPortfolioLot(ticker, newShares, buyPrice) {
+  const ns = parseFloat(newShares), bp = parseFloat(buyPrice);
+  if (!isFinite(ns) || ns <= 0 || !isFinite(bp) || bp <= 0) return;
+  const existing = portfolio[ticker];
+  if (existing && existing.shares > 0) {
+    const totalShares = existing.shares + ns;
+    const newAvgCost = (existing.shares * existing.avgCost + ns * bp) / totalShares;
+    portfolio[ticker] = {shares: totalShares, avgCost: newAvgCost};
+  } else {
+    portfolio[ticker] = {shares: ns, avgCost: bp};
+  }
+  try { localStorage.setItem('TASI_portfolio', JSON.stringify(portfolio)); } catch(e){}
+  if(document.getElementById('portfolio-panel')) renderPortfolioPanel();
+}
+
 function loadPortfolio() {
   try { const p = localStorage.getItem('TASI_portfolio'); if(p) portfolio = JSON.parse(p); } catch(e){}
 }
 
+// Returns next TASI earnings reporting deadline (45 days after quarter end)
+function _nextEarningsDate() {
+  const now = new Date();
+  const yr = now.getFullYear();
+  const deadlines = [
+    new Date(yr, 1, 15),   // Feb 15 (Q4 prior year)
+    new Date(yr, 4, 15),   // May 15 (Q1)
+    new Date(yr, 7, 15),   // Aug 15 (Q2)
+    new Date(yr, 10, 15),  // Nov 15 (Q3)
+    new Date(yr+1, 1, 15), // Feb 15 next year
+  ];
+  return deadlines.find(d => d > now) || deadlines[deadlines.length-1];
+}
+
+// Estimate next dividend date for a stock based on sector patterns
+function _nextDivDate(stock) {
+  if (!stock.dy || stock.dy <= 0) return null;
+  const now = new Date();
+  const yr = now.getFullYear();
+  const s = stock.sector;
+  let candidates = [];
+  if (stock.r) { // REITs: quarterly Feb/May/Aug/Nov
+    candidates = [new Date(yr,1,15),new Date(yr,4,15),new Date(yr,7,15),new Date(yr,10,15),new Date(yr+1,1,15)];
+  } else if (s === 'Banking' || s === 'Insurance') { // semi-annual: Mar and Sep
+    candidates = [new Date(yr,2,15),new Date(yr,8,15),new Date(yr+1,2,15)];
+  } else if (s === 'Energy' || s === 'Petrochemicals') { // annual: Jun
+    candidates = [new Date(yr,5,15),new Date(yr+1,5,15)];
+  } else { // most others: annual May-Jun
+    candidates = [new Date(yr,4,25),new Date(yr+1,4,25)];
+  }
+  return candidates.find(d => d > now) || candidates[candidates.length-1];
+}
+
+function _fmtDate(d) {
+  if (!d) return '—';
+  return d.toLocaleDateString('en-SA', {day:'numeric',month:'short',year:'numeric'});
+}
+function _daysUntil(d) {
+  if (!d) return null;
+  return Math.ceil((d - new Date()) / 86400000);
+}
+
 function getPortfolioStats() {
-  let totalValue=0, totalCost=0, totalPnL=0;
+  let totalValue=0, totalCost=0, totalPnL=0, totalAnnualDiv=0;
   const positions = Object.entries(portfolio).map(([ticker, pos]) => {
     const stock = allData.find(d => d.ticker === ticker);
     if(!stock) return null;
-    const currentValue = (stock.price || 0) * pos.shares;
+    const currentValue = (stock.price||0) * pos.shares;
     const costBasis = pos.avgCost * pos.shares;
     const pnl = currentValue - costBasis;
     const pnlPct = costBasis > 0 ? (pnl/costBasis)*100 : 0;
+    const annualDiv = stock.dy && stock.price ? stock.dy * stock.price * pos.shares : 0;
+    const yieldOnCost = pos.avgCost > 0 && stock.dy && stock.price ? (stock.dy * stock.price / pos.avgCost)*100 : null;
+    const nextDiv = _nextDivDate(stock);
+    const nextEarnings = _nextEarningsDate();
     totalValue += currentValue;
     totalCost += costBasis;
     totalPnL += pnl;
-    return {ticker, name: stock.name, shares: pos.shares, avgCost: pos.avgCost,
-            currentPrice: stock.price, currentValue, costBasis, pnl, pnlPct,
-            combined: stock.combined, buffett: stock.buffett, signal: getSig(stock.combined, stock.buffett)};
+    totalAnnualDiv += annualDiv;
+    const SECTOR_BETA = {'Banking':0.70,'Insurance':0.85,'Energy':0.80,'Petrochemicals':1.10,'Chemicals':1.05,'Materials':1.10,'Building Materials':1.05,'Real Estate':1.20,'REITs':1.05,'Telecom':0.85,'Technology':1.20,'Healthcare':0.90,'Consumer':0.95,'Utilities':0.70,'Transportation':0.95,'Industrial':1.00};
+    const beta = stock.beta || SECTOR_BETA[stock.sector] || 1.0;
+    return {ticker, name:stock.name, shares:pos.shares, avgCost:pos.avgCost,
+            currentPrice:stock.price, currentValue, costBasis, pnl, pnlPct,
+            combined:stock.combined, buffett:stock.buffett, signal:getSig(stock.combined,stock.buffett),
+            annualDiv, yieldOnCost, sector:stock.sector, dy:stock.dy, pe:stock.pe,
+            beta, nextDiv, nextEarnings, stock};
   }).filter(Boolean);
   const totalPnLPct = totalCost > 0 ? (totalPnL/totalCost)*100 : 0;
   const avgScore = positions.length ? Math.round(positions.reduce((s,p)=>s+p.combined,0)/positions.length) : 0;
-  return {positions, totalValue, totalCost, totalPnL, totalPnLPct, avgScore};
+  // Portfolio beta = value-weighted average
+  const portBeta = totalValue > 0 && positions.length
+    ? positions.reduce((s,p) => s + p.beta*(p.currentValue/totalValue), 0) : null;
+  // Sector breakdown
+  const sectorMap = {};
+  positions.forEach(p => { sectorMap[p.sector] = (sectorMap[p.sector]||0) + p.currentValue; });
+  const sectorBreakdown = Object.entries(sectorMap).sort((a,b)=>b[1]-a[1]).map(([s,v])=>({sector:s, value:v, pct: totalValue>0?v/totalValue:0}));
+  // Add weight to each position
+  positions.forEach(p => { p.weight = totalValue > 0 ? p.currentValue/totalValue : 0; });
+  // Sort by value descending
+  positions.sort((a,b) => b.currentValue - a.currentValue);
+  return {positions, totalValue, totalCost, totalPnL, totalPnLPct, avgScore, totalAnnualDiv, portBeta, sectorBreakdown};
 }
 
 // ── COMPARE MODE ──
