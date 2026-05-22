@@ -1949,8 +1949,14 @@ function renderPortfolioHTML(stats) {
 function _renderAddForm() {
   return `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:8px;padding:10px 12px;margin-bottom:10px">
   <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Add / Update Position</div>
-  <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
-    <select id="port-ticker" style="flex:2;min-width:150px;background:var(--bg2);border:1px solid var(--b2);border-radius:5px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">${allData.map(d=>`<option value="${d.ticker}">${d.ticker.replace('.SR','')} — ${d.name.split(' ').slice(0,3).join(' ')}</option>`).join('')}</select>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start;margin-bottom:8px">
+    <div style="position:relative;flex:2;min-width:180px">
+      <input type="text" id="port-search-input" placeholder="Search ticker or name…" autocomplete="off"
+        oninput="_portFilter(this.value)" onfocus="_portFilter(this.value)"
+        style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--b2);border-radius:5px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
+      <div id="port-search-results" style="display:none;position:absolute;top:calc(100% + 2px);left:0;right:0;background:var(--bg2);border:1px solid var(--b2);border-radius:5px;max-height:200px;overflow-y:auto;z-index:200;box-shadow:0 4px 16px rgba(0,0,0,.5)"></div>
+      <input type="hidden" id="port-ticker" value="">
+    </div>
     <input type="number" id="port-shares" placeholder="Shares" style="width:90px;background:var(--bg2);border:1px solid var(--b2);border-radius:5px;color:var(--tx);font-family:var(--mono);font-size:11px;padding:5px 8px;outline:none" min="1">
     <input type="number" id="port-cost" placeholder="Price SAR" style="width:100px;background:var(--bg2);border:1px solid var(--b2);border-radius:5px;color:var(--tx);font-family:var(--mono);font-size:11px;padding:5px 8px;outline:none" min="0" step="0.01">
     <button onclick="_portAddLot()" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer;white-space:nowrap">+ Buy / Add Lot</button>
@@ -1958,6 +1964,47 @@ function _renderAddForm() {
   </div>
   <div style="font-family:var(--mono);font-size:8px;color:var(--tx3)"><b style="color:var(--tx2)">+ Buy / Add Lot</b> — adds to existing position & recalculates avg cost &nbsp;|&nbsp; <b style="color:var(--tx2)">Set Exact</b> — overrides shares and avg cost directly</div>
 </div>`;
+}
+
+function _portFilter(q) {
+  const res = document.getElementById('port-search-results');
+  if (!res) return;
+  const trimmed = q.trim().toLowerCase();
+  if (!trimmed) { res.style.display = 'none'; return; }
+  const matches = allData.filter(d =>
+    d.ticker.toLowerCase().includes(trimmed) ||
+    d.name.toLowerCase().includes(trimmed) ||
+    d.ticker.replace('.SR','').toLowerCase().includes(trimmed)
+  ).slice(0, 12);
+  if (!matches.length) { res.style.display = 'none'; return; }
+  res.innerHTML = matches.map(d => {
+    const sig = getSig(d.combined, d.buffett);
+    const priceStr = d.price ? d.price.toFixed(2)+' SAR' : '—';
+    return `<div onclick="_portSelectStock('${d.ticker}')" style="padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--b1);display:flex;justify-content:space-between;align-items:center"
+      onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
+      <div>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--acc);font-weight:600">${d.ticker.replace('.SR','')}</span>
+        <span style="font-family:var(--mono);font-size:9px;color:var(--tx2);margin-left:6px">${d.name.split(' ').slice(0,4).join(' ')}</span>
+      </div>
+      <div style="text-align:right;flex-shrink:0;margin-left:8px">
+        <span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">${priceStr}</span>
+        <span class="badge ${sig.cls}" style="margin-left:5px;font-size:8px;padding:1px 5px">${sig.label}</span>
+      </div>
+    </div>`;
+  }).join('');
+  res.style.display = 'block';
+}
+
+function _portSelectStock(ticker) {
+  const d = allData.find(s => s.ticker === ticker);
+  if (!d) return;
+  document.getElementById('port-ticker').value = ticker;
+  document.getElementById('port-search-input').value = `${ticker.replace('.SR','')} — ${d.name.split(' ').slice(0,4).join(' ')}`;
+  document.getElementById('port-search-results').style.display = 'none';
+  // Auto-fill current price into cost field if empty
+  const costEl = document.getElementById('port-cost');
+  if (costEl && !costEl.value && d.price) costEl.value = d.price.toFixed(2);
+  document.getElementById('port-shares')?.focus();
 }
 
 function _portAddLot() {
@@ -5937,6 +5984,10 @@ function buildSectorPerf() {
   });
   document.addEventListener('mousemove',function(e){if(tt.style.display==='block')pos(e);});
   document.addEventListener('mouseout',function(e){if(e.target.closest('[data-tip]')){clearTimeout(_t);tt.style.display='none';}});
+  document.addEventListener('click',function(e){
+    const res=document.getElementById('port-search-results');
+    if(res&&!e.target.closest('#port-search-results')&&e.target.id!=='port-search-input')res.style.display='none';
+  });
 })();
 </script>
 </body>
