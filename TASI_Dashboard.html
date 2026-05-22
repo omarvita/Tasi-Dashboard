@@ -1107,6 +1107,9 @@ async function gdWriteStock(ticker, patch) {
   const name = `TASI_stock_${ticker.replace(/\./g,'_')}.json`;
   const merged = Object.assign(_gdCache[ticker] || {}, patch);
   _gdCache[ticker] = merged;
+  // LRU eviction: keep cache bounded to 100 entries
+  const keys = Object.keys(_gdCache);
+  if (keys.length > 100) delete _gdCache[keys[0]];
   try {
     const file = await gdFindFile(ticker);
     const form = new FormData();
@@ -2703,8 +2706,8 @@ async function autoDiscoverSaudiStocks() {
   const probeTickers = gapTickers.slice(0, 400);
   const probeBatches = [];
   for (let i = 0; i < probeTickers.length; i += 50) probeBatches.push(probeTickers.slice(i, i + 50));
-  for (let i = 0; i < probeBatches.length; i += 4) {
-    const chunk = probeBatches.slice(i, i + 4);
+  for (let i = 0; i < probeBatches.length; i += 8) {
+    const chunk = probeBatches.slice(i, i + 8);
     await Promise.all(chunk.map(async batch => {
       try {
         const bUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${batch.join(',')}`;
@@ -2801,12 +2804,16 @@ async function fetchStockPrice(stock) {
     if(quick.avgVolume3M != null) result.avgVolume3M = quick.avgVolume3M;
     // Save to Drive so next page load is instant
     if (result.price && GD_TOKEN) {
-      gdWriteStock(ticker, {
-        priceData: { price: result.price, change: result.change, closes: result.closes,
-          timestamps: result.timestamps, volume: result.volume, avgVolume3M: result.avgVolume3M,
-          volatility: result.volatility },
-        priceUpdated: Date.now(),
-      });
+      const cached = _gdCache[ticker]?.priceData;
+      const priceDiff = cached?.price ? Math.abs(result.price - cached.price) / cached.price : 1;
+      if (priceDiff > 0.001) {
+        gdWriteStock(ticker, {
+          priceData: { price: result.price, change: result.change, closes: result.closes,
+            timestamps: result.timestamps, volume: result.volume, avgVolume3M: result.avgVolume3M,
+            volatility: result.volatility },
+          priceUpdated: Date.now(),
+        });
+      }
     }
   } catch(e) {}
   return result;
@@ -3081,7 +3088,8 @@ async function loadCache(){
   if(!meta||Date.now()-meta.savedAt>meta.ttl)return false;
   const cached=await dbGet(CACHE_KEY);
   if(!cached?.length)return false;
-  cached.forEach(c=>{const idx=allData.findIndex(d=>d.ticker===c.ticker);if(idx>=0)allData[idx]={...allData[idx],...c};});
+  const tickerIdx = new Map(allData.map((d, i) => [d.ticker, i]));
+  cached.forEach(c=>{const idx=tickerIdx.get(c.ticker);if(idx!=null&&idx>=0)allData[idx]={...allData[idx],...c};});
   updateCacheUI(meta);
   return true;
 }
@@ -3637,7 +3645,7 @@ function generateFundManagerAnalysis(is, bs, cf, period, stockObj) {
     const revAccel = latestRevYoY!=null&&avgRevYoY!=null ? latestRevYoY>(avgRevYoY+0.03) : null;
 
     const mgnArr = is.map(r=>{const ni=nv(r.net_income),rv=nv(r.revenue);return(ni!=null&&rv!=null&&rv!==0)?ni/rv:null;});
-    const latestMgn=mgnArr.filter(v=>v!=null)[0], oldestMgn=mgnArr.filter(v=>v!=null).slice(-1)[0];
+    const validMgn=mgnArr.filter(v=>v!=null), latestMgn=validMgn[0], oldestMgn=validMgn[validMgn.length-1];
     const mgnDelta=(latestMgn!=null&&oldestMgn!=null)?latestMgn-oldestMgn:null;
 
     const roe = stockObj?.roe ?? null;
@@ -3798,6 +3806,15 @@ async function buildFinancials(d, period) {
 
 async function buildQuarterly(d){ return buildFinancials(d, 'quarterly'); }
 
+function yoyGrowth(arr, key) {
+  return arr.map((r, i) => {
+    if (i >= arr.length - 1) return null;
+    const cur = parseFloat(arr[i][key]), prv = parseFloat(arr[i + 1][key]);
+    if (isNaN(cur) || isNaN(prv) || prv === 0) return null;
+    return (cur - prv) / Math.abs(prv);
+  });
+}
+
 function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', stockObj = null) {
   const { is, bs, cf } = data || {};
   const noData = (arr) => !arr || !arr.length;
@@ -3820,14 +3837,6 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
   function fmtRatio(v) {
     if (v == null || isNaN(v)) return '—';
     return v.toFixed(2) + 'x';
-  }
-  function yoyGrowth(arr, key) {
-    return arr.map((r, i) => {
-      if (i >= arr.length - 1) return null;
-      const cur = parseFloat(arr[i][key]), prv = parseFloat(arr[i + 1][key]);
-      if (isNaN(cur) || isNaN(prv) || prv === 0) return null;
-      return (cur - prv) / Math.abs(prv);
-    });
   }
   function makeTable(title, rows, dates) {
     if (!dates || !dates.length) return '';
