@@ -4956,7 +4956,9 @@ async function buildDCF(d) {
     const base = revGrowth != null && fcfGrowth != null
       ? (revGrowth * 0.6 + fcfGrowth * 0.4)
       : (revGrowth ?? fcfGrowth);
-    growthRate = Math.min(Math.max(base, -0.10), 0.25);
+    const _SGCAP = {'Petrochemicals':0.15,'Chemicals':0.15,'Materials':0.15,'Building Materials':0.15,'Transportation':0.15,'Industrial':0.15,'REITs':0.14,'Energy':0.15,'Consumer':0.18,'Utilities':0.18,'Telecom':0.18,'Insurance':0.18,'Real Estate':0.18,'Banking':0.15,'Healthcare':0.20,'Technology':0.22};
+    const growthCap = _SGCAP[d.sector] ?? 0.20;
+    growthRate = Math.min(Math.max(base, -0.10), growthCap);
     const yrs = Math.max(revVals.length, fcfVals.length);
     growthSource = `${yrs}Y avg from statements`;
   } else {
@@ -5024,13 +5026,67 @@ async function buildDCF(d) {
   const stockPE = d.pe;
   const stockEPS = d.eps || (d.price && d.pe ? d.price / d.pe : null);
   const peFairValue = (stockEPS && sectorPE) ? stockEPS * sectorPE : null;
-  const pePremium = stockPE ? (stockPE - sectorPE) / sectorPE : null; // +ve = expensive vs peers
+  const pePremium = stockPE ? (stockPE - sectorPE) / sectorPE : null;
   const peUpside = (peFairValue && d.price) ? (peFairValue - d.price) / d.price : null;
 
+  // ── EV/EBITDA VALUATION ──
+  const _isFinancialSector = d.sector === 'Banking' || d.sector === 'Insurance';
+  const SECTOR_EVEBITDA = {
+    'Transportation':8,'Industrial':8,'Petrochemicals':7,'Chemicals':7,
+    'Materials':7,'Building Materials':8,'Real Estate':13,'REITs':14,
+    'Healthcare':15,'Technology':20,'Consumer':9,'Utilities':10,
+    'Telecom':10,'Energy':9,
+  };
+  const sectorEVEBITDA = _isFinancialSector ? null : (SECTOR_EVEBITDA[d.sector] || null);
+  const ebitdaFromStmt = annualData?.is?.[0]?.ebitda ? parseFloat(annualData.is[0].ebitda) : null;
+  const ebitdaEst = (!ebitdaFromStmt && d.ni && d.npm && d.npm > 0)
+    ? (d.ni * 1e9 / d.npm) * (d.npm + 0.06) : null;
+  const ebitda = ebitdaFromStmt || ebitdaEst;
+  const mktCapEst = d.mktCap ? d.mktCap * 1e9 : (d.price && shareCount ? d.price * shareCount : null);
+  const evCurrent = mktCapEst ? mktCapEst + netDebt : null;
+  const currentEVEBITDA = (evCurrent && ebitda && ebitda > 0) ? evCurrent / ebitda : null;
+  const evFairValue = (ebitda && sectorEVEBITDA && shareCount && ebitda > 0)
+    ? Math.max((ebitda * sectorEVEBITDA - netDebt) / shareCount, 0) : null;
+  const evUpside = (evFairValue && d.price) ? (evFairValue - d.price) / d.price : null;
+
+  // ── P/B VALUATION ──
+  const SECTOR_PB_MID = {
+    'Banking':1.8,'Insurance':1.5,'Real Estate':1.2,'REITs':1.1,
+    'Petrochemicals':1.3,'Materials':1.3,'Building Materials':1.3,
+    'Transportation':1.1,'Energy':2.2,'Industrial':1.2,
+  };
+  const sectorPBMid = SECTOR_PB_MID[d.sector] || null;
+  const bvpsFromRatio = d.pb && d.price && d.pb > 0 ? d.price / d.pb : null;
+  const totalEquityStmt = annualData?.bs?.[0]?.total_equity ? parseFloat(annualData.bs[0].total_equity) : null;
+  const bvpsFromStmt = (totalEquityStmt && shareCount) ? totalEquityStmt / shareCount : null;
+  const bookValuePS = bvpsFromStmt || bvpsFromRatio;
+  const pbFairValue = (bookValuePS && sectorPBMid && bookValuePS > 0) ? bookValuePS * sectorPBMid : null;
+  const pbUpside = (pbFairValue && d.price) ? (pbFairValue - d.price) / d.price : null;
+
+  // ── COMPOSITE FAIR VALUE (sector-weighted blend of all available methods) ──
+  const _sectorType = {'Banking':'bank','Insurance':'bank','Transportation':'cyclical','Petrochemicals':'cyclical','Chemicals':'cyclical','Materials':'cyclical','Building Materials':'cyclical','Industrial':'cyclical','Energy':'cyclical','Technology':'growth','Healthcare':'growth','Real Estate':'dividend','REITs':'dividend','Consumer':'stable','Telecom':'stable','Utilities':'stable'}[d.sector] || 'stable';
+  // weights: [dcf, pe, evebitda, pb, ddm]
+  const _W = {'bank':[0.05,0.20,0.00,0.30,0.45],'cyclical':[0.15,0.20,0.40,0.25,0.00],'growth':[0.50,0.20,0.30,0.00,0.00],'dividend':[0.25,0.20,0.20,0.00,0.35],'stable':[0.35,0.30,0.20,0.00,0.15]}[_sectorType];
+  const _methods = [
+    {name:'FCF-DCF', w:_W[0], fv:intrinsicPS},
+    {name:'P/E',     w:_W[1], fv:peFairValue},
+    {name:'EV/EBITDA',w:_W[2],fv:evFairValue},
+    {name:'P/B',     w:_W[3], fv:pbFairValue},
+    {name:'DDM',     w:_W[4], fv:isBanking?ddmPS:null},
+  ].filter(m => m.fv != null && m.fv > 0 && m.w > 0);
+  let compositeFV = null, compositeUpside = null;
+  if (_methods.length > 0) {
+    const _tw = _methods.reduce((s,m)=>s+m.w,0);
+    compositeFV = _methods.reduce((s,m)=>s+m.fv*(m.w/_tw),0);
+    compositeUpside = d.price ? (compositeFV - d.price)/d.price : null;
+  }
+
   // ── PRIMARY VALUATION ──
-  const primaryPS = isBanking ? (ddmPS ?? intrinsicPS) : intrinsicPS;
-  const primaryUpside = isBanking ? (ddmUpside ?? upside) : upside;
-  const primaryMethod = isBanking && ddmPS ? 'DDM' : 'FCF-DCF';
+  const primaryPS = compositeFV ?? (isBanking ? (ddmPS ?? intrinsicPS) : intrinsicPS);
+  const primaryUpside = compositeUpside ?? (isBanking ? (ddmUpside ?? upside) : upside);
+  const primaryMethod = compositeFV
+    ? `Composite (${_methods.map(m=>m.name).join('+')})`
+    : (isBanking && ddmPS ? 'DDM' : 'FCF-DCF');
   if (primaryPS != null) {
     d.dcfPS = primaryPS; d.dcfUpside = primaryUpside; d.dcfMethod = primaryMethod;
     gdWriteStock(d.ticker, { dcfResult: { dcfPS: primaryPS, dcfUpside: primaryUpside, dcfMethod: primaryMethod }, dcfUpdated: Date.now() });
@@ -5101,6 +5157,95 @@ async function buildDCF(d) {
     <span style="color:${peColor};font-weight:600">${peLabel}</span>
     <span style="color:var(--tx3)">Premium to sector: ${pePremium>=0?'+':''}${(pePremium*100).toFixed(1)}% · EPS ${stockEPS.toFixed(3)} SAR × ${sectorPE}× = ${peFairValue.toFixed(2)} SAR</span>
   </div>
+</div>`;
+  }
+
+  // EV/EBITDA VALUATION CARD
+  if (evFairValue && d.price && sectorEVEBITDA && ebitda) {
+    const evUColor = evUpside > 0.10 ? 'var(--green)' : evUpside > -0.10 ? 'var(--amb)' : 'var(--red)';
+    const evLabel = evUpside > 0.10 ? '▲ Undervalued vs EBITDA' : evUpside > -0.10 ? '● Fair vs EBITDA' : '▼ Overvalued vs EBITDA';
+    const evColor = currentEVEBITDA && currentEVEBITDA > sectorEVEBITDA * 1.2 ? 'var(--red)' : currentEVEBITDA && currentEVEBITDA < sectorEVEBITDA * 0.8 ? 'var(--green)' : 'var(--amb)';
+    html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">EV/EBITDA Valuation — ${d.sector||'Sector'} Benchmark</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+    <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">Current EV/EBITDA</div>
+      <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${evColor}">${currentEVEBITDA?currentEVEBITDA.toFixed(1)+'×':'—'}</div>
+    </div>
+    <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">Sector Target</div>
+      <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:var(--tx2)">${sectorEVEBITDA}×</div>
+    </div>
+    <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">Fair Value</div>
+      <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${evUColor}">${evFairValue.toFixed(2)} SAR</div>
+    </div>
+    <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">Upside</div>
+      <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${evUColor}">${evUpside>=0?'+':''}${(evUpside*100).toFixed(1)}%</div>
+    </div>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:9px">
+    <span style="color:${evUColor};font-weight:600">${evLabel}</span>
+    <span style="color:var(--tx3)">EBITDA ${(ebitda/1e9).toFixed(2)}B × ${sectorEVEBITDA}× − net debt = ${(Math.max(ebitda*sectorEVEBITDA-netDebt,0)/1e9).toFixed(1)}B equity · ${ebitdaFromStmt?'from statements':'estimated'}</span>
+  </div>
+</div>`;
+  }
+
+  // P/B VALUATION CARD
+  if (pbFairValue && d.price && bookValuePS) {
+    const pbUColor = pbUpside > 0.10 ? 'var(--green)' : pbUpside > -0.10 ? 'var(--amb)' : 'var(--red)';
+    const pbLabel = pbUpside > 0.10 ? '▲ Trading below book target' : pbUpside > -0.10 ? '● In line with book target' : '▼ Trading above book target';
+    const curPBColor = d.pb && d.pb < sectorPBMid * 0.8 ? 'var(--green)' : d.pb && d.pb > sectorPBMid * 1.2 ? 'var(--red)' : 'var(--amb)';
+    html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">P/B Valuation — Book Value Anchor</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+    <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">Current P/B</div>
+      <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${curPBColor}">${d.pb?d.pb.toFixed(2)+'×':'—'}</div>
+    </div>
+    <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">Sector Target P/B</div>
+      <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:var(--tx2)">${sectorPBMid}×</div>
+    </div>
+    <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">P/B Fair Value</div>
+      <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${pbUColor}">${pbFairValue.toFixed(2)} SAR</div>
+    </div>
+    <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">Upside</div>
+      <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${pbUColor}">${pbUpside>=0?'+':''}${(pbUpside*100).toFixed(1)}%</div>
+    </div>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:9px">
+    <span style="color:${pbUColor};font-weight:600">${pbLabel}</span>
+    <span style="color:var(--tx3)">Book value ${bookValuePS.toFixed(2)} SAR/share × ${sectorPBMid}× = ${pbFairValue.toFixed(2)} SAR · ${bvpsFromStmt?'from statements':'from P/B ratio'}</span>
+  </div>
+</div>`;
+  }
+
+  // COMPOSITE FAIR VALUE BREAKDOWN
+  if (compositeFV && d.price && _methods.length > 1) {
+    const cColor = compositeUpside > 0.10 ? 'var(--green)' : compositeUpside > -0.10 ? 'var(--amb)' : 'var(--red)';
+    const _tw = _methods.reduce((s,m)=>s+m.w,0);
+    html += `<div style="background:var(--bg3);border:2px solid ${cColor}44;border-radius:7px;padding:10px 12px;margin-bottom:10px">
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Composite Fair Value — ${_sectorType.charAt(0).toUpperCase()+_sectorType.slice(1)} Sector Weights</div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
+    ${_methods.map(m=>{
+      const mColor = (m.fv-d.price)/d.price>0.05?'var(--green)':(m.fv-d.price)/d.price<-0.05?'var(--red)':'var(--amb)';
+      return `<div style="flex:1;min-width:70px;text-align:center;background:var(--bg2);border-radius:5px;padding:6px 4px;border:1px solid var(--b1)">
+        <div style="font-family:var(--mono);font-size:7px;color:var(--tx3);text-transform:uppercase">${m.name}</div>
+        <div style="font-family:var(--mono);font-size:11px;font-weight:600;color:${mColor}">${m.fv.toFixed(2)}</div>
+        <div style="font-family:var(--mono);font-size:7px;color:var(--tx3)">${((m.w/_tw)*100).toFixed(0)}% weight</div>
+      </div>`;
+    }).join('')}
+    <div style="flex:1;min-width:70px;text-align:center;background:${cColor}22;border-radius:5px;padding:6px 4px;border:2px solid ${cColor}55">
+      <div style="font-family:var(--mono);font-size:7px;color:${cColor};text-transform:uppercase;font-weight:600">Composite</div>
+      <div style="font-family:var(--mono);font-size:14px;font-weight:700;color:${cColor}">${compositeFV.toFixed(2)}</div>
+      <div style="font-family:var(--mono);font-size:7px;color:${cColor}">${compositeUpside>=0?'+':''}${(compositeUpside*100).toFixed(1)}%</div>
+    </div>
+  </div>
+  <div style="font-family:var(--mono);font-size:8px;color:var(--tx3)">Weighted blend of ${_methods.length} valuation methods. Sector type: <b style="color:var(--tx2)">${_sectorType}</b>. Cyclicals weight EV/EBITDA highest; banks weight DDM+P/B; growth stocks weight DCF.</div>
 </div>`;
   }
 
@@ -5207,8 +5352,8 @@ async function buildDCF(d) {
   html += `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px;border-top:1px solid var(--b1);padding-top:8px;line-height:1.7">
     <strong style="color:var(--tx2)">Saudi DCF Assumptions:</strong><br>
     Risk-free rate (5.5%): SAIBOR 3M + SAR sovereign spread. ERP (6.5%): Damodaran 2024 MENA. Terminal growth (2.5%): Vision 2030 nominal GDP.<br>
-    Beta: sector defaults used when Yahoo Finance data is unavailable (Banking 0.70, Energy 0.80, Real Estate 1.20, Telecom 0.85).<br>
-    Banks use DDM — FCF-DCF breaks for deposit-funded balance sheets. WACC 9–12% typical range for TASI.<br>
+    Beta: sector defaults when Yahoo Finance unavailable (Banking 0.70, Energy 0.80, Real Estate 1.20, Telecom 0.85). Growth cap: cyclicals 15%, growth stocks 22%, others 20%.<br>
+    Composite: sector-weighted blend — cyclicals favour EV/EBITDA (40%), banks favour DDM+P/B (75%), growth stocks favour DCF (50%). Each method is a range estimate, not a price target. NOT financial advice.<br>
     ⚠ A 1% ke change shifts fair value 15–30%. This is a range, not a price target. NOT financial advice.
   </div>`;
 
