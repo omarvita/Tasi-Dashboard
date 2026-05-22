@@ -1060,8 +1060,10 @@ function mergeStatements(primary, secondary) {
 
 // ── GOOGLE DRIVE STORAGE ──
 let GD_TOKEN = null;
-const GD_FUND_TTL = 24 * 60 * 60 * 1000;       // 1 day TTL for fundamentals
-const GD_STMT_TTL = 30 * 24 * 60 * 60 * 1000;  // 30 days TTL for financial statements
+const GD_FUND_TTL  = 24 * 60 * 60 * 1000;       // 1 day TTL for fundamentals
+const GD_STMT_TTL  = 30 * 24 * 60 * 60 * 1000;  // 30 days TTL for financial statements
+const GD_DCF_TTL   = 24 * 60 * 60 * 1000;       // 1 day TTL for DCF result
+const GD_TREND_TTL =  7 * 24 * 60 * 60 * 1000;  // 7 day TTL for earnings trend
 const _gdCache = {};                              // in-memory per-ticker Drive cache
 const _gdFileIdCache = {};                        // ticker → Drive file ID (avoids double list+fetch)
 
@@ -2990,7 +2992,7 @@ async function fetchStockFull(stock) {
           numberOfAnalysts: t.earningsEstimate?.numberOfAnalysts?.raw,
         }));
       }
-      // Save fundamentals to Google Drive (fire-and-forget, 1-day TTL)
+      // Save fundamentals + earningsTrend to Google Drive (fire-and-forget, 1-day TTL)
       gdWriteStock(ticker, {
         fundamentals: {
           pe: result.pe, pb: result.pb, roe: result.roe, npm: result.npm,
@@ -3000,6 +3002,7 @@ async function fetchStockFull(stock) {
           mktCap: result.mktCap, eps: result.eps, fwdEps: result.fwdEps, dataDate: result.dataDate,
         },
         fundUpdated: Date.now(),
+        ...(result.earningsTrend?.length ? { earningsTrend: result.earningsTrend, trendUpdated: Date.now() } : {}),
       });
     }
     // Also get longer chart data for 2-year history
@@ -3345,6 +3348,14 @@ async function openModal(idx){
         if (realD && f) {
           const keys = ['pe','pb','roe','npm','de','dy','fcf','cr','rg','eg','beta','w52high','w52low','w52change','mktCap','eps','fwdEps','dataDate'];
           keys.forEach(k => { if (f[k] != null) realD[k] = f[k]; });
+          // Restore earningsTrend and DCF result from Drive if available
+          if (driveStock.earningsTrend?.length && (Date.now() - (driveStock.trendUpdated||0) < GD_TREND_TTL))
+            realD.earningsTrend = driveStock.earningsTrend;
+          if (driveStock.dcfResult && (Date.now() - (driveStock.dcfUpdated||0) < GD_DCF_TTL)) {
+            realD.dcfPS = driveStock.dcfResult.dcfPS;
+            realD.dcfUpside = driveStock.dcfResult.dcfUpside;
+            realD.dcfMethod = driveStock.dcfResult.dcfMethod;
+          }
           realD.fullLoaded = true;
           const fRes = scoreFundamental(realD);
           const bRes = scoreBuffett(realD);
@@ -4314,11 +4325,32 @@ async function buildAnnual(d){ return buildFinancials(d, 'annual'); }
 
 // ── DCF ANALYSIS ──
 async function buildDCF(d) {
-  // ── DATA FETCHING — auto-fetch annual statements if not already loaded ──
+  // ── FAST PATH: return cached DCF result from Drive if fresh ──
+  if (GD_TOKEN) {
+    const driveStock = await gdReadStock(d.ticker);
+    if (driveStock?.dcfResult && driveStock.dcfUpdated && (Date.now() - driveStock.dcfUpdated < GD_DCF_TTL)) {
+      const r = driveStock.dcfResult;
+      d.dcfPS = r.dcfPS; d.dcfUpside = r.dcfUpside; d.dcfMethod = r.dcfMethod;
+      // Re-run HTML build with cached data stored back on d — annualData still needed for tables
+      // so fall through but populate d then rebuild; cheaper than storing full HTML
+    }
+    // Also populate annual statements from Drive if not in memory/localStorage
+    if (!d.rawTwelveData?.annual && !tdCacheGet(d.ticker)?.annual) {
+      const ann = driveStock?.annual;
+      const annUpdated = driveStock?.annualUpdated || 0;
+      if (ann && (ann.is || ann.bs || ann.cf) && (Date.now() - annUpdated < GD_STMT_TTL)) {
+        if (!d.rawTwelveData) d.rawTwelveData = {};
+        d.rawTwelveData.annual = ann;
+        tdCacheSet(d.ticker, d.rawTwelveData.quarterly || null, ann);
+      }
+    }
+  }
+
+  // ── DATA FETCHING — auto-fetch annual statements if still not loaded ──
   let baseFCF = null, fcfSource = 'N/A', stmtRevenue = null;
   let annualData = d.rawTwelveData?.annual || tdCacheGet(d.ticker)?.annual || null;
   if (!annualData) {
-    // Auto-fetch so DCF works without opening 5-Year tab first
+    // Auto-fetch from Yahoo + Argaam in parallel
     try {
       const code = d.ticker.replace(/\.SR$/i, '');
       const [yt, qs, argRes] = await Promise.all([
@@ -4444,7 +4476,10 @@ async function buildDCF(d) {
   const primaryPS = isBanking ? (ddmPS ?? intrinsicPS) : intrinsicPS;
   const primaryUpside = isBanking ? (ddmUpside ?? upside) : upside;
   const primaryMethod = isBanking && ddmPS ? 'DDM' : 'FCF-DCF';
-  if (primaryPS != null) { d.dcfPS = primaryPS; d.dcfUpside = primaryUpside; d.dcfMethod = primaryMethod; }
+  if (primaryPS != null) {
+    d.dcfPS = primaryPS; d.dcfUpside = primaryUpside; d.dcfMethod = primaryMethod;
+    gdWriteStock(d.ticker, { dcfResult: { dcfPS: primaryPS, dcfUpside: primaryUpside, dcfMethod: primaryMethod }, dcfUpdated: Date.now() });
+  }
 
   // ── HTML ──
   let html = `<div class="secl">DCF Valuation — Saudi Market Parameters</div>`;
