@@ -873,7 +873,7 @@ async function fetchYahooTimeseries(ticker, period) {
     `${prefix}StockholdersEquity`, `${prefix}CashAndCashEquivalents`, `${prefix}LongTermDebt`,
     `${prefix}OperatingCashFlow`, `${prefix}InvestingCashFlow`, `${prefix}FinancingCashFlow`,
     `${prefix}CapitalExpenditure`, `${prefix}FreeCashFlow`, `${prefix}CashDividendsPaid`,
-    `${prefix}DepreciationAndAmortization`,
+    `${prefix}DepreciationAndAmortization`, `${prefix}InterestExpense`,
   ].join(',');
   const url = `https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(ticker)}?type=${metrics}&period1=1388534400&period2=1900000000`;
   try {
@@ -919,6 +919,7 @@ function parseYahooTimeseries(data, period) {
       ? r.operatingIncome + Math.abs(r.depreciationAndAmortization) : null),
     operating_income: r.operatingIncome ?? null, net_income: r.netIncome ?? null,
     eps: r.basicEPS ?? null,
+    interest_expense: r.interestExpense ?? null,
   })) : null;
   const bs = rows.some(r => r.totalAssets != null) ? rows.map(r => ({
     fiscal_date: r.fiscal_date, total_assets: r.totalAssets ?? null,
@@ -3682,12 +3683,53 @@ function generateFundManagerAnalysis(is, bs, cf, period, stockObj) {
     } else if (latestMgn!=null&&isFinancial) {
       rows.push(aRow('Net Margin (latest)', `${(latestMgn*100).toFixed(1)}%${mgnDelta!=null?' ('+pct(mgnDelta,false)+' chg)':''}`, col(latestMgn,0.20,0.10,false)));
     }
+    // Gross margin trend (non-financial only)
+    if (!isFinancial && is?.length >= 2) {
+      const gmArr = is.map(r => { const gp=nv(r.gross_profit), rv=nv(r.revenue); return (gp!=null&&rv!=null&&rv!==0)?gp/rv:null; });
+      const validGM = gmArr.filter(v=>v!=null);
+      if (validGM.length >= 2) {
+        const gm0=validGM[0], gmN=validGM[validGM.length-1], gmD=gm0-gmN;
+        rows.push(aRow('Gross Margin Trend', `${(gmN*100).toFixed(1)}% → ${(gm0*100).toFixed(1)}% (${gmD>=0?'+':''}${(gmD*100).toFixed(1)}pp)`, gmD>0.02?'var(--green)':gmD<-0.02?'var(--red)':'var(--tx2)'));
+      }
+    }
+    // Operating leverage: EBIT growth vs Revenue growth (2 most recent years)
+    if (!isFinancial && is?.length >= 2) {
+      const ebit0=nv(is[0].operating_income), ebit1=nv(is[1].operating_income);
+      const rv0=nv(is[0].revenue), rv1=nv(is[1].revenue);
+      if (ebit0!=null&&ebit1!=null&&ebit1!==0&&rv0!=null&&rv1!=null&&rv1!==0) {
+        const ebitGr=(ebit0-ebit1)/Math.abs(ebit1), revGr=(rv0-rv1)/Math.abs(rv1);
+        if (Math.abs(revGr) > 0.001) {
+          const opLev = ebitGr/revGr;
+          const opStr = opLev > 1.5 ? `${opLev.toFixed(1)}x — High (earnings amplify revenue growth)` : opLev > 0.8 ? `${opLev.toFixed(1)}x — Moderate` : opLev > 0 ? `${opLev.toFixed(1)}x — Low (cost growth outpacing revenue)` : `${opLev.toFixed(1)}x — Negative (cost base expanding while revenue flat/falling)`;
+          rows.push(aRow('Operating Leverage', opStr, opLev>1.5?'var(--green)':opLev>0.8?'var(--tx2)':'var(--red)'));
+        }
+      }
+    }
     if (niCagr!=null) rows.push(aRow(`NI CAGR ${yrRng}`, pct(niCagr), col(niCagr,0.10,0,false)));
     if (epsCagr!=null) {
       const dilNote = (niCagr!=null&&epsCagr!=null&&Math.abs(epsCagr-niCagr)>0.03) ? (epsCagr>niCagr?' · Share buybacks / efficiency gain':' · Dilution — EPS growing slower than NI') : '';
       rows.push(aRow('EPS CAGR', `${pct(epsCagr)}${dilNote}`, col(epsCagr,0.10,0,false)));
     }
     if (roe!=null) rows.push(aRow('ROE (latest)', `${(roe*100).toFixed(1)}%`, col(roe,0.15,0.08,false)));
+    // ROIC = NOPAT / (total equity + net debt)  where NOPAT ≈ operating_income × (1 - effective_tax)
+    if (!isFinancial && is?.length>=1 && bs?.length>=1) {
+      const ebit = nv(is[0].operating_income);
+      const te   = nv(bs[0].total_equity);
+      const tl   = nv(bs[0].total_liabilities);
+      const cash = nv(bs[0].cash_and_equivalents);
+      const ltd  = nv(bs[0].long_term_debt);
+      // Use net debt (LTD - cash) if available; fall back to total liabilities * 0.35 haircut
+      const netDebt = (ltd!=null&&cash!=null) ? Math.max(0, ltd-cash) : (tl!=null?tl*0.35:null);
+      const ic = (te!=null&&netDebt!=null) ? te+netDebt : (te!=null?te:null);
+      if (ebit!=null&&ic!=null&&ic>0) {
+        const nopat = ebit * 0.95; // 5% effective Zakat rate for most Saudi companies
+        const roic  = nopat / ic;
+        const wacc  = 0.10; // approximate WACC for Saudi mid-caps
+        const spread = roic - wacc;
+        const roicStr = `${(roic*100).toFixed(1)}% — ${spread>0.03?'Value creator (ROIC > WACC)':spread>-0.02?'Near breakeven':' Value destroyer (ROIC < WACC)'}`;
+        rows.push(aRow('ROIC (est.)', roicStr, spread>0.03?'var(--green)':spread>-0.02?'var(--amb)':'var(--red)'));
+      }
+    }
     if (fcfConv!=null) {
       const qStr = fcfConv>=0.80?`${(fcfConv*100).toFixed(0)}% — High quality (earnings cash-backed)`:fcfConv>=0.50?`${(fcfConv*100).toFixed(0)}% — Moderate`:fcfConv>=0?`${(fcfConv*100).toFixed(0)}% — Low (accruals may inflate NI)`:'Negative FCF — investment phase or concern';
       rows.push(aRow('FCF / Net Income', qStr, col(fcfConv,0.80,0.50,false)));
@@ -3701,8 +3743,8 @@ function generateFundManagerAnalysis(is, bs, cf, period, stockObj) {
     if (divYrs>0) rows.push(aRow('Dividends', `Paid in ${divYrs} of ${cf?.length||0} year(s) available${stockObj?.dy!=null?' · Yield '+(stockObj.dy*100).toFixed(1)+'%':''}`, divYrs>=(cf?.length||1)*0.8?'var(--green)':'var(--tx2)'));
 
     // Verdict
-    const sG=revCagr!=null&&revCagr>=0.12, mG=revCagr!=null&&revCagr>=0.05;
-    const sN=niCagr !=null&&niCagr >=0.12;
+    const sG=revCagr!=null&&revCagr>=0.10, mG=revCagr!=null&&revCagr>=0.05;
+    const sN=niCagr !=null&&niCagr >=0.10;
     const mExp=mgnDelta!=null&&mgnDelta>0.01, mStab=mgnDelta!=null&&mgnDelta>-0.02;
     if (sG&&sN&&(mExp||mStab)) { verdict='QUALITY COMPOUNDER'; vColor='var(--green)'; vDetail=`Consistent double-digit growth across revenue and earnings${mExp?' with expanding margins':''}. ${roe!=null&&roe>=0.15?'High ROE ('+( roe*100).toFixed(0)+'%) reflects efficient capital use.':''}`; }
     else if (sG&&!mStab) { verdict='GROWTH — WATCH MARGINS'; vColor='var(--amb)'; vDetail=`Revenue CAGR ${pct(revCagr)} but profitability declining. Monitor whether margin compression is temporary or structural.`; }
@@ -3911,6 +3953,15 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
     }
     rows.push({label:'EPS (SAR)', vals: is.map(r => r.eps != null && r.eps !== '' ? parseFloat(r.eps).toFixed(3) : '—')});
     rows.push({label:'EPS Growth', vals: epsGrowth.map(fmtPct), type:'pct'});
+    // Interest coverage = Operating Income / Interest Expense (when available)
+    const hasInterest = is.some(r => r.interest_expense != null);
+    if (hasInterest && hasOpIncome) {
+      rows.push({label:'Interest Coverage', vals: is.map(r => {
+        const oi = parseFloat(r.operating_income), ie = parseFloat(r.interest_expense);
+        if (isNaN(oi) || isNaN(ie) || ie === 0) return '—';
+        return (oi / Math.abs(ie)).toFixed(1) + 'x';
+      }), type:'ratio'});
+    }
     return rows;
   })() : [];
 
