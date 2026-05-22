@@ -3592,7 +3592,7 @@ function switchTab(tab){
   }
   else if(tab==="annual"){
     body.innerHTML=`<div class="tab-loading"><span class="spin"></span> Loading annual statements…</div>`;
-    buildAnnual(d).then(html=>{if(body.isConnected)body.innerHTML=html;}).catch(()=>{if(body.isConnected)body.innerHTML='<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">⚠ Failed to load statements. Try clicking the tab again.</div>';});
+    buildAnnual(d).then(html=>{if(body.isConnected)body.innerHTML=html;}).catch(e=>{console.error('buildAnnual failed:',e);if(body.isConnected)body.innerHTML=`<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">⚠ Error: ${e?.message||String(e)}. <button onclick="switchTab('annual')" style="background:var(--acc);color:#000;border:none;border-radius:3px;padding:2px 8px;cursor:pointer;font-family:var(--mono);font-size:10px">Retry</button></div>`;});
   }
   else if(tab==="buffett")body.innerHTML=buildBuffett(d);
   else if(tab==="chart"){chartRangeIdx=3;chartShowRSI=false;chartShowSMA20=true;chartShowSMA50=false;chartShowBollinger=false;body.innerHTML=buildChartPanel(d);drawChart(d);}
@@ -4080,7 +4080,7 @@ async function buildFinancials(d, period) {
   // Pre-populated from Drive during openModal or from a previous tab visit
   const memData = d.rawTwelveData?.[cacheKey];
   if (memData && (memData.is || memData.bs || memData.cf)) {
-    return enrichAndRender(memData, 'cache');
+    try { return enrichAndRender(memData, 'cache'); } catch(e) { console.warn('cache render failed, re-fetching', e); delete d.rawTwelveData[cacheKey]; }
   }
 
   // 1. Google Drive cache (30-day TTL for statements)
@@ -4090,8 +4090,10 @@ async function buildFinancials(d, period) {
   const now = Date.now();
   const driveData = driveStmt && (driveStmt.is || driveStmt.bs || driveStmt.cf);
   if (driveData && now - driveUpdated < GD_STMT_TTL) {
-    tdLog('Loaded from Google Drive ✓', true);
-    return enrichAndRender(driveStmt, 'Google Drive cache');
+    try {
+      tdLog('Loaded from Google Drive ✓', true);
+      return enrichAndRender(driveStmt, 'Google Drive cache');
+    } catch(e) { console.warn('Drive cache render failed, re-fetching', e); }
   }
 
   // 2–4. Yahoo timeseries + Yahoo quoteSummary + Argaam + Saudi Exchange — all in parallel
