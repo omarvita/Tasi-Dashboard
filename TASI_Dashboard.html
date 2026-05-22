@@ -239,6 +239,8 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
   .modal { width:100% !important; border-radius:12px 12px 0 0; max-height:94vh; }
   .tab { font-size:9px; padding:6px 8px; }
 }
+#tt{position:fixed;z-index:99999;max-width:270px;background:#05050f;border:1px solid #2d3748;border-radius:6px;padding:7px 11px;font-family:var(--mono);font-size:9px;line-height:1.65;color:#94a3b8;pointer-events:none;display:none;box-shadow:0 6px 24px rgba(0,0,0,.8);word-break:break-word}
+[data-tip]{cursor:help}
 </style>
 </head>
 <body>
@@ -2141,6 +2143,91 @@ let SCORE_WEIGHTS = JSON.parse(localStorage.getItem('tasi_score_weights') || 'nu
 const WEIGHT_KEYS   = ['fundamental','technical','buffett','peg','dcf'];
 const WEIGHT_LABELS = {fundamental:'Fund',technical:'Tech',buffett:'Buffett',peg:'PEG',dcf:'DCF'};
 
+// ── FINANCIAL TERMS GLOSSARY — shown as tooltips on hover ──
+const TIPS = {
+  revenue:        'Total sales before any costs are deducted (also called Turnover). Growing revenue signals business expansion.',
+  rev_growth:     'Year-over-year change in Revenue. Sustained growth above 5% indicates a healthy, expanding business.',
+  gross_profit:   'Revenue minus Cost of Goods Sold. Measures raw production efficiency. Formula: Revenue − COGS.',
+  gross_margin:   'Gross Profit as % of Revenue. Higher margins signal pricing power. Expanding margins over time are a positive sign.',
+  ebitda:         'Earnings Before Interest, Taxes, Depreciation & Amortisation. A proxy for operating cash generation — strips out non-cash and financing effects.',
+  op_income:      'Profit from core operations after operating expenses but before interest and taxes. Also called EBIT or Operating Profit.',
+  op_margin:      'Operating Income as % of Revenue. Measures operational efficiency. Formula: Operating Income ÷ Revenue.',
+  net_income:     'The bottom line — profit after all expenses, interest, and taxes. Drives EPS and dividends.',
+  net_inc_growth: 'Year-over-year change in Net Income. Sustained growth above 10% indicates compounding earnings power.',
+  net_margin:     'Net Income as % of Revenue. Shows how much profit remains from each riyal of sales. Formula: Net Income ÷ Revenue.',
+  eps:            'Earnings Per Share — Net Income ÷ Shares Outstanding. Rising EPS supports share price growth over time.',
+  eps_growth:     'Year-over-year change in EPS. Sustained double-digit EPS growth is the hallmark of compounding businesses.',
+  interest_cov:   'How many times Operating Profit covers interest payments. Formula: Operating Income ÷ Interest Expense. Below 3× signals financial stress.',
+  interest_exp:   'Cash paid to debt holders. High interest expense relative to operating income increases default risk, especially in rising rate environments.',
+  total_assets:   'Everything the company owns — cash, inventory, equipment, property, intangibles. Formula: Assets = Liabilities + Equity.',
+  total_liab:     'All obligations owed to creditors — loans, bonds, payables, deferred revenue. Formula: Total Liabilities = Assets − Equity.',
+  total_equity:   "Shareholders' stake in the company (book value). Formula: Total Assets − Total Liabilities. Positive and growing equity is healthy.",
+  equity_assets:  'Equity as % of Total Assets. Measures balance sheet strength. Banks: above 8% is typically required under Basel III. Higher = more conservative.',
+  de_ratio:       'Total financial leverage. Compares debt (or total liabilities) to shareholders\' equity. Lower ratios indicate less financial risk.',
+  roa:            'Return on Assets — how efficiently the company turns assets into profit. Formula: Net Income ÷ Total Assets. Above 5% is generally good.',
+  cash_equiv:     'Cash and near-cash assets available immediately. Provides financial flexibility, acquisition capacity, and a buffer against downturns.',
+  lt_debt:        'Loans and bonds maturing in more than one year. Moderate debt is normal; excessive debt amplifies downside risk during downturns.',
+  op_cf:          'Cash actually generated from business operations — more reliable than net income as it excludes non-cash accounting items.',
+  inv_cf:         'Cash used for investments — equipment, acquisitions, or lending. Negative values are normal for growing companies investing in their future.',
+  fin_cf:         'Cash from issuing or repaying debt/equity, and paying dividends. Reflects how the company funds its operations.',
+  capex:          'Capital Expenditure — money spent on physical assets (machinery, buildings, ships, tech infrastructure). High CapEx: utilities, telecoms, shipping.',
+  fcf:            'Free Cash Flow — cash remaining after CapEx. The purest measure of value creation. Formula: Operating CF − CapEx. Funds dividends and debt repayment.',
+  fcf_margin:     'Free Cash Flow as % of Revenue. Shows how much of each riyal of sales converts to free cash. Above 10% is excellent quality.',
+  div_paid:       'Cash returned to shareholders. Consistent and growing dividends signal management confidence in sustainable future earnings.',
+  pe:             'Price-to-Earnings — how much investors pay per riyal of earnings. Formula: Price ÷ EPS. Compare to sector peers and historical average.',
+  pb:             'Price-to-Book — market value relative to accounting book value. Formula: Price ÷ (Equity ÷ Shares). Below 1 may indicate undervaluation.',
+  roe:            'Return on Equity — profitability on shareholders\' capital. Formula: Net Income ÷ Equity. Buffett seeks above 15% sustained for multiple years.',
+  npm:            'Net Profit Margin — profit as % of revenue. Formula: Net Income ÷ Revenue. Higher is better; always compare within the same industry.',
+  de:             'Debt-to-Equity — overall financial leverage. Formula: Debt ÷ Equity. High D/E amplifies both gains and losses; below 50% is conservative.',
+  cr:             'Current Ratio — short-term liquidity. Formula: Current Assets ÷ Current Liabilities. Below 1.0 may signal difficulty meeting near-term obligations.',
+  dy:             'Dividend Yield — annual dividend as % of share price. Formula: DPS ÷ Price. Verify sustainability by checking if dividends are covered by free cash flow.',
+  peg:            'Price/Earnings-to-Growth — adjusts P/E for expected growth. Formula: P/E ÷ Earnings Growth %. Below 1.0 often indicates undervaluation relative to growth.',
+  beta:           'Stock volatility relative to the market. Beta > 1 = more volatile than market; < 1 = more stable. Used in WACC and risk calculations.',
+  mktcap:         'Market Capitalisation — total market value of all shares. Formula: Price × Shares Outstanding. Determines Large/Mid/Small-cap classification.',
+  wacc:           'Weighted Average Cost of Capital — the minimum return needed to create value. Formula: ke × E/(D+E) + kd×(1−t) × D/(D+E). TASI range: 9–13%.',
+  ke:             'Cost of Equity — the return shareholders require. Calculated via CAPM: Risk-Free Rate + Beta × Equity Risk Premium.',
+  kd:             'Cost of Debt — effective interest rate the company pays on borrowings, after the Zakat/tax shield benefit.',
+  rfr:            'Risk-Free Rate — return on Saudi government bonds. Used as the baseline for all investment returns. Linked to SAIBOR (~5.5%).',
+  erp:            'Equity Risk Premium — extra return demanded over the risk-free rate for taking equity risk. Saudi/MENA ERP: ~6.5% (Damodaran 2024).',
+  term_growth:    'Perpetual growth rate assumed after year 5 — typically at or below long-run nominal GDP growth (2–3%). Small changes have a large impact on valuation.',
+  term_value:     'Present value of all cash flows beyond the 5-year forecast. Typically 60–80% of total DCF value — highly sensitive to WACC and terminal growth.',
+  ev:             'Enterprise Value — total acquisition cost of the business. Formula: PV of FCFs + Terminal Value. Compare to EBITDA for relative valuation (EV/EBITDA).',
+  net_debt:       'Total financial debt minus cash. Positive = more debt than cash; negative = net cash position. Subtracted from EV to derive equity value.',
+  intrinsic:      'Estimated fair value per share from the DCF model. Compare to market price to assess over/under-valuation. Treat as a range, not a precise target.',
+  ddm:            'Dividend Discount Model — values a stock as present value of all future dividends. Formula: DPS ÷ (ke − g). Preferred for mature dividend-paying companies.',
+  payout:         'Dividend Payout Ratio — dividends paid as % of earnings. Above 80% may be unsustainable in a downturn; below 50% leaves room for dividend growth.',
+  sust_g:         'Sustainable dividend growth rate. Formula: ROE × (1 − Payout Ratio). This is the rate dividends can grow without external financing.',
+  roic:           'Return on Invested Capital — the true test of capital efficiency. Formula: NOPAT ÷ (Debt + Equity). If ROIC > WACC, the company creates shareholder value.',
+  op_leverage:    'How revenue growth translates to EBIT growth. Ratio > 1 means profits grow faster than sales. Ratio < 0 means margin compression despite growth.',
+  gm_trend:       'Direction of Gross Margin over time (in percentage points). Expanding = pricing power or efficiency. Contracting = competitive pressure or cost inflation.',
+  fcf_quality:    'FCF as % of Net Income. Above 80% means earnings are well-supported by actual cash. Below 50% may indicate aggressive accounting or heavy reinvestment.',
+  capex_intensity:'CapEx as % of Revenue. High intensity (>10%) signals an asset-heavy business model. Compare CapEx to D&A — large excess indicates growth investment.',
+  rsi:            'Relative Strength Index (14-day) — momentum oscillator. Above 70 = potentially overbought; below 30 = potentially oversold. Use with trend context.',
+  sma20:          '20-day Simple Moving Average — short-term trend. Price above SMA-20 is a bullish signal; below is bearish. Reacts quickly to price changes.',
+  sma50:          '50-day Simple Moving Average — medium-term trend. Golden cross (SMA-20 crosses above SMA-50) is bullish; death cross is bearish.',
+  momentum:       'Short-term price momentum based on recent returns. Measures if recent price action is positive or negative relative to prior period.',
+  volatility:     'Annualised standard deviation of daily returns. Higher volatility means more uncertainty and risk. Compare to TASI benchmark for context.',
+  moat:           'Competitive advantage protecting profit margins from rivals — strong brand, switching costs, network effects, cost advantages, or regulatory licences.',
+  reit:           'Real Estate Investment Trust — owns income-producing real estate. Required by law to distribute ≥90% of taxable income as dividends.',
+  vision2030:     'Saudi Arabia\'s economic transformation plan. Measures exposure to government spending programs. A policy indicator, not a financial metric.',
+  w52h:           '52-Week High — the highest share price in the past year. Trading near the high may signal momentum; far below may indicate value or a falling trend.',
+  w52l:           '52-Week Low — the lowest share price in the past year. Useful for gauging recent price range and potential support levels.',
+  w52range:       'Shows where the current price sits within the 52-week High–Low range. A quick visual for short-term momentum and relative positioning.',
+  pv_fcfs:        'Present value of the 5 projected Free Cash Flows, discounted at WACC. The nearer-term, more certain component of total DCF value.',
+  equity_value:   'Enterprise Value minus Net Debt — the portion of company value belonging to shareholders. Dividing by shares gives intrinsic value per share.',
+  cagr:           'Compound Annual Growth Rate — the steady annual rate at which a value grew over N years. Formula: (End÷Start)^(1/N) − 1. More meaningful than single-year growth.',
+  asset_growth:   'Year-over-year or multi-year growth in Total Assets. Rapid asset growth not matched by earnings growth can signal inefficient capital allocation.',
+  div_cons:       'Number of consecutive years a dividend has been paid. Longer streaks indicate management commitment to returning capital to shareholders.',
+  shares_out:     'Total number of ordinary shares issued by the company. Dividing equity value by this gives intrinsic value per share.',
+  fcf_growth:     'Projected annual FCF growth rate for the 5-year forecast. Based on historical earnings growth and analyst estimates. Small changes have a large valuation impact.',
+  tax_zakat:      'Saudi domestic companies pay Zakat (~2.5% of net assets ≈ 5% effective income rate). Some subsidiaries pay 20% CIT. Reduces effective cost of debt via tax shield.',
+  upside:         'Difference between DCF intrinsic value and current market price as a percentage. Positive = undervalued vs model; negative = overvalued. Treat as a range, not a precise target.',
+  dps:            'Dividends Per Share — estimated annual cash dividend paid per ordinary share. Formula: Dividend Yield × Share Price.',
+  rev_momentum:   'Whether the most recent year\'s revenue growth rate is accelerating (above) or decelerating (below) the prior-year average.',
+};
+// Helper: returns a data-tip attribute string for inline use in template literals
+function T(key) { const v = TIPS[key]; return v ? `data-tip="${v}"` : ''; }
+
 function normalizeScoreWeights() {
   const W = SCORE_WEIGHTS;
   const total = WEIGHT_KEYS.reduce((s, k) => s + (W[k]||0), 0);
@@ -3551,22 +3638,20 @@ function buildOverview(d){
   <div class="mgrid4">
     <div class="mi"><div class="mil">Price SAR</div><div class="miv">${d.price!=null?d.price.toFixed(2):"—"}</div></div>
     <div class="mi"><div class="mil">Daily Chg</div><div class="miv ${d.change!=null?(d.change>=0?'pos':'neg'):''}">${d.change!=null?(d.change>=0?"+":"")+d.change.toFixed(2)+"%":"—"}</div></div>
-    <div class="mi"><div class="mil">P/E Ratio${d.pe!=null&&sectorMedianPE[d.sector]?`<span style="font-size:8px;color:var(--tx3);margin-left:3px">sector med ${sectorMedianPE[d.sector].toFixed(1)}x</span>`:''}
+    <div class="mi"><div class="mil" ${T('pe')}>P/E Ratio${d.pe!=null&&sectorMedianPE[d.sector]?`<span style="font-size:8px;color:var(--tx3);margin-left:3px">sector med ${sectorMedianPE[d.sector].toFixed(1)}x</span>`:''}
     </div><div class="miv">${d.pe!=null?d.pe.toFixed(1):"—"}</div></div>
-    <div class="mi"><div class="mil">P/B Ratio</div><div class="miv">${d.pb!=null?d.pb.toFixed(2):"—"}</div></div>
-    <div class="mi"><div class="mil">PEG Ratio</div><div class="miv" style="color:${peg!=null?(peg<1?"var(--green)":peg<2?"var(--amb)":"var(--red)"):"var(--tx3)"}">${peg!=null?peg.toFixed(2):"—"}</div></div>
-    <div class="mi"><div class="mil">Earnings Growth</div><div class="miv ${d.eg!=null?(d.eg>=0?'pos':'neg'):''}">${d.eg!=null?(d.eg>=0?"+":"")+(d.eg*100).toFixed(1)+"%":"—"}</div></div>
-    <div class="mi"><div class="mil">Div. Yield</div><div class="miv">${d.dy!=null?(d.dy*100).toFixed(2)+"%":"—"}</div></div>
-    <div class="mi"><div class="mil">ROE</div><div class="miv ${d.roe!=null?(d.roe>0.12?"pos":d.roe<0?"neg":""):''}">${d.roe!=null?(d.roe*100).toFixed(1)+"%":"—"}</div></div>
-    ${d.dcfPS!=null&&d.price?`<div class="mi"><div class="mil">${d.dcfMethod||'DCF'} Fair Value</div><div class="miv" style="color:${d.dcfUpside>0.10?'var(--green)':d.dcfUpside>-0.10?'var(--amb)':'var(--red)'}"><span style="font-weight:600">${d.dcfPS.toFixed(2)} SAR</span> <span style="font-size:9px;font-family:var(--mono)">${d.dcfUpside>=0?'+':''}${(d.dcfUpside*100).toFixed(1)}%</span></div></div>`:`<div class="mi"><div class="mil">DCF Fair Value</div><div class="miv" style="font-size:9px;color:var(--tx3)">Open DCF tab ↗</div></div>`}
+    <div class="mi"><div class="mil" ${T('pb')}>P/B Ratio</div><div class="miv">${d.pb!=null?d.pb.toFixed(2):"—"}</div></div>
+    <div class="mi"><div class="mil" ${T('peg')}>PEG Ratio</div><div class="miv" style="color:${peg!=null?(peg<1?"var(--green)":peg<2?"var(--amb)":"var(--red)"):"var(--tx3)"}">${peg!=null?peg.toFixed(2):"—"}</div></div>
+    <div class="mi"><div class="mil" ${T('eps_growth')}>Earnings Growth</div><div class="miv ${d.eg!=null?(d.eg>=0?'pos':'neg'):''}">${d.eg!=null?(d.eg>=0?"+":"")+(d.eg*100).toFixed(1)+"%":"—"}</div></div>
+    <div class="mi"><div class="mil" ${T('dy')}>Div. Yield</div><div class="miv">${d.dy!=null?(d.dy*100).toFixed(2)+"%":"—"}</div></div>
+    <div class="mi"><div class="mil" ${T('roe')}>ROE</div><div class="miv ${d.roe!=null?(d.roe>0.12?"pos":d.roe<0?"neg":""):''}">${d.roe!=null?(d.roe*100).toFixed(1)+"%":"—"}</div></div>
+    ${d.dcfPS!=null&&d.price?`<div class="mi"><div class="mil" ${T('intrinsic')}>${d.dcfMethod||'DCF'} Fair Value</div><div class="miv" style="color:${d.dcfUpside>0.10?'var(--green)':d.dcfUpside>-0.10?'var(--amb)':'var(--red)'}"><span style="font-weight:600">${d.dcfPS.toFixed(2)} SAR</span> <span style="font-size:9px;font-family:var(--mono)">${d.dcfUpside>=0?'+':''}${(d.dcfUpside*100).toFixed(1)}%</span></div></div>`:`<div class="mi"><div class="mil" ${T('intrinsic')}>DCF Fair Value</div><div class="miv" style="font-size:9px;color:var(--tx3)">Open DCF tab ↗</div></div>`}
     ${(()=>{
-      // Change 6: Volatility
       if(d.volatility==null) return '';
       const volColor = d.volatility<20?'var(--green)':d.volatility<35?'var(--amb)':'var(--red)';
-      return `<div class="mi"><div class="mil">Volatility (Ann.)</div><div class="miv" style="color:${volColor}">${d.volatility.toFixed(1)}%</div></div>`;
+      return `<div class="mi"><div class="mil" ${T('volatility')}>Volatility (Ann.)</div><div class="miv" style="color:${volColor}">${d.volatility.toFixed(1)}%</div></div>`;
     })()}
     ${(()=>{
-      // Change 6: Avg Volume 3M
       if(d.avgVolume3M==null && d.volume==null) return '';
       const vol = d.avgVolume3M ?? d.volume;
       const volStr = vol>=1e9?(vol/1e9).toFixed(2)+'B':vol>=1e6?(vol/1e6).toFixed(1)+'M':vol>=1e3?(vol/1e3).toFixed(0)+'K':vol.toFixed(0);
@@ -3584,12 +3669,12 @@ function buildOverview(d){
   </div>
   <div class="secl">Key Financials (SAR B, FY2024)</div>
   <div class="mgrid">
-    <div class="mi"><div class="mil">Revenue</div><div class="miv">${d.rev!=null?d.rev.toFixed(2)+"B":"—"}</div></div>
-    <div class="mi"><div class="mil">Net Income</div><div class="miv ${d.ni!=null?(d.ni>=0?'pos':'neg'):''}">${d.ni!=null?d.ni.toFixed(2)+"B":"—"}</div></div>
-    <div class="mi"><div class="mil">Total Assets</div><div class="miv">${d.assets!=null?d.assets.toFixed(1)+"B":"—"}</div></div>
-    <div class="mi"><div class="mil">Net Margin</div><div class="miv">${d.npm!=null?(d.npm*100).toFixed(1)+"%":"—"}</div></div>
-    <div class="mi"><div class="mil">Debt/Equity</div><div class="miv">${d.de!=null?d.de.toFixed(0)+"%":"N/A"}</div></div>
-    ${(()=>{const fcfVal=d.rawTwelveData?.annual?.cf?.[0]?.free_cash_flow;const mktCap=d.mktCap||(d.price!=null&&d.sharesOutstanding!=null?d.price*d.sharesOutstanding:null);let fcfDisplay,fcfClass;if(fcfVal!=null){const fcfNum=parseFloat(fcfVal);const fcfB=(Math.abs(fcfNum)/1e9).toFixed(2)+'B';const yld=mktCap?((fcfNum/mktCap)*100).toFixed(1)+'% yield':'';fcfDisplay=`${fcfNum>=0?'':'-'}${fcfB}${yld?' · '+yld:''}`;fcfClass=fcfNum>=0?'pos':'neg';}else{fcfDisplay=d.fcf===true?'Positive':d.fcf===false?'Negative':'—';fcfClass=d.fcf?'pos':'neg';}return`<div class="mi"><div class="mil">Free Cashflow</div><div class="miv ${fcfClass}">${fcfDisplay}</div></div>`;})()}
+    <div class="mi"><div class="mil" ${T('revenue')}>Revenue</div><div class="miv">${d.rev!=null?d.rev.toFixed(2)+"B":"—"}</div></div>
+    <div class="mi"><div class="mil" ${T('net_income')}>Net Income</div><div class="miv ${d.ni!=null?(d.ni>=0?'pos':'neg'):''}">${d.ni!=null?d.ni.toFixed(2)+"B":"—"}</div></div>
+    <div class="mi"><div class="mil" ${T('total_assets')}>Total Assets</div><div class="miv">${d.assets!=null?d.assets.toFixed(1)+"B":"—"}</div></div>
+    <div class="mi"><div class="mil" ${T('net_margin')}>Net Margin</div><div class="miv">${d.npm!=null?(d.npm*100).toFixed(1)+"%":"—"}</div></div>
+    <div class="mi"><div class="mil" ${T('de_ratio')}>Debt/Equity</div><div class="miv">${d.de!=null?d.de.toFixed(0)+"%":"N/A"}</div></div>
+    ${(()=>{const fcfVal=d.rawTwelveData?.annual?.cf?.[0]?.free_cash_flow;const mktCap=d.mktCap||(d.price!=null&&d.sharesOutstanding!=null?d.price*d.sharesOutstanding:null);let fcfDisplay,fcfClass;if(fcfVal!=null){const fcfNum=parseFloat(fcfVal);const fcfB=(Math.abs(fcfNum)/1e9).toFixed(2)+'B';const yld=mktCap?((fcfNum/mktCap)*100).toFixed(1)+'% yield':'';fcfDisplay=`${fcfNum>=0?'':'-'}${fcfB}${yld?' · '+yld:''}`;fcfClass=fcfNum>=0?'pos':'neg';}else{fcfDisplay=d.fcf===true?'Positive':d.fcf===false?'Negative':'—';fcfClass=d.fcf?'pos':'neg';}return`<div class="mi"><div class="mil" ${T('fcf')}>Free Cashflow</div><div class="miv ${fcfClass}">${fcfDisplay}</div></div>`;})()}
     <div class="mi"><div class="mil">Vision 2030 <span style="color:var(--tx3);font-size:9px" title="Measures how much this company benefits from Saudi Vision 2030 government spending programs. Not a financial metric.">ⓘ</span></div><div class="miv" style="color:${getVision2030(d.ticker)>=70?'var(--green)':getVision2030(d.ticker)>=45?'var(--amb)':'var(--tx3)'}" title="Measures how much this company benefits from Saudi Vision 2030 government spending programs. Not a financial metric.">${getVision2030(d.ticker)}/100</div></div>
   </div>
   <div class="secl">About</div>
@@ -3604,13 +3689,13 @@ function buildOverview(d){
       '<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:#1a1a2e;color:var(--blue);border:1px solid var(--blue)">✓ Yahoo Finance Live</span>':
       '<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:var(--bg3);color:var(--tx3);border:1px solid var(--b1)">Hardcoded estimates</span>'}
     ${d.fullLoaded?'<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:var(--gdim);color:var(--green);border:1px solid #166534">✓ Full data loaded</span>':'<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Full fundamentals load when you click a stock</span>'}
-    ${d.beta!=null?`<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Beta: ${d.beta.toFixed(2)}</span>`:''}
-    ${d.mktCap!=null?`<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Market cap: ${(d.mktCap/1e9).toFixed(1)}B SAR</span>`:''}
+    ${d.beta!=null?`<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)" ${T('beta')}>Beta: ${d.beta.toFixed(2)}</span>`:''}
+    ${d.mktCap!=null?`<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)" ${T('mktcap')}>Market cap: ${(d.mktCap/1e9).toFixed(1)}B SAR</span>`:''}
   </div>
   ${d.w52high||d.w52low?`<div class="mgrid" style="margin-bottom:8px">
-    <div class="mi"><div class="mil">52W High</div><div class="miv">${d.w52high?.toFixed(2)||'—'} SAR</div></div>
-    <div class="mi"><div class="mil">52W Low</div><div class="miv">${d.w52low?.toFixed(2)||'—'} SAR</div></div>
-    <div class="mi"><div class="mil">52W Range</div><div class="miv" style="font-size:10px">${d.w52low?.toFixed(2)||'?'} – ${d.w52high?.toFixed(2)||'?'}</div></div>
+    <div class="mi"><div class="mil" ${T('w52h')}>52W High</div><div class="miv">${d.w52high?.toFixed(2)||'—'} SAR</div></div>
+    <div class="mi"><div class="mil" ${T('w52l')}>52W Low</div><div class="miv">${d.w52low?.toFixed(2)||'—'} SAR</div></div>
+    <div class="mi"><div class="mil" ${T('w52range')}>52W Range</div><div class="miv" style="font-size:10px">${d.w52low?.toFixed(2)||'?'} – ${d.w52high?.toFixed(2)||'?'}</div></div>
   </div>`:''}
   ${(()=>{
     // Change 8: Earnings Estimates from earningsTrend
@@ -3750,11 +3835,14 @@ function generateFundManagerAnalysis(is, bs, cf, period, stockObj) {
   const sector = (stockObj?.sector || '').toLowerCase();
   const isFinancial = /banking|insurance|reit/.test(sector);
 
-  const aRow = (label, content, c='var(--tx2)') =>
-    `<div style="display:flex;gap:6px;padding:3px 0;border-top:1px solid var(--b1)">
-      <span style="color:var(--tx3);font-family:var(--mono);font-size:9px;min-width:130px;flex-shrink:0">${label}</span>
+  const _aTips = [[/^rev\s+cagr/i,TIPS.cagr],[/^rev\s*momentum/i,TIPS.rev_momentum],[/^revenue/i,TIPS.revenue],[/^net\s+income/i,TIPS.net_income],[/^ni\s+cagr/i,TIPS.cagr],[/^net\s+margin/i,TIPS.net_margin],[/^gross\s+margin/i,TIPS.gm_trend],[/^operating\s+leverage/i,TIPS.op_leverage],[/^eps\s+cagr/i,TIPS.eps],[/^roe/i,TIPS.roe],[/^roic/i,TIPS.roic],[/^fcf\s*\//i,TIPS.fcf_quality],[/^capex\s+intensity/i,TIPS.capex_intensity],[/^asset\s+growth/i,TIPS.asset_growth],[/^equity\/assets/i,TIPS.equity_assets],[/^d\/e/i,TIPS.de_ratio],[/^div(?:idend)/i,TIPS.div_cons]];
+  const aRow = (label, content, c='var(--tx2)') => {
+    const _tip = (_aTips.find(([re])=>re.test(label))||[])[1]||'';
+    return `<div style="display:flex;gap:6px;padding:3px 0;border-top:1px solid var(--b1)">
+      <span style="color:var(--tx3);font-family:var(--mono);font-size:9px;min-width:130px;flex-shrink:0"${_tip?` data-tip="${_tip}"`:''}>${label}</span>
       <span style="color:${c};font-family:var(--mono);font-size:9px;flex:1">${content}</span>
     </div>`;
+  };
 
   let rows = [], verdict, vColor, vDetail, title;
 
@@ -4123,7 +4211,8 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
             if (isRatio) return `<td style="color:var(--tx2);font-size:9px">${v}</td>`;
             return `<td class="${v.startsWith('-')?'ft-neg':parseFloat(v)===0?'':'ft-pos'}">${v}</td>`;
           }).join('');
-          return `<tr style="${trStyle}"><td style="${isDim?'color:var(--tx3);font-style:italic':''}">${row.label}</td>${cells}</tr>`;
+          const tipAttr = row.tip ? ` data-tip="${row.tip}"` : '';
+          return `<tr style="${trStyle}"><td style="${isDim?'color:var(--tx3);font-style:italic':''}"${tipAttr}>${row.label}</td>${cells}</tr>`;
         }).join('')}</tbody>
       </table></div></div>`;
   }
@@ -4147,38 +4236,37 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
     const niGrowth  = yoyGrowth(is, 'net_income');
     const epsGrowth = yoyGrowth(is, 'eps');
     const rows = [
-      {label:'Revenue',          vals: is.map(r => fmtSAR(r.revenue))},
-      {label:'Rev Growth YoY',   vals: revGrowth.map(fmtPct), type:'pct'},
+      {label:'Revenue',          tip:TIPS.revenue,        vals: is.map(r => fmtSAR(r.revenue))},
+      {label:'Rev Growth YoY',   tip:TIPS.rev_growth,     vals: revGrowth.map(fmtPct), type:'pct'},
     ];
     if (showGrossBlock) {
-      rows.push({label:'Gross Profit', vals: is.map(r => fmtSAR(r.gross_profit))});
-      rows.push({label:'Gross Margin', vals: is.map(r => {
+      rows.push({label:'Gross Profit', tip:TIPS.gross_profit, vals: is.map(r => fmtSAR(r.gross_profit))});
+      rows.push({label:'Gross Margin', tip:TIPS.gross_margin, vals: is.map(r => {
         const gm = parseFloat(r.gross_profit), rv = parseFloat(r.revenue);
         return (!isNaN(gm) && !isNaN(rv) && rv !== 0) ? fmtPct(gm/rv) : '—';
       }), type:'pct'});
     }
-    if (showEbitda) rows.push({label:'EBITDA', vals: is.map(r => fmtSAR(r.ebitda))});
+    if (showEbitda) rows.push({label:'EBITDA', tip:TIPS.ebitda, vals: is.map(r => fmtSAR(r.ebitda))});
     if (showOpBlock) {
-      rows.push({label:'Operating Inc.', vals: is.map(r => fmtSAR(r.operating_income))});
-      rows.push({label:'Op. Margin', vals: is.map(r => {
+      rows.push({label:'Operating Inc.', tip:TIPS.op_income, vals: is.map(r => fmtSAR(r.operating_income))});
+      rows.push({label:'Op. Margin', tip:TIPS.op_margin, vals: is.map(r => {
         const oi = parseFloat(r.operating_income), rv = parseFloat(r.revenue);
         return (!isNaN(oi) && !isNaN(rv) && rv !== 0) ? fmtPct(oi/rv) : '—';
       }), type:'pct'});
     }
-    rows.push({label:'Net Income',     vals: is.map(r => fmtSAR(r.net_income))});
-    rows.push({label:'Net Inc Growth', vals: niGrowth.map(fmtPct), type:'pct'});
+    rows.push({label:'Net Income',     tip:TIPS.net_income,     vals: is.map(r => fmtSAR(r.net_income))});
+    rows.push({label:'Net Inc Growth', tip:TIPS.net_inc_growth, vals: niGrowth.map(fmtPct), type:'pct'});
     if (!isFinancial) {
-      rows.push({label:'Net Margin', vals: is.map(r => {
+      rows.push({label:'Net Margin', tip:TIPS.net_margin, vals: is.map(r => {
         const ni = parseFloat(r.net_income), rv = parseFloat(r.revenue);
         return (!isNaN(ni) && !isNaN(rv) && rv !== 0) ? fmtPct(ni/rv) : '—';
       }), type:'pct'});
     }
-    rows.push({label:'EPS (SAR)', vals: is.map(r => r.eps != null && r.eps !== '' ? parseFloat(r.eps).toFixed(3) : '—')});
-    rows.push({label:'EPS Growth', vals: epsGrowth.map(fmtPct), type:'pct'});
-    // Interest coverage = Operating Income / Interest Expense (when available)
+    rows.push({label:'EPS (SAR)', tip:TIPS.eps, vals: is.map(r => r.eps != null && r.eps !== '' ? parseFloat(r.eps).toFixed(3) : '—')});
+    rows.push({label:'EPS Growth', tip:TIPS.eps_growth, vals: epsGrowth.map(fmtPct), type:'pct'});
     const hasInterest = is.some(r => r.interest_expense != null);
     if (hasInterest && hasOpIncome) {
-      rows.push({label:'Interest Coverage', vals: is.map(r => {
+      rows.push({label:'Interest Coverage', tip:TIPS.interest_cov, vals: is.map(r => {
         const oi = parseFloat(r.operating_income), ie = parseFloat(r.interest_expense);
         if (isNaN(oi) || isNaN(ie) || ie === 0) return '—';
         return (oi / Math.abs(ie)).toFixed(1) + 'x';
@@ -4192,30 +4280,29 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
     const niByYear = {};
     if (is) is.forEach(r => { if (r.fiscal_date) niByYear[r.fiscal_date.slice(0,4)] = parseFloat(r.net_income); });
     const rows = [
-      {label:'Total Assets',   vals: bs.map(r => fmtSAR(r.total_assets))},
-      {label:'Total Liab.',    vals: bs.map(r => fmtSAR(r.total_liabilities))},
-      {label:'Total Equity',   vals: bs.map(r => fmtSAR(r.total_equity))},
+      {label:'Total Assets',   tip:TIPS.total_assets, vals: bs.map(r => fmtSAR(r.total_assets))},
+      {label:'Total Liab.',    tip:TIPS.total_liab,   vals: bs.map(r => fmtSAR(r.total_liabilities))},
+      {label:'Total Equity',   tip:TIPS.total_equity, vals: bs.map(r => fmtSAR(r.total_equity))},
     ];
-    // For banks show Equity/Assets ratio instead of D/E (D/E is intentionally high for banks)
     if (isFinancial) {
-      rows.push({label:'Equity/Assets', vals: bs.map(r => {
+      rows.push({label:'Equity/Assets', tip:TIPS.equity_assets, vals: bs.map(r => {
         const te = parseFloat(r.total_equity), ta = parseFloat(r.total_assets);
         return (!isNaN(te) && !isNaN(ta) && ta !== 0) ? fmtPct(te/ta) : '—';
       }), type:'pct'});
     } else {
-      rows.push({label:'D/E (liab/equity)', vals: bs.map(r => {
+      rows.push({label:'D/E (liab/equity)', tip:TIPS.de_ratio, vals: bs.map(r => {
         const tl = parseFloat(r.total_liabilities), te = parseFloat(r.total_equity);
         return (!isNaN(tl) && !isNaN(te) && te !== 0) ? fmtRatio(tl/te) : '—';
       }), type:'ratio'});
     }
-    rows.push({label:'ROA', vals: bs.map(r => {
+    rows.push({label:'ROA', tip:TIPS.roa, vals: bs.map(r => {
       const ta = parseFloat(r.total_assets);
       const yr = (r.fiscal_date||'').slice(0,4);
       const ni = niByYear[yr];
       return (!isNaN(ta) && ta !== 0 && ni != null && !isNaN(ni)) ? fmtPct(ni/ta) : '—';
     }), type:'pct'});
-    rows.push({label:'Cash & Equiv.',  vals: bs.map(r => fmtSAR(r.cash_and_equivalents))});
-    rows.push({label:'Long-term Debt', vals: bs.map(r => fmtSAR(r.long_term_debt))});
+    rows.push({label:'Cash & Equiv.',  tip:TIPS.cash_equiv, vals: bs.map(r => fmtSAR(r.cash_and_equivalents))});
+    rows.push({label:'Long-term Debt', tip:TIPS.lt_debt,    vals: bs.map(r => fmtSAR(r.long_term_debt))});
     return rows;
   })() : [];
 
@@ -4224,21 +4311,21 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
     const revByYear = {};
     if (is) is.forEach(r => { if (r.fiscal_date) revByYear[r.fiscal_date.slice(0,4)] = parseFloat(r.revenue); });
     const rows = [
-      {label:'Operating CF',  vals: cf.map(r => fmtSAR(r.operating_activities))},
-      {label:'Investing CF',  vals: cf.map(r => fmtSAR(r.investing_activities))},
-      {label:'Financing CF',  vals: cf.map(r => fmtSAR(r.financing_activities))},
-      {label:'CapEx',         vals: cf.map(r => fmtSAR(r.capital_expenditure))},
-      {label:'Free Cashflow', vals: cf.map(r => fmtSAR(r.free_cash_flow))},
+      {label:'Operating CF',  tip:TIPS.op_cf,   vals: cf.map(r => fmtSAR(r.operating_activities))},
+      {label:'Investing CF',  tip:TIPS.inv_cf,  vals: cf.map(r => fmtSAR(r.investing_activities))},
+      {label:'Financing CF',  tip:TIPS.fin_cf,  vals: cf.map(r => fmtSAR(r.financing_activities))},
+      {label:'CapEx',         tip:TIPS.capex,   vals: cf.map(r => fmtSAR(r.capital_expenditure))},
+      {label:'Free Cashflow', tip:TIPS.fcf,     vals: cf.map(r => fmtSAR(r.free_cash_flow))},
     ];
     if (!isFinancial) {
-      rows.push({label:'FCF Margin', vals: cf.map(r => {
+      rows.push({label:'FCF Margin', tip:TIPS.fcf_margin, vals: cf.map(r => {
         const fcf = parseFloat(r.free_cash_flow);
         const yr = (r.fiscal_date||'').slice(0,4);
         const rv = revByYear[yr];
         return (!isNaN(fcf) && rv != null && !isNaN(rv) && rv !== 0) ? fmtPct(fcf/rv) : '—';
       }), type:'pct'});
     }
-    rows.push({label:'Dividends Paid', vals: cf.map(r => fmtSAR(r.dividends_paid))});
+    rows.push({label:'Dividends Paid', tip:TIPS.div_paid, vals: cf.map(r => fmtSAR(r.dividends_paid))});
     return rows;
   })() : [];
 
@@ -4276,6 +4363,8 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
     // compRow: returns a <tr> comparing stmt vs overview values
     // relMode=true uses relative diff; false uses absolute diff (for rates/margins)
     function compRow(label, sVal, oVal, fmtFn, t1, t2, relMode = true) {
+      const _cTips = {Revenue:TIPS.revenue,'Net Income':TIPS.net_income,EPS:TIPS.eps,'Net Margin':TIPS.net_margin,'Revenue Growth (YoY)':TIPS.rev_growth,'Earnings Growth (YoY)':TIPS.eps_growth,ROE:TIPS.roe,'Total Assets':TIPS.total_assets};
+      const _cTip = _cTips[label]||(label.startsWith('D/E')?TIPS.de_ratio:'');
       const hasS = isFinite(sVal), hasO = isFinite(oVal);
       const sStr = hasS ? fmtFn(sVal) : '—';
       const oStr = hasO ? fmtFn(oVal) : '—';
@@ -4291,7 +4380,7 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
       const sColor = hasS ? 'var(--tx2)' : 'var(--tx3)';
       const oColor = hasO ? 'var(--tx2)' : 'var(--tx3)';
       return `<tr>
-        <td style="color:var(--tx3);padding:4px 8px;border-bottom:1px solid var(--b1)">${label}</td>
+        <td style="color:var(--tx3);padding:4px 8px;border-bottom:1px solid var(--b1)"${_cTip?` data-tip="${_cTip}"`:''}>${label}</td>
         <td style="color:${sColor};padding:4px 8px;border-bottom:1px solid var(--b1);font-weight:${hasS?500:400}">${sStr}</td>
         <td style="color:${oColor};padding:4px 8px;border-bottom:1px solid var(--b1)">${oStr}</td>
         <td style="color:${color};padding:4px 8px;border-bottom:1px solid var(--b1);text-align:center;font-size:10px">${icon}</td>
@@ -4578,17 +4667,17 @@ async function buildDCF(d) {
   html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
   <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">Model Inputs</div>
   <div class="mgrid4">
-    <div class="mi"><div class="mil">Risk-Free Rate</div><div class="miv">${(rfRate*100).toFixed(1)}%</div></div>
-    <div class="mi"><div class="mil">Equity Risk Premium</div><div class="miv">${(erp*100).toFixed(1)}%</div></div>
-    <div class="mi"><div class="mil">Beta</div><div class="miv">${beta.toFixed(2)}</div></div>
-    <div class="mi"><div class="mil">Cost of Equity (ke)</div><div class="miv" style="color:var(--acc)">${(ke*100).toFixed(1)}%</div></div>
-    <div class="mi"><div class="mil">Cost of Debt</div><div class="miv">${(kd*100).toFixed(1)}%</div></div>
-    <div class="mi"><div class="mil">Tax/Zakat Rate</div><div class="miv" style="color:var(--acc)">${(taxRate*100).toFixed(0)}%${taxRate===0.05?'<span style="font-size:8px;color:var(--tx3)"> (Zakat)</span>':'<span style="font-size:8px;color:var(--tx3)"> (CIT)</span>'}</div></div>
-    <div class="mi"><div class="mil">D/E Ratio (fin.)</div><div class="miv">${(deRatio*100).toFixed(0)}%${isBanking?'<span style="font-size:8px;color:var(--amb)"> (incl. deposits)</span>':''}<span style="font-size:8px;color:var(--tx3)"> ${d._deOverride!=null?'(override)':'(est.)'}</span></div></div>
-    <div class="mi"><div class="mil">WACC</div><div class="miv" style="color:var(--acc);font-weight:600">${(wacc*100).toFixed(1)}%</div></div>
-    <div class="mi"><div class="mil">Terminal Growth</div><div class="miv">${(termGrowth*100).toFixed(1)}%</div></div>
-    <div class="mi"><div class="mil">FCF Growth (5Y)</div><div class="miv ${growthRate>=0?'pos':'neg'}">${growthRate>=0?'+':''}${(growthRate*100).toFixed(1)}%<span style="font-size:8px;color:var(--tx3);font-weight:400;margin-left:4px">${growthSource}</span></div></div>
-    <div class="mi"><div class="mil">FCF Source</div><div class="miv" style="font-size:9px">${fcfSource}</div></div>
+    <div class="mi"><div class="mil" ${T('rfr')}>Risk-Free Rate</div><div class="miv">${(rfRate*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil" ${T('erp')}>Equity Risk Premium</div><div class="miv">${(erp*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil" ${T('beta')}>Beta</div><div class="miv">${beta.toFixed(2)}</div></div>
+    <div class="mi"><div class="mil" ${T('ke')}>Cost of Equity (ke)</div><div class="miv" style="color:var(--acc)">${(ke*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil" ${T('kd')}>Cost of Debt</div><div class="miv">${(kd*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil" ${T('tax_zakat')}>Tax/Zakat Rate</div><div class="miv" style="color:var(--acc)">${(taxRate*100).toFixed(0)}%${taxRate===0.05?'<span style="font-size:8px;color:var(--tx3)"> (Zakat)</span>':'<span style="font-size:8px;color:var(--tx3)"> (CIT)</span>'}</div></div>
+    <div class="mi"><div class="mil" ${T('de_ratio')}>D/E Ratio (fin.)</div><div class="miv">${(deRatio*100).toFixed(0)}%${isBanking?'<span style="font-size:8px;color:var(--amb)"> (incl. deposits)</span>':''}<span style="font-size:8px;color:var(--tx3)"> ${d._deOverride!=null?'(override)':'(est.)'}</span></div></div>
+    <div class="mi"><div class="mil" ${T('wacc')}>WACC</div><div class="miv" style="color:var(--acc);font-weight:600">${(wacc*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil" ${T('term_growth')}>Terminal Growth</div><div class="miv">${(termGrowth*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil" ${T('fcf_growth')}>FCF Growth (5Y)</div><div class="miv ${growthRate>=0?'pos':'neg'}">${growthRate>=0?'+':''}${(growthRate*100).toFixed(1)}%<span style="font-size:8px;color:var(--tx3);font-weight:400;margin-left:4px">${growthSource}</span></div></div>
+    <div class="mi"><div class="mil" ${T('fcf')}>FCF Source</div><div class="miv" style="font-size:9px">${fcfSource}</div></div>
   </div></div>`;
 
   if (negativeFCFNote) {
@@ -4624,15 +4713,15 @@ async function buildDCF(d) {
   html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
   <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">${isBanking?'FCF-DCF Summary (reference — see DDM below)':'Valuation Summary'}</div>
   <div class="mgrid">
-    <div class="mi"><div class="mil">PV of FCFs (5Y)</div><div class="miv">${(sumPvFCF/1e9).toFixed(1)}B SAR</div></div>
-    <div class="mi"><div class="mil">PV of Terminal Value</div><div class="miv">${(pvTerm/1e9).toFixed(1)}B SAR</div></div>
-    <div class="mi"><div class="mil">Enterprise Value</div><div class="miv" style="color:var(--acc);font-weight:600">${(enterpriseValue/1e9).toFixed(1)}B SAR</div></div>
-    <div class="mi"><div class="mil">Net Debt</div><div class="miv" style="font-size:9px">${(netDebt/1e9).toFixed(1)}B SAR <span style="color:var(--tx3)">(${netDebtNote})</span></div></div>
-    <div class="mi"><div class="mil">Equity Value</div><div class="miv">${(equityValue/1e9).toFixed(1)}B SAR</div></div>
-    ${shareCount?`<div class="mi"><div class="mil">Shares Outstanding</div><div class="miv">${(shareCount/1e9).toFixed(2)}B</div></div>`:''}
-    ${intrinsicPS!=null?`<div class="mi ${isBanking?'':'hl'}"><div class="mil">FCF Intrinsic/Share</div><div class="miv" style="color:${isBanking?'var(--tx3)':'var(--acc)'};font-weight:600;font-size:${isBanking?12:16}px">${intrinsicPS.toFixed(2)} SAR${isBanking?' <span style="font-size:8px">(ignore)</span>':''}</div></div>`:''}
+    <div class="mi"><div class="mil" ${T('pv_fcfs')}>PV of FCFs (5Y)</div><div class="miv">${(sumPvFCF/1e9).toFixed(1)}B SAR</div></div>
+    <div class="mi"><div class="mil" ${T('term_value')}>PV of Terminal Value</div><div class="miv">${(pvTerm/1e9).toFixed(1)}B SAR</div></div>
+    <div class="mi"><div class="mil" ${T('ev')}>Enterprise Value</div><div class="miv" style="color:var(--acc);font-weight:600">${(enterpriseValue/1e9).toFixed(1)}B SAR</div></div>
+    <div class="mi"><div class="mil" ${T('net_debt')}>Net Debt</div><div class="miv" style="font-size:9px">${(netDebt/1e9).toFixed(1)}B SAR <span style="color:var(--tx3)">(${netDebtNote})</span></div></div>
+    <div class="mi"><div class="mil" ${T('equity_value')}>Equity Value</div><div class="miv">${(equityValue/1e9).toFixed(1)}B SAR</div></div>
+    ${shareCount?`<div class="mi"><div class="mil" ${T('shares_out')}>Shares Outstanding</div><div class="miv">${(shareCount/1e9).toFixed(2)}B</div></div>`:''}
+    ${intrinsicPS!=null?`<div class="mi ${isBanking?'':'hl'}"><div class="mil" ${T('intrinsic')}>FCF Intrinsic/Share</div><div class="miv" style="color:${isBanking?'var(--tx3)':'var(--acc)'};font-weight:600;font-size:${isBanking?12:16}px">${intrinsicPS.toFixed(2)} SAR${isBanking?' <span style="font-size:8px">(ignore)</span>':''}</div></div>`:''}
     ${d.price?`<div class="mi"><div class="mil">Current Price</div><div class="miv">${d.price.toFixed(2)} SAR</div></div>`:''}
-    ${upside!=null&&!isBanking?`<div class="mi hl"><div class="mil">Upside / Downside</div><div class="miv" style="font-size:16px;font-weight:600;color:${upside>0.10?'var(--green)':upside>-0.10?'var(--amb)':'var(--red)'}">${upside>=0?'+':''}${(upside*100).toFixed(1)}%</div></div>`:''}
+    ${upside!=null&&!isBanking?`<div class="mi hl"><div class="mil" ${T('upside')}>Upside / Downside</div><div class="miv" style="font-size:16px;font-weight:600;color:${upside>0.10?'var(--green)':upside>-0.10?'var(--amb)':'var(--red)'}">${upside>=0?'+':''}${(upside*100).toFixed(1)}%</div></div>`:''}
   </div></div>`;
 
   // DDM BREAKDOWN FOR BANKS
@@ -4645,14 +4734,14 @@ async function buildDCF(d) {
     html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
   <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">Dividend Discount Model — Bank Fair Value</div>
   <div class="mgrid4">
-    <div class="mi"><div class="mil">Dividend Yield</div><div class="miv">${(d.dy*100).toFixed(2)}%</div></div>
-    <div class="mi"><div class="mil">DPS (est.)</div><div class="miv">${dps.toFixed(3)} SAR</div></div>
-    <div class="mi"><div class="mil">Payout Ratio</div><div class="miv">${(payoutRatio*100).toFixed(0)}%</div></div>
-    <div class="mi"><div class="mil">ROE</div><div class="miv">${(roe*100).toFixed(1)}%</div></div>
-    <div class="mi"><div class="mil">Sustainable Growth (g)</div><div class="miv">${(gSustain*100).toFixed(2)}%</div></div>
-    <div class="mi"><div class="mil">Cost of Equity (ke)</div><div class="miv">${(ke*100).toFixed(1)}%</div></div>
-    <div class="mi hl"><div class="mil">DDM Fair Value</div><div class="miv" style="color:${uClr};font-weight:600;font-size:16px">${ddmPS.toFixed(2)} SAR</div></div>
-    <div class="mi hl"><div class="mil">DDM Upside</div><div class="miv" style="font-size:16px;font-weight:600;color:${uClr}">${ddmUpside>=0?'+':''}${(ddmUpside*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil" ${T('dy')}>Dividend Yield</div><div class="miv">${(d.dy*100).toFixed(2)}%</div></div>
+    <div class="mi"><div class="mil" ${T('dps')}>DPS (est.)</div><div class="miv">${dps.toFixed(3)} SAR</div></div>
+    <div class="mi"><div class="mil" ${T('payout')}>Payout Ratio</div><div class="miv">${(payoutRatio*100).toFixed(0)}%</div></div>
+    <div class="mi"><div class="mil" ${T('roe')}>ROE</div><div class="miv">${(roe*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil" ${T('sust_g')}>Sustainable Growth (g)</div><div class="miv">${(gSustain*100).toFixed(2)}%</div></div>
+    <div class="mi"><div class="mil" ${T('ke')}>Cost of Equity (ke)</div><div class="miv">${(ke*100).toFixed(1)}%</div></div>
+    <div class="mi hl"><div class="mil" ${T('ddm')}>DDM Fair Value</div><div class="miv" style="color:${uClr};font-weight:600;font-size:16px">${ddmPS.toFixed(2)} SAR</div></div>
+    <div class="mi hl"><div class="mil" ${T('upside')}>DDM Upside</div><div class="miv" style="font-size:16px;font-weight:600;color:${uClr}">${ddmUpside>=0?'+':''}${(ddmUpside*100).toFixed(1)}%</div></div>
   </div>
   <div style="font-size:8px;color:var(--tx3);margin-top:6px">Formula: ${dps.toFixed(3)} ÷ (${(ke*100).toFixed(2)}% − ${(gSustain*100).toFixed(2)}%) = ${ddmPS.toFixed(2)} SAR</div>
 </div>`;
@@ -4767,11 +4856,11 @@ function buildChartPanel(d){
   </div>
   <div class="mgrid" style="margin-top:6px">
     <div class="mi"><div class="mil">Technical Score</div><div class="miv" style="color:${sc(d.technical)}">${d.technical}/100</div></div>
-    <div class="mi"><div class="mil">RSI (14-day)</div><div class="miv" style="color:${d.rsi!=null?(d.rsi<30?"var(--green)":d.rsi>70?"var(--red)":"var(--tx)"):"var(--tx3)"}">${d.rsi!=null?d.rsi.toFixed(1):"—"}</div></div>
+    <div class="mi"><div class="mil" ${T('rsi')}>RSI (14-day)</div><div class="miv" style="color:${d.rsi!=null?(d.rsi<30?"var(--green)":d.rsi>70?"var(--red)":"var(--tx)"):"var(--tx3)"}">${d.rsi!=null?d.rsi.toFixed(1):"—"}</div></div>
     <div class="mi"><div class="mil">6M Price Chg</div><div class="miv">${d.closes?.length>1?((d.closes[d.closes.length-1]-d.closes[0])/d.closes[0]*100).toFixed(2)+"%":"—"}</div></div>
-    <div class="mi"><div class="mil">SMA-20</div><div class="miv">${d.sma20!=null?d.sma20.toFixed(2)+" SAR":"—"}</div></div>
-    <div class="mi"><div class="mil">SMA-50</div><div class="miv">${d.sma50!=null?d.sma50.toFixed(2)+" SAR":"—"}</div></div>
-    <div class="mi"><div class="mil">1M Momentum</div><div class="miv ${d.momentum!=null?(d.momentum>=0?'pos':'neg'):''}">${d.momentum!=null?(d.momentum>=0?"+":"")+(d.momentum*100).toFixed(1)+"%":"—"}</div></div>
+    <div class="mi"><div class="mil" ${T('sma20')}>SMA-20</div><div class="miv">${d.sma20!=null?d.sma20.toFixed(2)+" SAR":"—"}</div></div>
+    <div class="mi"><div class="mil" ${T('sma50')}>SMA-50</div><div class="miv">${d.sma50!=null?d.sma50.toFixed(2)+" SAR":"—"}</div></div>
+    <div class="mi"><div class="mil" ${T('momentum')}>1M Momentum</div><div class="miv ${d.momentum!=null?(d.momentum>=0?'pos':'neg'):''}">${d.momentum!=null?(d.momentum>=0?"+":"")+(d.momentum*100).toFixed(1)+"%":"—"}</div></div>
   </div>
   <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Hover chart for exact date+price · Chart fetched on-demand when you open this tab</div>`;
 }
@@ -5473,5 +5562,27 @@ function buildSectorPerf() {
     </div>
   </div>
 </div>
+
+<div id="tt"></div>
+<script>
+(function(){
+  const tt=document.getElementById('tt');
+  let _t;
+  function pos(e){
+    const x=e.clientX+14, y=e.clientY+14;
+    const tw=tt.offsetWidth, th=tt.offsetHeight;
+    tt.style.left=(x+tw>window.innerWidth ? window.innerWidth-tw-8 : x)+'px';
+    tt.style.top=(y+th>window.innerHeight ? e.clientY-th-10 : y)+'px';
+  }
+  document.addEventListener('mouseover',function(e){
+    const el=e.target.closest('[data-tip]');
+    if(!el){clearTimeout(_t);tt.style.display='none';return;}
+    clearTimeout(_t);
+    _t=setTimeout(function(){tt.textContent=el.dataset.tip;tt.style.display='block';pos(e);},180);
+  });
+  document.addEventListener('mousemove',function(e){if(tt.style.display==='block')pos(e);});
+  document.addEventListener('mouseout',function(e){if(e.target.closest('[data-tip]')){clearTimeout(_t);tt.style.display='none';}});
+})();
+</script>
 </body>
 </html>
