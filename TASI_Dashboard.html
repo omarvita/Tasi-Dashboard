@@ -278,6 +278,12 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
   </div>
 </header>
 
+<div id="disclaimer-bar" style="background:#1a1000;border-bottom:1px solid #a16207;padding:6px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-family:var(--mono);font-size:10px;color:#d97706;line-height:1.5">
+  <span>⚖ <strong>For personal research only.</strong> Scores, signals (BUY/HOLD/SELL), and valuations are algorithmic estimates — not investment advice. Providing investment recommendations to others without a <strong>CMA licence</strong> is regulated under Saudi Capital Market Law. Past performance does not guarantee future results.</span>
+  <button onclick="this.parentElement.style.display='none';localStorage.setItem('tasi_disc','1')" style="background:none;border:1px solid #a1620755;color:#a16207;border-radius:4px;padding:2px 8px;cursor:pointer;font-family:var(--mono);font-size:9px;white-space:nowrap;flex-shrink:0">Dismiss</button>
+</div>
+<script>if(localStorage.getItem('tasi_disc')==='1')document.getElementById('disclaimer-bar').style.display='none';</script>
+
 <main class="main">
   <div class="metrics">
     <div class="mc"><div class="mc-l">Total</div><div class="mc-v" id="m-t">—</div></div>
