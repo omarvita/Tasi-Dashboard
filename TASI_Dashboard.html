@@ -3592,7 +3592,7 @@ function switchTab(tab){
   }
   else if(tab==="annual"){
     body.innerHTML=`<div class="tab-loading"><span class="spin"></span> Loading annual statements…</div>`;
-    buildAnnual(d).then(html=>{if(body.isConnected)body.innerHTML=html;});
+    buildAnnual(d).then(html=>{if(body.isConnected)body.innerHTML=html;}).catch(()=>{if(body.isConnected)body.innerHTML='<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">⚠ Failed to load statements. Try clicking the tab again.</div>';});
   }
   else if(tab==="buffett")body.innerHTML=buildBuffett(d);
   else if(tab==="chart"){chartRangeIdx=3;chartShowRSI=false;chartShowSMA20=true;chartShowSMA50=false;chartShowBollinger=false;body.innerHTML=buildChartPanel(d);drawChart(d);}
@@ -4090,27 +4090,22 @@ async function buildFinancials(d, period) {
   const now = Date.now();
   const driveData = driveStmt && (driveStmt.is || driveStmt.bs || driveStmt.cf);
   if (driveData && now - driveUpdated < GD_STMT_TTL) {
-    const recentDate = !isQ ? driveData[0]?.fiscal_date : null;
-    const monthsOld = recentDate ? (now - new Date(recentDate).getTime()) / (30.5 * 24 * 60 * 60 * 1000) : 0;
-    // For annual: bypass if most recent FY ended >13 months ago — a new year is out
-    if (!recentDate || monthsOld <= 13) {
-      tdLog('Loaded from Google Drive ✓', true);
-      return enrichAndRender(driveStmt, 'Google Drive cache');
-    }
-    tdLog('Cache stale — new fiscal year available, refreshing…', true);
+    tdLog('Loaded from Google Drive ✓', true);
+    return enrichAndRender(driveStmt, 'Google Drive cache');
   }
 
   // 2–4. Yahoo timeseries + Yahoo quoteSummary + Argaam + Saudi Exchange — all in parallel
   // Running all sources concurrently then cross-validating gives best coverage and accuracy
   const code = d.ticker.replace(/\.SR$/i, '');
   tdLog(`Fetching ${period} statements from Yahoo, Argaam & Saudi Exchange in parallel…`, true);
+  const _t = ms => new Promise(r => setTimeout(() => r({is:null,bs:null,cf:null}), ms));
   const [yt, qs, argaamRes, saudiExRes] = await Promise.all([
     fetchYahooTimeseries(d.ticker, period),
     d.rawYahoo
       ? Promise.resolve(parseYahooFinancials(d.rawYahoo, period))
       : fetchYahooFinancials(d.ticker).then(r => parseYahooFinancials(r, period)),
-    fetchArgaamFinancials(code, period),
-    fetchSaudiExchangeFinancials(code, period),
+    Promise.race([fetchArgaamFinancials(code, period), _t(5000)]),
+    Promise.race([fetchSaudiExchangeFinancials(code, period), _t(5000)]),
   ]);
 
   // Merge Yahoo sources (timeseries = primary for depth, quoteSummary fills gaps)
