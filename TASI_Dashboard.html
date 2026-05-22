@@ -735,6 +735,7 @@ function clearTwelveCache() {
   // Also clear Drive in-memory cache so next open re-reads from Drive
   Object.keys(_gdCache).forEach(k => delete _gdCache[k]);
   Object.keys(_gdFileIdCache).forEach(k => delete _gdFileIdCache[k]);
+  Object.keys(_gdInFlight).forEach(k => delete _gdInFlight[k]);
   showToast('✓ Financial statement cache cleared');
   document.getElementById('td-log').textContent = 'Cache cleared — next tab click will fetch fresh data.';
 }
@@ -1069,6 +1070,7 @@ const GD_DCF_TTL   = 24 * 60 * 60 * 1000;       // 1 day TTL for DCF result
 const GD_TREND_TTL =  7 * 24 * 60 * 60 * 1000;  // 7 day TTL for earnings trend
 const _gdCache = {};                              // in-memory per-ticker Drive cache
 const _gdFileIdCache = {};                        // ticker → Drive file ID (avoids double list+fetch)
+const _gdInFlight = {};                           // in-flight promise map for coalescing concurrent reads
 
 function getGDClientId() { return localStorage.getItem('TASI_gd_clientid') || ''; }
 function initGDToken() { const t = sessionStorage.getItem('TASI_gd_token'); if (t) GD_TOKEN = t; }
@@ -1137,17 +1139,29 @@ async function gdFindFile(ticker) {
 async function gdReadStock(ticker) {
   if (!GD_TOKEN) return null;
   if (_gdCache[ticker]) return _gdCache[ticker];
-  try {
-    const file = await gdFindFile(ticker);
-    if (!file) return null;
-    const r = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
-      { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(10000) }
-    );
-    const data = await r.json();
-    _gdCache[ticker] = data;
-    return data;
-  } catch(e) { return null; }
+  if (_gdInFlight[ticker]) return _gdInFlight[ticker];
+  _gdInFlight[ticker] = (async () => {
+    try {
+      const file = await gdFindFile(ticker);
+      if (!file) return null;
+      const r = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
+        { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(10000) }
+      );
+      const data = await r.json();
+      _gdCache[ticker] = data;
+      return data;
+    } catch(e) { return null; }
+    finally { delete _gdInFlight[ticker]; }
+  })();
+  return _gdInFlight[ticker];
+}
+
+function gdPrefetch(idx) {
+  const d = window._fd?.[idx];
+  if (!d || !GD_TOKEN) return;
+  if (_gdCache[d.ticker] || _gdInFlight[d.ticker]) return;
+  gdReadStock(d.ticker).catch(() => {});
 }
 
 async function gdWriteStock(ticker, patch) {
@@ -1159,14 +1173,22 @@ async function gdWriteStock(ticker, patch) {
   const keys = Object.keys(_gdCache);
   if (keys.length > 100) delete _gdCache[keys[0]];
   try {
-    const file = await gdFindFile(ticker);
+    const fileId = _gdFileIdCache[ticker];
+    let uploadUrl, method;
+    if (fileId) {
+      uploadUrl = `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`;
+      method = 'PATCH';
+    } else {
+      const file = await gdFindFile(ticker);
+      uploadUrl = file
+        ? `https://www.googleapis.com/upload/drive/v3/files/${file.id}?uploadType=multipart`
+        : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+      method = file ? 'PATCH' : 'POST';
+    }
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify({ name })], { type: 'application/json' }));
     form.append('file', new Blob([JSON.stringify(merged)], { type: 'application/json' }));
-    const url = file
-      ? `https://www.googleapis.com/upload/drive/v3/files/${file.id}?uploadType=multipart`
-      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-    await fetch(url, { method: file ? 'PATCH' : 'POST', headers: { Authorization: `Bearer ${GD_TOKEN}` }, body: form, signal: AbortSignal.timeout(15000) });
+    await fetch(uploadUrl, { method, headers: { Authorization: `Bearer ${GD_TOKEN}` }, body: form, signal: AbortSignal.timeout(15000) });
   } catch(e) { console.warn('GD write failed:', e); }
 }
 
@@ -3177,7 +3199,7 @@ function renderTable(){
     const pegStr=d.peg!=null?`<span style="font-family:var(--mono);font-size:10px;color:${d.peg<1?"var(--green)":d.peg<2?"var(--amb)":"var(--red)"}">${d.peg.toFixed(2)}</span>`:`<span class="nav">—</span>`;
     const egStr=d.eg!=null?`<span class="${d.eg>=0?'pos':'neg'}">${d.eg>=0?"+":""}${(d.eg*100).toFixed(0)}%</span>`:`<span class="nav">—</span>`;
     const shortName = d.name.split(' ').slice(0,3).join(' ') + (d.name.split(' ').length > 3 ? '…' : '');
-    return`<tr class="data-row" onclick="openModal(${start+i})">
+    return`<tr class="data-row" onclick="openModal(${start+i})" onmouseenter="gdPrefetch(${start+i})">
       <td class="rk">${start+i+1}</td>
       <td class="tk" style="white-space:normal;min-width:54px">${d.ticker.replace(".SR","")}<span class="mob-company" style="display:none">${shortName}${moat}${reit}</span></td>
       <td class="col-co" title="${d.name}" style="color:var(--tx)">${getStockName(d)}${moat}${reit}</td>
