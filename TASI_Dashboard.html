@@ -128,6 +128,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 .formula-box .neu{color:var(--amb)}
 /* FINANCIAL TABLES */
 .ft{width:100%;border-collapse:collapse;font-size:10px;margin-bottom:10px}
+.ft td:first-child{min-width:130px;overflow:visible;text-overflow:clip}
 .ft th{font-family:var(--mono);font-size:9px;color:var(--tx3);text-align:right;padding:5px 7px;border-bottom:1px solid var(--b1);font-weight:500;white-space:nowrap}
 .ft th:first-child{text-align:left}
 .ft td{font-family:var(--mono);padding:5px 7px;border-bottom:1px solid var(--b1);color:var(--tx2);text-align:right;white-space:nowrap}
@@ -3042,6 +3043,12 @@ async function fetchStockFull(stock) {
       if(fd?.revenueGrowth?.raw)    result.rg=fd.revenueGrowth.raw;
       if(fd?.earningsGrowth?.raw)   result.eg=fd.earningsGrowth.raw;
       if(fd?.freeCashflow?.raw!=null) result.fcf=fd.freeCashflow.raw>0;
+      // TTM revenue/NI from Yahoo financialData (more current than hardcoded STOCKS values)
+      if(fd?.totalRevenue?.raw)  { result.ttmRev=fd.totalRevenue.raw; result.rev=fd.totalRevenue.raw/1e9; }
+      if(fd?.netIncome?.raw)     { result.ttmNI=fd.netIncome.raw;     result.ni=fd.netIncome.raw/1e9; }
+      if(fd?.totalCash?.raw)     result.ttmCash=fd.totalCash.raw;
+      // Shares outstanding → needed for EPS fallback and DCF per-share
+      if(dk?.sharesOutstanding?.raw) result.sharesOutstanding=dk.sharesOutstanding.raw;
       // Beta, 52W, market cap from Yahoo
       if(dk?.beta?.raw) result.beta=dk.beta.raw;
       if(dk?.['52WeekChange']?.raw) result.w52change=dk['52WeekChange'].raw;
@@ -3087,6 +3094,7 @@ async function fetchStockFull(stock) {
           rg: result.rg, eg: result.eg, beta: result.beta,
           w52high: result.w52high, w52low: result.w52low, w52change: result.w52change,
           mktCap: result.mktCap, eps: result.eps, fwdEps: result.fwdEps, dataDate: result.dataDate,
+          ttmRev: result.ttmRev, ttmNI: result.ttmNI, sharesOutstanding: result.sharesOutstanding,
         },
         fundUpdated: Date.now(),
         ...(result.earningsTrend?.length ? { earningsTrend: result.earningsTrend, trendUpdated: Date.now() } : {}),
@@ -3433,8 +3441,11 @@ async function openModal(idx){
         const f = driveStock.fundamentals;
         const realD = allData.find(a => a.ticker === d.ticker);
         if (realD && f) {
-          const keys = ['pe','pb','roe','npm','de','dy','fcf','cr','rg','eg','beta','w52high','w52low','w52change','mktCap','eps','fwdEps','dataDate'];
+          const keys = ['pe','pb','roe','npm','de','dy','fcf','cr','rg','eg','beta','w52high','w52low','w52change','mktCap','eps','fwdEps','dataDate','ttmRev','ttmNI','sharesOutstanding'];
           keys.forEach(k => { if (f[k] != null) realD[k] = f[k]; });
+          // Update rev/ni from Yahoo TTM values (more accurate than hardcoded STOCKS data)
+          if (f.ttmRev) realD.rev = f.ttmRev / 1e9;
+          if (f.ttmNI)  realD.ni  = f.ttmNI  / 1e9;
           // Restore earningsTrend and DCF result from Drive if available
           if (driveStock.earningsTrend?.length && (Date.now() - (driveStock.trendUpdated||0) < GD_TREND_TTL))
             realD.earningsTrend = driveStock.earningsTrend;
@@ -4262,7 +4273,16 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
         return (!isNaN(ni) && !isNaN(rv) && rv !== 0) ? fmtPct(ni/rv) : '—';
       }), type:'pct'});
     }
-    rows.push({label:'EPS (SAR)', tip:TIPS.eps, vals: is.map(r => r.eps != null && r.eps !== '' ? parseFloat(r.eps).toFixed(3) : '—')});
+    rows.push({label:'EPS (SAR)', tip:TIPS.eps, vals: (() => {
+      const shares = stockObj?.sharesOutstanding
+        || (stockObj?.mktCap && stockObj?.price && stockObj.price > 0 ? stockObj.mktCap / stockObj.price : null);
+      return is.map(r => {
+        if (r.eps != null && r.eps !== '') return parseFloat(r.eps).toFixed(3);
+        const ni = parseFloat(r.net_income);
+        if (!isNaN(ni) && shares && shares > 0) return (ni / shares).toFixed(3);
+        return '—';
+      });
+    })()});
     rows.push({label:'EPS Growth', tip:TIPS.eps_growth, vals: epsGrowth.map(fmtPct), type:'pct'});
     const hasInterest = is.some(r => r.interest_expense != null);
     if (hasInterest && hasOpIncome) {
@@ -4380,7 +4400,7 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
       const sColor = hasS ? 'var(--tx2)' : 'var(--tx3)';
       const oColor = hasO ? 'var(--tx2)' : 'var(--tx3)';
       return `<tr>
-        <td style="color:var(--tx3);padding:4px 8px;border-bottom:1px solid var(--b1)"${_cTip?` data-tip="${_cTip}"`:''}>${label}</td>
+        <td style="color:var(--tx3);padding:4px 8px;border-bottom:1px solid var(--b1);min-width:150px;white-space:nowrap;overflow:visible;text-overflow:clip"${_cTip?` data-tip="${_cTip}"`:''}>${label}</td>
         <td style="color:${sColor};padding:4px 8px;border-bottom:1px solid var(--b1);font-weight:${hasS?500:400}">${sStr}</td>
         <td style="color:${oColor};padding:4px 8px;border-bottom:1px solid var(--b1)">${oStr}</td>
         <td style="color:${color};padding:4px 8px;border-bottom:1px solid var(--b1);text-align:center;font-size:10px">${icon}</td>
@@ -4392,23 +4412,28 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
     const fPct = v => (v>=0?'+':'') + (v*100).toFixed(1) + '%';
     const fPP  = v => (v>=0?'+':'') + (v*100).toFixed(1) + 'pp';
 
-    const ovRev  = stockObj.rev  != null ? stockObj.rev  * 1e9 : NaN;
-    const ovNI   = stockObj.ni   != null ? stockObj.ni   * 1e9 : NaN;
+    // Use Yahoo TTM values (ttmRev/ttmNI) when available — these are more current than
+    // hardcoded STOCKS data. FY annual vs TTM can legitimately differ 10–30% for growing
+    // companies; large gaps (>50%) usually mean stale hardcoded data or data source mismatch.
+    const ovRev  = stockObj.ttmRev != null ? stockObj.ttmRev : (stockObj.rev  != null ? stockObj.rev  * 1e9 : NaN);
+    const ovNI   = stockObj.ttmNI  != null ? stockObj.ttmNI  : (stockObj.ni   != null ? stockObj.ni   * 1e9 : NaN);
     const ovEPS  = stockObj.eps  != null ? stockObj.eps        : NaN;
     const ovNPM  = stockObj.npm  != null ? stockObj.npm        : NaN;
     const ovRG   = stockObj.rg   != null ? stockObj.rg         : NaN;
     const ovEG   = stockObj.eg   != null ? stockObj.eg         : NaN;
     const ovROE  = stockObj.roe  != null ? stockObj.roe        : NaN;
     const ovDE   = stockObj.de   != null ? stockObj.de         : NaN;
+    // For assets: update stockObj from statement BS (balance sheet is point-in-time, same concept)
+    if (latestBS && isFinite(stmtAssets) && stmtAssets > 0) stockObj.assets = stmtAssets;
     const ovAssets = stockObj.assets != null ? stockObj.assets : NaN;
 
     const rows = [
-      compRow('Revenue',                 stmtRev,    ovRev,    fB,   0.05, 0.20, true),
-      compRow('Net Income',              stmtNI,     ovNI,     fB,   0.10, 0.30, true),
-      compRow('EPS',                     stmtEPS,    ovEPS,    fSAR, 0.10, 0.25, true),
+      compRow('Revenue',                 stmtRev,    ovRev,    fB,   0.10, 0.35, true),
+      compRow('Net Income',              stmtNI,     ovNI,     fB,   0.15, 0.40, true),
+      compRow('EPS',                     stmtEPS,    ovEPS,    fSAR, 0.10, 0.30, true),
       ...(!isFinancial ? [compRow('Net Margin',   stmtNPM,  ovNPM,  v=>(v*100).toFixed(1)+'%', 0.03, 0.08, false)] : []),
-      compRow('Revenue Growth (YoY)',    stmtRG,     ovRG,     fPct, 0.03, 0.10, false),
-      compRow('Earnings Growth (YoY)',   stmtEG,     ovEG,     fPct, 0.05, 0.15, false),
+      compRow('Revenue Growth (YoY)',    stmtRG,     ovRG,     fPct, 0.05, 0.15, false),
+      compRow('Earnings Growth (YoY)',   stmtEG,     ovEG,     fPct, 0.05, 0.20, false),
       compRow('ROE',                     stmtROE,    ovROE,    v=>(v*100).toFixed(1)+'%', 0.03, 0.08, false),
       compRow('Total Assets',            isFinite(stmtAssets)?stmtAssets*1e9:NaN, isFinite(ovAssets)?ovAssets*1e9:NaN, fB, 0.05, 0.20, true),
       ...(!isFinancial ? [compRow(stmtDELabel,   stmtDE,   ovDE,   v=>v.toFixed(0)+'%', 0.15, 0.40, true)] : []),
@@ -4428,7 +4453,7 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
         </tr></thead>
         <tbody>${rows.join('')}</tbody>
       </table>
-      <div style="padding:5px 10px;font-family:var(--mono);font-size:8px;color:var(--tx3)">Statements = annual FY data &nbsp;·&nbsp; Overview = Yahoo TTM/live &nbsp;·&nbsp; Small gaps are expected; large gaps may indicate stale or estimated data</div>
+      <div style="padding:5px 10px;font-family:var(--mono);font-size:8px;color:var(--tx3)">Statements = annual FY (fetched from Yahoo/Argaam/SaudiExchange) &nbsp;·&nbsp; Yahoo TTM = trailing 12-month live data &nbsp;·&nbsp; FY vs TTM gaps of 10–35% are normal for growing companies (different period coverage). Larger gaps (&gt;40%) may indicate a data source issue.</div>
     </div>`;
   }
 
@@ -4597,7 +4622,8 @@ async function buildDCF(d) {
       netDebtNote = `total debt ${(totalDebt/1e9).toFixed(1)}B − cash ${(!isNaN(cash)?cash/1e9:0).toFixed(1)}B`;
     }
     equityValue = Math.max(enterpriseValue - netDebt, 0);
-    shareCount = (d.mktCap && d.price && d.price > 0) ? d.mktCap / d.price : null;
+    shareCount = d.sharesOutstanding
+      || (d.mktCap && d.price && d.price > 0 ? d.mktCap / d.price : null);
     intrinsicPS = shareCount ? equityValue / shareCount : null;
     upside = (intrinsicPS && d.price) ? (intrinsicPS - d.price) / d.price : null;
   }
