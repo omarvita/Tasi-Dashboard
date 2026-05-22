@@ -4272,8 +4272,15 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
       }), type:'pct'});
     }
     rows.push({label:'EPS (SAR)', tip:TIPS.eps, vals: (() => {
-      const shares = stockObj?.sharesOutstanding
+      let shares = stockObj?.sharesOutstanding
         || (stockObj?.mktCap && stockObj?.price && stockObj.price > 0 ? stockObj.mktCap / stockObj.price : null);
+      // derive shares from any row that has both eps and net_income
+      if (!shares) {
+        for (const r of is) {
+          const ep = parseFloat(r.eps), ni = parseFloat(r.net_income);
+          if (!isNaN(ep) && ep !== 0 && !isNaN(ni) && ni !== 0) { shares = ni / ep; break; }
+        }
+      }
       return is.map(r => {
         if (r.eps != null && r.eps !== '') return parseFloat(r.eps).toFixed(3);
         const ni = parseFloat(r.net_income);
@@ -4622,6 +4629,13 @@ async function buildDCF(d) {
     equityValue = Math.max(enterpriseValue - netDebt, 0);
     shareCount = d.sharesOutstanding
       || (d.mktCap && d.price && d.price > 0 ? d.mktCap / d.price : null);
+    // derive shares from IS rows: any row with both eps and net_income
+    if (!shareCount && annualData?.is) {
+      for (const r of annualData.is) {
+        const ep = parseFloat(r.eps), ni = parseFloat(r.net_income);
+        if (!isNaN(ep) && ep !== 0 && !isNaN(ni) && ni !== 0) { shareCount = ni / ep; break; }
+      }
+    }
     intrinsicPS = shareCount ? equityValue / shareCount : null;
     upside = (intrinsicPS && d.price) ? (intrinsicPS - d.price) / d.price : null;
   }
@@ -5160,6 +5174,9 @@ function init(){
   });
   try{buildSectors();}catch(e){console.error('buildSectors:',e);}
   try{setSector("All");}catch(e){console.error('setSector:',e);}
+  // Update stock count in header
+  const lsEl = document.getElementById('logo-sub');
+  if (lsEl) lsEl.textContent = `${allData.length} Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic`;
   // Auto-discover new Saudi stocks Yahoo Finance has added — fire-and-forget, never blocks load
   setTimeout(autoDiscoverSaudiStocks, 3000);
 }
