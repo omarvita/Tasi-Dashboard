@@ -4351,7 +4351,7 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
 
   // ── Statement vs Overview comparison table ──
   let validationHtml = '';
-  if (stockObj && (is?.length || bs?.length)) {
+  if (!isQ && stockObj && (is?.length || bs?.length)) {
     const latestIS = is?.[0], prevIS = is?.[1], latestBS = bs?.[0];
 
     const stmtRev  = latestIS ? parseFloat(latestIS.revenue)    : NaN;
