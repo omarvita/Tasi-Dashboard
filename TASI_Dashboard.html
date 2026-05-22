@@ -3756,7 +3756,7 @@ function _renderModalShell(d) {
       <div class="tab" id="tab-annual" onclick="switchTab('annual')">5-Year</div>
       <div class="tab" id="tab-buffett" onclick="switchTab('buffett')">Buffett</div>
       <div class="tab" id="tab-chart" onclick="switchTab('chart')">Chart</div>
-      <div class="tab" id="tab-dcf" onclick="switchTab('dcf')">DCF</div>
+      <div class="tab" id="tab-dcf" onclick="switchTab('dcf')">Fair Value</div>
       <div class="tab" id="tab-extra" onclick="switchTab('extra')">Vision 2030</div>
     </div>
   </div>
@@ -3944,7 +3944,7 @@ function switchTab(tab){
   }
   else if(tab==="buffett")body.innerHTML=buildBuffett(d);
   else if(tab==="chart"){chartRangeIdx=3;chartShowRSI=false;chartShowSMA20=true;chartShowSMA50=false;chartShowBollinger=false;body.innerHTML=buildChartPanel(d);drawChart(d);}
-  else if(tab==="dcf"){body.innerHTML=`<div class="tab-loading"><span class="spin"></span> Building DCF model…</div>`;buildDCF(d).then(html=>{if(body.isConnected)body.innerHTML=html;});}
+  else if(tab==="dcf"){body.innerHTML=`<div class="tab-loading"><span class="spin"></span> Building fair value model…</div>`;buildDCF(d).then(html=>{if(body.isConnected)body.innerHTML=html;});}
   else if(tab==="extra")body.innerHTML=buildExtraPanel(d);
 }
 
@@ -4004,7 +4004,7 @@ function buildOverview(d){
     <div class="mi"><div class="mil" ${T('eps_growth')}>Earnings Growth</div><div class="miv ${d.eg!=null?(d.eg>=0?'pos':'neg'):''}">${d.eg!=null?(d.eg>=0?"+":"")+(d.eg*100).toFixed(1)+"%":"—"}</div></div>
     <div class="mi"><div class="mil" ${T('dy')}>Div. Yield</div><div class="miv">${d.dy!=null?(d.dy*100).toFixed(2)+"%":"—"}</div></div>
     <div class="mi"><div class="mil" ${T('roe')}>ROE</div><div class="miv ${d.roe!=null?(d.roe>0.12?"pos":d.roe<0?"neg":""):''}">${d.roe!=null?(d.roe*100).toFixed(1)+"%":"—"}</div></div>
-    ${d.dcfPS!=null&&d.price?`<div class="mi"><div class="mil" ${T('intrinsic')}>${d.dcfMethod||'DCF'} Fair Value</div><div class="miv" style="color:${d.dcfUpside>0.10?'var(--green)':d.dcfUpside>-0.10?'var(--amb)':'var(--red)'}"><span style="font-weight:600">${d.dcfPS.toFixed(2)} SAR</span> <span style="font-size:9px;font-family:var(--mono)">${d.dcfUpside>=0?'+':''}${(d.dcfUpside*100).toFixed(1)}%</span></div></div>`:`<div class="mi"><div class="mil" ${T('intrinsic')}>DCF Fair Value</div><div class="miv" style="font-size:9px;color:var(--tx3)">Open DCF tab ↗</div></div>`}
+    ${d.dcfPS!=null&&d.price?`<div class="mi"><div class="mil" ${T('intrinsic')}>${d.dcfMethod||'DCF'} Fair Value</div><div class="miv" style="color:${d.dcfUpside>0.10?'var(--green)':d.dcfUpside>-0.10?'var(--amb)':'var(--red)'}"><span style="font-weight:600">${d.dcfPS.toFixed(2)} SAR</span> <span style="font-size:9px;font-family:var(--mono)">${d.dcfUpside>=0?'+':''}${(d.dcfUpside*100).toFixed(1)}%</span></div></div>`:`<div class="mi"><div class="mil" ${T('intrinsic')}>DCF Fair Value</div><div class="miv" style="font-size:9px;color:var(--tx3)">Open Fair Value tab ↗</div></div>`}
     ${(()=>{
       if(d.volatility==null) return '';
       const volColor = d.volatility<20?'var(--green)':d.volatility<35?'var(--amb)':'var(--red)';
@@ -4160,7 +4160,7 @@ function buildBreakdown(d){
       why:upside>0.10?'Strong upside vs fair value':upside>-0.10?'Near fair value':'Overvalued vs DCF estimate',
       delta:Math.round(dcfScore-50),
       detail:`DCF/DDM upside of ${(upside*100).toFixed(1)}% maps to a score of ${dcfScore}/100.<br>Scoring: 50 base + (upside ÷ 50%) × 50, clamped 0–100.<br>+50% upside → 100 · 0% → 50 · −50% → 0.`
-    }]:[{label:'DCF/DDM',raw:'—',why:'DCF not yet calculated — open DCF tab first',delta:0,detail:'Open the DCF tab to run the valuation model and populate this score.'}];
+    }]:[{label:'DCF/DDM',raw:'—',why:'DCF not yet calculated — open DCF tab first',delta:0,detail:'Open the Fair Value tab to run the valuation model and populate this score.'}];
     dcfStepsHtml=renderSteps(dcfSteps,upside!=null?dcfScore:50,'DCF / DDM Score','#00d4aa',50);
   }
 
@@ -5093,7 +5093,7 @@ async function buildDCF(d) {
   }
 
   // ── HTML ──
-  let html = `<div class="secl">DCF Valuation — Saudi Market Parameters</div>`;
+  let html = `<div class="secl">Fair Value — Multi-Method Valuation</div>`;
 
   // PROMINENT PRICE vs FAIR VALUE CARD
   if (primaryPS != null && d.price) {
