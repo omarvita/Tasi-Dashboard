@@ -1896,10 +1896,36 @@ function renderPortfolioHTML(stats) {
         <td>${bar(p.combined)}</td>
         <td><span class="badge ${p.signal.cls}">${p.signal.label}</span></td>
         <td style="font-family:var(--mono);font-size:9px;white-space:nowrap">${eventHtml}</td>
-        <td><button onclick="setPortfolioPosition('${p.ticker}',0,0);document.getElementById('portfolio-panel').innerHTML=renderPortfolioHTML(getPortfolioStats())" style="font-size:9px;color:var(--red);background:transparent;border:0;cursor:pointer;padding:2px 4px" title="Remove position">✕</button></td>
+        <td style="white-space:nowrap">
+          <button onclick="_portOpenSell('${p.ticker}')" style="font-size:9px;font-family:var(--mono);color:var(--red);background:transparent;border:1px solid var(--red);border-radius:3px;cursor:pointer;padding:2px 7px;margin-right:3px" title="Sell shares">Sell</button>
+          <button onclick="setPortfolioPosition('${p.ticker}',0,0);document.getElementById('portfolio-panel').innerHTML=renderPortfolioHTML(getPortfolioStats())" style="font-size:9px;color:var(--tx3);background:transparent;border:0;cursor:pointer;padding:2px 4px" title="Remove entire position">✕</button>
+        </td>
       </tr>`;
     }).join('')}</tbody>
   </table></div>`;
+
+  // ── SELL PANEL (shown when a Sell button is clicked) ──
+  if (window._portSellTicker && portfolio[window._portSellTicker]) {
+    const sp = portfolio[window._portSellTicker];
+    const sd = allData.find(d => d.ticker === window._portSellTicker);
+    const curPrice = sd?.price || 0;
+    html += `<div id="port-sell-panel" style="background:#1a0000;border:2px solid var(--red);border-radius:8px;padding:12px 14px;margin-bottom:12px">
+  <div style="font-family:var(--mono);font-size:9px;color:var(--red);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Sell Position — ${window._portSellTicker.replace('.SR','')}</div>
+  <div style="font-family:var(--mono);font-size:10px;color:var(--tx2);margin-bottom:10px">
+    You hold <b style="color:var(--tx)">${sp.shares} shares</b> · Avg cost <b style="color:var(--tx)">${sp.avgCost.toFixed(2)} SAR</b> · Current price <b style="color:var(--tx)">${curPrice?curPrice.toFixed(2)+' SAR':'—'}</b>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <input type="number" id="port-sell-shares" placeholder="Shares to sell" min="1" max="${sp.shares}"
+      style="width:140px;background:var(--bg2);border:1px solid var(--red);border-radius:5px;color:var(--tx);font-family:var(--mono);font-size:11px;padding:5px 8px;outline:none">
+    <button onclick="_portConfirmSell()" style="font-family:var(--mono);font-size:10px;padding:6px 14px;background:var(--red);color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600">Confirm Sell</button>
+    <button onclick="window._portSellTicker=null;document.getElementById('portfolio-panel').innerHTML=renderPortfolioHTML(getPortfolioStats())" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:transparent;color:var(--tx3);border:1px solid var(--b2);border-radius:4px;cursor:pointer">Cancel</button>
+    <button onclick="_portConfirmSell(${sp.shares})" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:transparent;color:var(--red);border:1px solid var(--red);border-radius:4px;cursor:pointer">Sell All ${sp.shares}</button>
+  </div>
+  ${curPrice && sp.avgCost ? `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:8px">
+    P&L per share: <span style="color:${curPrice>=sp.avgCost?'var(--green)':'var(--red)'}">${curPrice>=sp.avgCost?'+':''}${(curPrice-sp.avgCost).toFixed(2)} SAR (${((curPrice-sp.avgCost)/sp.avgCost*100).toFixed(1)}%)</span>
+  </div>` : ''}
+</div>`;
+  }
 
   // ── UPCOMING EVENTS CALENDAR ──
   const allEvents = [];
@@ -2023,6 +2049,32 @@ function _portSetPosition() {
   if(!t||!s||!c){showToast('Fill in ticker, shares and avg cost');return;}
   setPortfolioPosition(t,s,c);
   document.getElementById('portfolio-panel').innerHTML=renderPortfolioHTML(getPortfolioStats());
+}
+
+function _portOpenSell(ticker) {
+  window._portSellTicker = ticker;
+  document.getElementById('portfolio-panel').innerHTML = renderPortfolioHTML(getPortfolioStats());
+  document.getElementById('port-sell-panel')?.scrollIntoView({behavior:'smooth', block:'nearest'});
+  document.getElementById('port-sell-shares')?.focus();
+}
+
+function _portConfirmSell(overrideShares) {
+  const ticker = window._portSellTicker;
+  if (!ticker || !portfolio[ticker]) return;
+  const toSell = overrideShares != null ? parseFloat(overrideShares) : parseFloat(document.getElementById('port-sell-shares')?.value);
+  if (!isFinite(toSell) || toSell <= 0) { showToast('Enter the number of shares to sell'); return; }
+  const pos = portfolio[ticker];
+  const remaining = Math.round((pos.shares - toSell) * 1e6) / 1e6;
+  if (remaining <= 0) {
+    delete portfolio[ticker];
+    showToast(`Sold all ${pos.shares} shares of ${ticker.replace('.SR','')}`);
+  } else {
+    portfolio[ticker] = {shares: remaining, avgCost: pos.avgCost};
+    showToast(`Sold ${toSell} shares — ${remaining} remaining`);
+  }
+  try { localStorage.setItem('TASI_portfolio', JSON.stringify(portfolio)); } catch(e) {}
+  window._portSellTicker = null;
+  document.getElementById('portfolio-panel').innerHTML = renderPortfolioHTML(getPortfolioStats());
 }
 
 function renderPortfolioPanel() {
