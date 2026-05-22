@@ -4585,13 +4585,21 @@ async function buildDCF(d) {
 
   // ── WACC ──
   const rfRate=0.055, erp=0.065, kd=0.055, termGrowth=0.025;
-  // Tax/Zakat rate: Saudi domestic companies pay Zakat (~2.5% net assets ≈ 5% effective income rate)
-  // Aramco (2222.SR) and SABIC (2010.SR) pay corporate income tax (20%)
-  // Banks/Insurance: Zakat handled differently, use 5%
-  // All other Saudi stocks: 5% effective Zakat rate
   const _energyTaxTickers = ['2222.SR','2010.SR'];
   const taxRate = _energyTaxTickers.includes(d.ticker) ? 0.20 : 0.05;
-  const beta = d.beta || 1.0;
+  // Sector-specific beta defaults — used when Yahoo Finance has not provided a measured beta.
+  // Saudi banks are quasi-sovereign (Basel-regulated, government-linked); Energy = Aramco-anchored.
+  // Higher beta for Real Estate / Technology reflects earnings cyclicality and leverage sensitivity.
+  const SECTOR_BETA = {
+    'Banking':0.70,'Insurance':0.85,'Energy':0.80,
+    'Petrochemicals':1.10,'Chemicals':1.05,'Materials':1.10,
+    'Building Materials':1.05,'Real Estate':1.20,'REITs':1.05,
+    'Telecom':0.85,'Technology':1.20,'Healthcare':0.90,
+    'Consumer':0.95,'Utilities':0.70,'Transportation':0.95,'Industrial':1.00,
+  };
+  const sectorBeta = SECTOR_BETA[d.sector] || 1.0;
+  const beta = d.beta || sectorBeta;
+  const betaSource = d.beta ? 'Yahoo Finance' : `sector default (${d.sector||'unknown'})`;
   const ke = rfRate + beta * erp;
   // D/E ratio: prefer net financial debt over total liabilities
   // d.de = (total_liabilities / total_equity) * 100 — overstates leverage
@@ -4684,6 +4692,21 @@ async function buildDCF(d) {
     }
   }
 
+  // ── P/E RELATIVE VALUATION ──
+  const SECTOR_PE = {
+    'Banking':11,'Insurance':13,'Energy':18,
+    'Petrochemicals':14,'Chemicals':13,'Materials':13,
+    'Building Materials':14,'Real Estate':20,'REITs':16,
+    'Telecom':20,'Technology':28,'Healthcare':25,
+    'Consumer':18,'Utilities':16,'Transportation':14,'Industrial':16,
+  };
+  const sectorPE = SECTOR_PE[d.sector] || 15;
+  const stockPE = d.pe;
+  const stockEPS = d.eps || (d.price && d.pe ? d.price / d.pe : null);
+  const peFairValue = (stockEPS && sectorPE) ? stockEPS * sectorPE : null;
+  const pePremium = stockPE ? (stockPE - sectorPE) / sectorPE : null; // +ve = expensive vs peers
+  const peUpside = (peFairValue && d.price) ? (peFairValue - d.price) / d.price : null;
+
   // ── PRIMARY VALUATION ──
   const primaryPS = isBanking ? (ddmPS ?? intrinsicPS) : intrinsicPS;
   const primaryUpside = isBanking ? (ddmUpside ?? upside) : upside;
@@ -4729,13 +4752,45 @@ async function buildDCF(d) {
 </div>`;
   }
 
+  // P/E RELATIVE VALUATION CARD
+  if (peFairValue && d.price && stockPE) {
+    const peColor = pePremium > 0.20 ? 'var(--red)' : pePremium > -0.10 ? 'var(--amb)' : 'var(--green)';
+    const peLabel = pePremium > 0.20 ? '▼ Expensive vs peers' : pePremium > -0.10 ? '● In line with peers' : '▲ Cheap vs peers';
+    const peUColor = peUpside > 0.10 ? 'var(--green)' : peUpside > -0.10 ? 'var(--amb)' : 'var(--red)';
+    html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">P/E Relative Valuation — vs ${d.sector||'Market'} Peers</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+    <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">Stock P/E</div>
+      <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${peColor}">${stockPE.toFixed(1)}×</div>
+    </div>
+    <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">Sector Median</div>
+      <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:var(--tx2)">${sectorPE}×</div>
+    </div>
+    <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">P/E Fair Value</div>
+      <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${peUColor}">${peFairValue.toFixed(2)} SAR</div>
+    </div>
+    <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">Upside</div>
+      <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${peUColor}">${peUpside>=0?'+':''}${(peUpside*100).toFixed(1)}%</div>
+    </div>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:9px">
+    <span style="color:${peColor};font-weight:600">${peLabel}</span>
+    <span style="color:var(--tx3)">Premium to sector: ${pePremium>=0?'+':''}${(pePremium*100).toFixed(1)}% · EPS ${stockEPS.toFixed(3)} SAR × ${sectorPE}× = ${peFairValue.toFixed(2)} SAR</span>
+  </div>
+</div>`;
+  }
+
   // MODEL INPUTS TABLE
   html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
   <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">Model Inputs</div>
   <div class="mgrid4">
     <div class="mi"><div class="mil" ${T('rfr')}>Risk-Free Rate</div><div class="miv">${(rfRate*100).toFixed(1)}%</div></div>
     <div class="mi"><div class="mil" ${T('erp')}>Equity Risk Premium</div><div class="miv">${(erp*100).toFixed(1)}%</div></div>
-    <div class="mi"><div class="mil" ${T('beta')}>Beta</div><div class="miv">${beta.toFixed(2)}</div></div>
+    <div class="mi"><div class="mil" ${T('beta')}>Beta</div><div class="miv">${beta.toFixed(2)}<span style="font-size:8px;color:var(--tx3);margin-left:4px">(${betaSource})</span></div></div>
     <div class="mi"><div class="mil" ${T('ke')}>Cost of Equity (ke)</div><div class="miv" style="color:var(--acc)">${(ke*100).toFixed(1)}%</div></div>
     <div class="mi"><div class="mil" ${T('kd')}>Cost of Debt</div><div class="miv">${(kd*100).toFixed(1)}%</div></div>
     <div class="mi"><div class="mil" ${T('tax_zakat')}>Tax/Zakat Rate</div><div class="miv" style="color:var(--acc)">${(taxRate*100).toFixed(0)}%${taxRate===0.05?'<span style="font-size:8px;color:var(--tx3)"> (Zakat)</span>':'<span style="font-size:8px;color:var(--tx3)"> (CIT)</span>'}</div></div>
@@ -4832,6 +4887,7 @@ async function buildDCF(d) {
   html += `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px;border-top:1px solid var(--b1);padding-top:8px;line-height:1.7">
     <strong style="color:var(--tx2)">Saudi DCF Assumptions:</strong><br>
     Risk-free rate (5.5%): SAIBOR 3M + SAR sovereign spread. ERP (6.5%): Damodaran 2024 MENA. Terminal growth (2.5%): Vision 2030 nominal GDP.<br>
+    Beta: sector defaults used when Yahoo Finance data is unavailable (Banking 0.70, Energy 0.80, Real Estate 1.20, Telecom 0.85).<br>
     Banks use DDM — FCF-DCF breaks for deposit-funded balance sheets. WACC 9–12% typical range for TASI.<br>
     ⚠ A 1% ke change shifts fair value 15–30%. This is a range, not a price target. NOT financial advice.
   </div>`;
