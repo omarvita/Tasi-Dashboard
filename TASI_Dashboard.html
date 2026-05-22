@@ -986,6 +986,42 @@ function parseYahooFinancials(summary, period) {
   return { is, bs, cf };
 }
 
+// Cross-validate two statement datasets — fills nulls from secondary, logs >15% discrepancies
+function validateAndMerge(primary, secondary) {
+  if (!secondary || (!secondary.is && !secondary.bs && !secondary.cf)) return primary;
+  const IS_F = ['revenue','gross_profit','ebitda','operating_income','net_income','eps'];
+  const BS_F = ['total_assets','total_liabilities','total_equity','cash_and_equivalents','long_term_debt'];
+  const CF_F = ['operating_activities','investing_activities','financing_activities','capital_expenditure','free_cash_flow','dividends_paid'];
+  function valArr(arr1, arr2, fields, maxRows) {
+    if (!arr1?.length && !arr2?.length) return null;
+    if (!arr1?.length) return arr2?.slice(0, maxRows) ?? null;
+    if (!arr2?.length) return arr1;
+    const byDate = {};
+    for (const r of arr2) { const k = (r.fiscal_date ?? '').slice(0, 7); if (k && !k.startsWith('—')) byDate[k] = r; }
+    return arr1.map(r => {
+      const k = (r.fiscal_date ?? '').slice(0, 7);
+      const sec = k ? byDate[k] : null;
+      if (!sec) return r;
+      const merged = { ...r };
+      for (const f of fields) {
+        const p = merged[f], s = sec[f];
+        if (p == null && s != null) {
+          merged[f] = s;
+        } else if (p != null && s != null) {
+          const denom = Math.max(Math.abs(p), Math.abs(s), 1);
+          if (Math.abs(p - s) / denom > 0.15) merged[`_src2_${f}`] = s;
+        }
+      }
+      return merged;
+    }).slice(0, maxRows);
+  }
+  return {
+    is: valArr(primary.is, secondary.is, IS_F, 6),
+    bs: valArr(primary.bs, secondary.bs, BS_F, 6),
+    cf: valArr(primary.cf, secondary.cf, CF_F, 6),
+  };
+}
+
 // Merge two statement datasets — primary wins; secondary fills nulls and supplies older years
 function mergeStatements(primary, secondary) {
   if (!secondary || (!secondary.is && !secondary.bs && !secondary.cf)) return primary;
@@ -1247,12 +1283,8 @@ async function scrapeFinancials(ticker, period) {
     }
   }
 
-  // ── SOURCE 2: Argaam (major Saudi financial data portal) ──
-  tdLog('Trying Argaam for financial data…', true);
-  const argaamResult = await fetchArgaamFinancials(code, period);
-  if (argaamResult.is || argaamResult.bs || argaamResult.cf) return argaamResult;
-
-  // ── SOURCE 3: StockAnalysis.com (covers some Saudi stocks) ──
+  // ── SOURCE 2: StockAnalysis.com (covers some Saudi stocks) ──
+  // Note: Argaam + Saudi Exchange now run in parallel earlier in buildFinancials
   tdLog('Trying StockAnalysis for financial data…', true);
   const saBase = `https://stockanalysis.com/quote/${encodeURIComponent(ticker)}/financials`;
   const saUrl = pq === 'quarterly' ? `${saBase}/?p=quarterly` : saBase;
@@ -1382,6 +1414,67 @@ function parseArgaamAPIData(data, period) {
   return is.length ? { is, bs: null, cf: null } : empty;
 }
 
+
+// ── SAUDI EXCHANGE (TADAWUL) FINANCIALS — official Saudi market source ──
+async function fetchSaudiExchangeFinancials(code, period) {
+  const empty = { is: null, bs: null, cf: null };
+  const isQ = period === 'quarterly';
+  // Saudi Exchange Next.js pages embed __NEXT_DATA__ with financial tables
+  const url = `https://www.saudiexchange.sa/wps/portal/saudiexchange/innerpage/sector-securities/financial-information?companySymbol=${code}&lang=en`;
+  try {
+    const html = await fetchHTMLViaProxy(url);
+    if (!html || html.length < 2000) return empty;
+    const nd = extractNextData(html);
+    if (nd) {
+      const pp = nd?.props?.pageProps;
+      const fin = pp?.financialData || pp?.financials || pp?.data?.financials;
+      if (fin) {
+        const src = isQ ? (fin.quarterly || fin.Q) : (fin.annual || fin.A || fin);
+        if (src) {
+          const pick = (r, ...keys) => { for (const k of keys) if (r[k] != null) return parseFloat(r[k]) || null; return null; };
+          const toSar = v => v != null ? parseFloat(v) * 1000 : null;
+          const is = Array.isArray(src.incomeStatement || src.IS) ? (src.incomeStatement || src.IS).map(r => ({
+            fiscal_date: r.period || r.date || r.fiscalDate || '—',
+            revenue: toSar(pick(r,'revenue','totalRevenue','Revenue')),
+            gross_profit: toSar(pick(r,'grossProfit','GrossProfit')),
+            operating_income: toSar(pick(r,'operatingIncome','OperatingIncome','operatingProfit')),
+            net_income: toSar(pick(r,'netIncome','netProfit','NetIncome','NetProfit')),
+            eps: pick(r,'eps','EPS','earningsPerShare'),
+          })).filter(r => r.revenue != null || r.net_income != null) : null;
+          if (is?.length) return { is, bs: null, cf: null };
+        }
+      }
+    }
+    // Fallback: try to parse HTML financial tables directly
+    const tableMatch = html.match(/<table[^>]*financial[^>]*>([\s\S]*?)<\/table>/i);
+    if (tableMatch) {
+      // Simple table parser for Saudi Exchange HTML structure
+      const rows = [...tableMatch[1].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
+      if (rows.length > 2) {
+        const headers = [...(rows[0]?.[1] || '').matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/gi)]
+          .map(m => m[1].replace(/<[^>]+>/g, '').trim());
+        const dataRows = rows.slice(1).map(row => {
+          const cells = [...row[1].matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/gi)]
+            .map(m => m[1].replace(/<[^>]+>/g, '').replace(/,/g,'').trim());
+          return cells;
+        });
+        if (headers.length > 1 && dataRows.length) {
+          const labelRow = dataRows.find(r => /revenue|إيرادات/i.test(r[0]));
+          const niRow = dataRows.find(r => /net.*(income|profit)|صافي/i.test(r[0]));
+          if (labelRow || niRow) {
+            const is = headers.slice(1).map((h, i) => ({
+              fiscal_date: h,
+              revenue: labelRow ? parseFloat(labelRow[i+1]) * 1000 || null : null,
+              net_income: niRow ? parseFloat(niRow[i+1]) * 1000 || null : null,
+            })).filter(r => r.revenue != null || r.net_income != null);
+            if (is.length) return { is, bs: null, cf: null };
+          }
+        }
+      }
+    }
+  } catch(e) {}
+  return empty;
+}
 
 // ── STOCK ANALYSIS DATA PARSER ──
 function parseStockAnalysisData(nd, period) {
@@ -3189,80 +3282,7 @@ function setSector(sec){
 // ═══════════════════════════════════════
 // MODAL WITH TABS
 // ═══════════════════════════════════════
-async function openModal(idx){
-  window._curIdx=idx;
-  const d=window._fd?.[idx];if(!d)return;
-  // Lazy-load full data on first open — try Google Drive cache first, then Yahoo Finance
-  if(!d.fullLoaded){
-    try{
-      let usedDriveCache = false;
-      // Check Drive for fresh fundamentals (1-day TTL) to skip the Yahoo API call
-      if (GD_TOKEN) {
-        const driveStock = await gdReadStock(d.ticker);
-        if (driveStock?.fundamentals && driveStock.fundUpdated && (Date.now() - driveStock.fundUpdated < GD_FUND_TTL)) {
-          const f = driveStock.fundamentals;
-          const realD = allData.find(a => a.ticker === d.ticker);
-          if (realD && f) {
-            const keys = ['pe','pb','roe','npm','de','dy','fcf','cr','rg','eg','beta','w52high','w52low','w52change','mktCap','eps','fwdEps','dataDate'];
-            keys.forEach(k => { if (f[k] != null) realD[k] = f[k]; });
-            realD.fullLoaded = true;
-            const fRes = scoreFundamental(realD);
-            const bRes = scoreBuffett(realD);
-            const pegRes = scorePEG(realD.pe, realD.eg, realD.rawTwelveData?.annual?.is);
-            const tRes = scoreTechnicalWithSteps(realD.closes);
-            realD.fundamental=fRes.score; realD.fundSteps=fRes.steps;
-            realD.buffett=bRes.buffett; realD.criteria=bRes.criteria; realD.buffSteps=bRes.steps;
-            realD.peg=pegRes.peg; realD.pegScore=pegRes.score; realD.pegSteps=pegRes.steps;
-            realD.technical=tRes.score; realD.techSteps=tRes.steps;
-            realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
-            realD.combined=calcCombined(realD);
-            const _e=window._fd?.find(f=>f.ticker===realD.ticker);if(_e)Object.assign(_e,realD);
-            usedDriveCache = true;
-          }
-        }
-      }
-      if (!usedDriveCache) {
-        const full = await fetchStockFull(d);
-        const realD = allData.find(a=>a.ticker===d.ticker);
-        if(realD && full){
-          if(full.pe) realD.pe=full.pe;
-          if(full.pb) realD.pb=full.pb;
-          if(full.roe!=null) realD.roe=full.roe;
-          if(full.npm!=null) realD.npm=full.npm;
-          if(full.de!=null) realD.de=full.de;
-          if(full.dy!=null) realD.dy=full.dy;
-          if(full.cr!=null) realD.cr=full.cr;
-          if(full.rg!=null) realD.rg=full.rg;
-          if(full.eg!=null) realD.eg=full.eg;
-          if(full.fcf!=null) realD.fcf=full.fcf;
-          if(full.w52high) realD.w52high=full.w52high;
-          if(full.w52low) realD.w52low=full.w52low;
-          if(full.mktCap) realD.mktCap=full.mktCap;
-          if(full.beta) realD.beta=full.beta;
-          if(full.eps) realD.eps=full.eps;
-          if(full.dataDate) realD.dataDate=full.dataDate;
-          if(full.closes?.length>realD.closes.length){ realD.closes=full.closes; realD.timestamps=full.timestamps; }
-          if(full.rawYahoo) realD.rawYahoo = full.rawYahoo;
-          if(full.earningsTrend) realD.earningsTrend = full.earningsTrend;
-          if(full.volatility != null) realD.volatility = full.volatility;
-          if(full.volume != null) realD.volume = full.volume;
-          if(full.avgVolume3M != null) realD.avgVolume3M = full.avgVolume3M;
-          realD.fullLoaded = true;
-          const fRes = scoreFundamental(realD);
-          const bRes = scoreBuffett(realD);
-          const pegRes = scorePEG(realD.pe, realD.eg, realD.rawTwelveData?.annual?.is);
-          const tRes = scoreTechnicalWithSteps(realD.closes);
-          realD.fundamental=fRes.score; realD.fundSteps=fRes.steps;
-          realD.buffett=bRes.buffett; realD.criteria=bRes.criteria; realD.buffSteps=bRes.steps;
-          realD.peg=pegRes.peg; realD.pegScore=pegRes.score; realD.pegSteps=pegRes.steps;
-          realD.technical=tRes.score; realD.techSteps=tRes.steps;
-          realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
-          realD.combined=calcCombined(realD);
-          const _e2=window._fd?.find(f=>f.ticker===realD.ticker);if(_e2)Object.assign(_e2,realD);
-        }
-      }
-    }catch(e){ console.warn('Full data fetch failed:', e); }
-  }
+function _renderModalShell(d) {
   const sig=getSig(d.combined,d.buffett);
   const moat=d.criteria?.hasMoat?`<span class="badge b-moat">Moat</span>`:"";
   const reit=d.isReit?`<span class="badge b-reit">REIT</span>`:"";
@@ -3273,7 +3293,7 @@ async function openModal(idx){
     <div class="mhtop">
       <div>
         <div class="mtitle">${d.name} ${moat}${reit}${_capTier?` <span style="color:${_capTier.color};font-size:8px;font-family:var(--mono)">${_capTier.label}</span>`:''}</div>
-        <div class="msub">${d.ticker} · ${d.sector} · Signal: <span class="badge ${sig.cls}">${sig.label}</span> &nbsp;<span style="font-family:var(--mono);font-size:9px;font-weight:600;padding:2px 7px;border-radius:3px;background:${_risk.color}22;color:${_risk.color};border:1px solid ${_risk.color}55" title="Risk factors: ${_risk.flags.join(', ')||'None identified'}">Risk: ${_risk.level}</span> · ${d.priceLoaded?'<span style="color:var(--acc)">● Live data</span>':'<span style="color:var(--tx3)">○ Prices loading</span>'}</div>
+        <div class="msub">${d.ticker} · ${d.sector} · Signal: <span class="badge ${sig.cls}">${sig.label}</span> &nbsp;<span style="font-family:var(--mono);font-size:9px;font-weight:600;padding:2px 7px;border-radius:3px;background:${_risk.color}22;color:${_risk.color};border:1px solid ${_risk.color}55" title="Risk factors: ${_risk.flags.join(', ')||'None identified'}">Risk: ${_risk.level}</span> · ${d.priceLoaded?'<span style="color:var(--acc)">● Live data</span>':'<span style="color:var(--tx3)">○ Loading…</span>'}</div>
       </div>
       <div class="mclose" onclick="closeModal()">×</div>
     </div>
@@ -3289,8 +3309,99 @@ async function openModal(idx){
     </div>
   </div>
   <div class="mbody" id="mbody"><div id="panel-content"></div></div>`;
+}
+
+async function openModal(idx){
+  window._curIdx=idx;
+  const d=window._fd?.[idx];if(!d)return;
+
+  // Show modal immediately with whatever data we already have
+  _renderModalShell(d);
   document.getElementById("modal").style.display="flex";
-  switchTab("overview");
+
+  if(d.fullLoaded){
+    switchTab("overview");
+    return;
+  }
+
+  // Show loading indicator in overview panel while fetching fundamentals
+  const panelEl=document.getElementById("panel-content");
+  if(panelEl) panelEl.innerHTML=`<div class="tab-loading"><span class="spin"></span> Loading fundamentals…</div>`;
+
+  // Lazy-load full data — try Google Drive cache first, then Yahoo Finance
+  try{
+    let usedDriveCache = false;
+    if (GD_TOKEN) {
+      const driveStock = await gdReadStock(d.ticker);
+      if (driveStock?.fundamentals && driveStock.fundUpdated && (Date.now() - driveStock.fundUpdated < GD_FUND_TTL)) {
+        const f = driveStock.fundamentals;
+        const realD = allData.find(a => a.ticker === d.ticker);
+        if (realD && f) {
+          const keys = ['pe','pb','roe','npm','de','dy','fcf','cr','rg','eg','beta','w52high','w52low','w52change','mktCap','eps','fwdEps','dataDate'];
+          keys.forEach(k => { if (f[k] != null) realD[k] = f[k]; });
+          realD.fullLoaded = true;
+          const fRes = scoreFundamental(realD);
+          const bRes = scoreBuffett(realD);
+          const pegRes = scorePEG(realD.pe, realD.eg, realD.rawTwelveData?.annual?.is);
+          const tRes = scoreTechnicalWithSteps(realD.closes);
+          realD.fundamental=fRes.score; realD.fundSteps=fRes.steps;
+          realD.buffett=bRes.buffett; realD.criteria=bRes.criteria; realD.buffSteps=bRes.steps;
+          realD.peg=pegRes.peg; realD.pegScore=pegRes.score; realD.pegSteps=pegRes.steps;
+          realD.technical=tRes.score; realD.techSteps=tRes.steps;
+          realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
+          realD.combined=calcCombined(realD);
+          const _e=window._fd?.find(f=>f.ticker===realD.ticker);if(_e)Object.assign(_e,realD);
+          usedDriveCache = true;
+        }
+      }
+    }
+    if (!usedDriveCache) {
+      const full = await fetchStockFull(d);
+      const realD = allData.find(a=>a.ticker===d.ticker);
+      if(realD && full){
+        if(full.pe) realD.pe=full.pe;
+        if(full.pb) realD.pb=full.pb;
+        if(full.roe!=null) realD.roe=full.roe;
+        if(full.npm!=null) realD.npm=full.npm;
+        if(full.de!=null) realD.de=full.de;
+        if(full.dy!=null) realD.dy=full.dy;
+        if(full.cr!=null) realD.cr=full.cr;
+        if(full.rg!=null) realD.rg=full.rg;
+        if(full.eg!=null) realD.eg=full.eg;
+        if(full.fcf!=null) realD.fcf=full.fcf;
+        if(full.w52high) realD.w52high=full.w52high;
+        if(full.w52low) realD.w52low=full.w52low;
+        if(full.mktCap) realD.mktCap=full.mktCap;
+        if(full.beta) realD.beta=full.beta;
+        if(full.eps) realD.eps=full.eps;
+        if(full.dataDate) realD.dataDate=full.dataDate;
+        if(full.closes?.length>realD.closes.length){ realD.closes=full.closes; realD.timestamps=full.timestamps; }
+        if(full.rawYahoo) realD.rawYahoo = full.rawYahoo;
+        if(full.earningsTrend) realD.earningsTrend = full.earningsTrend;
+        if(full.volatility != null) realD.volatility = full.volatility;
+        if(full.volume != null) realD.volume = full.volume;
+        if(full.avgVolume3M != null) realD.avgVolume3M = full.avgVolume3M;
+        realD.fullLoaded = true;
+        const fRes = scoreFundamental(realD);
+        const bRes = scoreBuffett(realD);
+        const pegRes = scorePEG(realD.pe, realD.eg, realD.rawTwelveData?.annual?.is);
+        const tRes = scoreTechnicalWithSteps(realD.closes);
+        realD.fundamental=fRes.score; realD.fundSteps=fRes.steps;
+        realD.buffett=bRes.buffett; realD.criteria=bRes.criteria; realD.buffSteps=bRes.steps;
+        realD.peg=pegRes.peg; realD.pegScore=pegRes.score; realD.pegSteps=pegRes.steps;
+        realD.technical=tRes.score; realD.techSteps=tRes.steps;
+        realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
+        realD.combined=calcCombined(realD);
+        const _e2=window._fd?.find(f=>f.ticker===realD.ticker);if(_e2)Object.assign(_e2,realD);
+      }
+    }
+  }catch(e){ console.warn('Full data fetch failed:', e); }
+
+  // If modal is still showing this stock, refresh header + overview with new data
+  if(window._curIdx===idx && document.getElementById('modal')?.style.display!=='none'){
+    const freshD=window._fd?.[idx];
+    if(freshD){ _renderModalShell(freshD); switchTab("overview"); }
+  }
 }
 
 function switchTab(tab){
@@ -3840,30 +3951,48 @@ async function buildFinancials(d, period) {
     tdLog('Cache stale — new fiscal year available, refreshing…', true);
   }
 
-  // 2+3. Yahoo quoteSummary + Timeseries in parallel — merge for best coverage
-  // quoteSummary (4 years) + timeseries (up to 6 years) merged fills most gaps
-  tdLog(`Fetching ${period} statements from Yahoo Finance…`, true);
-  const [yt, qs] = await Promise.all([
+  // 2–4. Yahoo timeseries + Yahoo quoteSummary + Argaam + Saudi Exchange — all in parallel
+  // Running all sources concurrently then cross-validating gives best coverage and accuracy
+  const code = d.ticker.replace(/\.SR$/i, '');
+  tdLog(`Fetching ${period} statements from Yahoo, Argaam & Saudi Exchange in parallel…`, true);
+  const [yt, qs, argaamRes, saudiExRes] = await Promise.all([
     fetchYahooTimeseries(d.ticker, period),
     d.rawYahoo
       ? Promise.resolve(parseYahooFinancials(d.rawYahoo, period))
       : fetchYahooFinancials(d.ticker).then(r => parseYahooFinancials(r, period)),
+    fetchArgaamFinancials(code, period),
+    fetchSaudiExchangeFinancials(code, period),
   ]);
+
+  // Merge Yahoo sources (timeseries = primary for depth, quoteSummary fills gaps)
   const yMerged = mergeStatements(yt, qs);
-  if (yMerged.is || yMerged.bs || yMerged.cf) {
+
+  // Cross-validate Yahoo with Argaam: fill nulls, flag >15% discrepancies
+  const withArgaam = validateAndMerge(yMerged, argaamRes);
+
+  // Cross-validate with Saudi Exchange as additional signal
+  const validated = validateAndMerge(withArgaam, saudiExRes);
+
+  const sources = [
+    yMerged.is || yMerged.bs || yMerged.cf ? 'Yahoo' : null,
+    argaamRes.is || argaamRes.bs || argaamRes.cf ? 'Argaam' : null,
+    saudiExRes.is || saudiExRes.bs || saudiExRes.cf ? 'Saudi Exchange' : null,
+  ].filter(Boolean);
+
+  if (validated.is || validated.bs || validated.cf) {
     if (!d.rawTwelveData) d.rawTwelveData = {};
-    d.rawTwelveData[cacheKey] = yMerged;
+    d.rawTwelveData[cacheKey] = validated;
     tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
-    gdWriteStock(d.ticker, { [cacheKey]: yMerged, [`${cacheKey}Updated`]: Date.now() });
-    return enrichAndRender(yMerged, 'Yahoo Finance');
+    gdWriteStock(d.ticker, { [cacheKey]: validated, [`${cacheKey}Updated`]: Date.now() });
+    return enrichAndRender(validated, sources.length > 1 ? sources.join(' + ') : (sources[0] || 'Yahoo Finance'));
   }
 
-  // 4. localStorage cache
+  // 5. localStorage cache
   if (!d.rawTwelveData) { const c = tdCacheGet(d.ticker); if (c) d.rawTwelveData = c; }
   const cached = d.rawTwelveData?.[cacheKey];
   if (cached && (cached.is || cached.bs || cached.cf)) return enrichAndRender(cached, 'cache');
 
-  // 5. FMP API (if key saved)
+  // 6. FMP API (if key saved)
   if (getFMPKey()) {
     tdLog(`Fetching ${period} statements from FMP…`, true);
     const fmp = await fetchFMPStatements(d.ticker, period);
@@ -3876,7 +4005,7 @@ async function buildFinancials(d, period) {
     }
   }
 
-  // 6. Web scraping fallback
+  // 7. Web scraping fallback (StockAnalysis, Macrotrends)
   const scraped = await scrapeFinancials(d.ticker, period);
   if (scraped.is || scraped.bs || scraped.cf) {
     if (!d.rawTwelveData) d.rawTwelveData = {};
@@ -4179,11 +4308,29 @@ async function buildAnnual(d){ return buildFinancials(d, 'annual'); }
 
 // ── DCF ANALYSIS ──
 async function buildDCF(d) {
-  // ── DATA FETCHING ──
+  // ── DATA FETCHING — auto-fetch annual statements if not already loaded ──
   let baseFCF = null, fcfSource = 'N/A', stmtRevenue = null;
-  const annualData = d.rawTwelveData?.annual || (await (async()=>{
-    const cached = tdCacheGet(d.ticker); return cached?.annual || null;
-  })());
+  let annualData = d.rawTwelveData?.annual || tdCacheGet(d.ticker)?.annual || null;
+  if (!annualData) {
+    // Auto-fetch so DCF works without opening 5-Year tab first
+    try {
+      const code = d.ticker.replace(/\.SR$/i, '');
+      const [yt, qs, argRes] = await Promise.all([
+        fetchYahooTimeseries(d.ticker, 'annual'),
+        d.rawYahoo ? Promise.resolve(parseYahooFinancials(d.rawYahoo, 'annual'))
+                   : fetchYahooFinancials(d.ticker).then(r => parseYahooFinancials(r, 'annual')),
+        fetchArgaamFinancials(code, 'annual'),
+      ]);
+      const merged = validateAndMerge(mergeStatements(yt, qs), argRes);
+      if (merged.is || merged.bs || merged.cf) {
+        if (!d.rawTwelveData) d.rawTwelveData = {};
+        d.rawTwelveData.annual = merged;
+        tdCacheSet(d.ticker, d.rawTwelveData.quarterly || null, merged);
+        gdWriteStock(d.ticker, { annual: merged, annualUpdated: Date.now() });
+        annualData = merged;
+      }
+    } catch(e) { console.warn('DCF auto-fetch failed:', e); }
+  }
   if (annualData?.cf?.length) {
     const fcfRaw = parseFloat(annualData.cf[0].free_cash_flow);
     if (!isNaN(fcfRaw)) { baseFCF = fcfRaw; fcfSource = 'financial statements'; }
@@ -4348,7 +4495,7 @@ async function buildDCF(d) {
 
   if (baseFCF === null) {
     html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:10px 12px;font-family:var(--mono);font-size:10px;color:var(--amb)">
-  ⚠ No Free Cash Flow data — open the 5-Year tab first to load statements.</div>`;
+  ⚠ No Free Cash Flow data available — Yahoo Finance and Argaam returned no data for this stock.</div>`;
     html += `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:10px;border-top:1px solid var(--b1);padding-top:8px">Not financial advice.</div>`;
     return html;
   }
