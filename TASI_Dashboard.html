@@ -3419,6 +3419,32 @@ async function openModal(idx){
     const freshD=window._fd?.[idx];
     if(freshD){ _renderModalShell(freshD); switchTab("overview"); }
   }
+
+  // Pre-fetch both statement periods in background so tabs open instantly
+  // Reads Drive (via _gdCache — no extra network if already loaded), then Yahoo/Argaam if needed
+  const _prefetchD = window._fd?.[idx];
+  if (_prefetchD) {
+    const now = Date.now();
+    const driveSnap = _gdCache[_prefetchD.ticker];
+    // Pre-populate rawTwelveData from Drive snapshot (avoids re-reading Drive in buildFinancials)
+    if (!_prefetchD.rawTwelveData) _prefetchD.rawTwelveData = {};
+    for (const period of ['annual', 'quarterly']) {
+      const snap = driveSnap?.[period];
+      const snapAge = driveSnap?.[`${period}Updated`] || 0;
+      if (snap && (snap.is || snap.bs || snap.cf) && now - snapAge < GD_STMT_TTL) {
+        if (!_prefetchD.rawTwelveData[period]) {
+          _prefetchD.rawTwelveData[period] = snap;
+          tdCacheSet(_prefetchD.ticker, _prefetchD.rawTwelveData.quarterly || null, _prefetchD.rawTwelveData.annual || null);
+        }
+      }
+    }
+    // For any period still missing, kick off background fetch (fire-and-forget)
+    for (const period of ['annual', 'quarterly']) {
+      if (!_prefetchD.rawTwelveData[period]) {
+        buildFinancials(_prefetchD, period).catch(() => {});
+      }
+    }
+  }
 }
 
 function switchTab(tab){
@@ -3951,6 +3977,13 @@ async function buildFinancials(d, period) {
     return renderTwelveStatements(stmtData, period, d.ticker, src, d);
   }
 
+  // 0. In-memory rawTwelveData — fastest path, no network needed
+  // Pre-populated from Drive during openModal or from a previous tab visit
+  const memData = d.rawTwelveData?.[cacheKey];
+  if (memData && (memData.is || memData.bs || memData.cf)) {
+    return enrichAndRender(memData, 'cache');
+  }
+
   // 1. Google Drive cache (30-day TTL for statements)
   const driveStock = await gdReadStock(d.ticker);
   const driveStmt = driveStock?.[cacheKey];
@@ -4227,10 +4260,15 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
       else if (!isNaN(stmtNI) && !isNaN(prevNI) && prevNI !== 0) stmtEG = (stmtNI - prevNI) / Math.abs(prevNI);
     }
 
-    let stmtDE = NaN, stmtROE = NaN, stmtAssets = NaN;
+    let stmtDE = NaN, stmtROE = NaN, stmtAssets = NaN, stmtDELabel = 'D/E (fin.debt/eq)';
     if (latestBS) {
-      const te = parseFloat(latestBS.total_equity), tl = parseFloat(latestBS.total_liabilities), ta = parseFloat(latestBS.total_assets);
-      if (!isNaN(te) && te !== 0 && !isNaN(tl)) stmtDE = (tl / te) * 100;
+      const te = parseFloat(latestBS.total_equity), tl = parseFloat(latestBS.total_liabilities);
+      const ltd = parseFloat(latestBS.long_term_debt), ta = parseFloat(latestBS.total_assets);
+      // Prefer long_term_debt/equity to match Yahoo's definition (financial debt only)
+      if (!isNaN(te) && te !== 0) {
+        if (!isNaN(ltd)) { stmtDE = (ltd / te) * 100; stmtDELabel = 'D/E (LT debt/eq)'; }
+        else if (!isNaN(tl)) { stmtDE = (tl / te) * 100; stmtDELabel = 'D/E (tot.liab/eq)'; }
+      }
       if (!isNaN(stmtNI) && !isNaN(te) && te > 0) stmtROE = stmtNI / te;
       if (!isNaN(ta)) stmtAssets = ta / 1e9;
     }
@@ -4284,7 +4322,7 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
       compRow('Earnings Growth (YoY)',   stmtEG,     ovEG,     fPct, 0.05, 0.15, false),
       compRow('ROE',                     stmtROE,    ovROE,    v=>(v*100).toFixed(1)+'%', 0.03, 0.08, false),
       compRow('Total Assets',            isFinite(stmtAssets)?stmtAssets*1e9:NaN, isFinite(ovAssets)?ovAssets*1e9:NaN, fB, 0.05, 0.20, true),
-      ...(!isFinancial ? [compRow('D/E Ratio',    stmtDE,   ovDE,   v=>v.toFixed(0)+'%', 0.10, 0.30, true)] : []),
+      ...(!isFinancial ? [compRow(stmtDELabel,   stmtDE,   ovDE,   v=>v.toFixed(0)+'%', 0.15, 0.40, true)] : []),
     ];
 
     validationHtml = `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;margin-bottom:8px;overflow:hidden">
@@ -4369,10 +4407,29 @@ async function buildDCF(d) {
       }
     } catch(e) { console.warn('DCF auto-fetch failed:', e); }
   }
+  let negativeFCFNote = '';
   if (annualData?.cf?.length) {
     const fcfRaw = parseFloat(annualData.cf[0].free_cash_flow);
     if (!isNaN(fcfRaw)) { baseFCF = fcfRaw; fcfSource = 'financial statements'; }
     if (annualData.is?.length) { const rv = parseFloat(annualData.is[0].revenue); if (!isNaN(rv)) stmtRevenue = rv; }
+  }
+  // Negative FCF often means a CapEx-heavy expansion cycle, not a failing business.
+  // Fall back to operating CF (normalized) or NI-based estimate for a meaningful DCF.
+  if (baseFCF !== null && baseFCF < 0 && annualData?.cf?.length) {
+    const opCF = parseFloat(annualData.cf[0].operating_activities);
+    const capex = parseFloat(annualData.cf[0].capital_expenditure);
+    negativeFCFNote = `FCF is negative (${(baseFCF/1e9).toFixed(2)}B) — likely due to heavy CapEx expansion cycle, not operating losses.`;
+    if (!isNaN(opCF) && opCF > 0) {
+      // Use operating CF × (1 − long-run capex intensity) as normalised FCF
+      const capexRatio = (!isNaN(capex) && opCF !== 0) ? Math.min(Math.abs(capex) / opCF, 0.6) : 0.35;
+      baseFCF = opCF * (1 - capexRatio);
+      fcfSource = `operating CF × ${((1-capexRatio)*100).toFixed(0)}% (FCF neg. — CapEx cycle)`;
+    } else if (d.ni != null) {
+      baseFCF = d.ni * 0.6e9;
+      fcfSource = `estimated from NI (FCF neg. — CapEx cycle)`;
+    } else {
+      baseFCF = null; // truly unresolvable
+    }
   }
   if (baseFCF === null && d.ni != null) {
     baseFCF = d.fcf ? d.ni * 0.85e9 : d.ni * 0.3e9;
@@ -4533,6 +4590,11 @@ async function buildDCF(d) {
     <div class="mi"><div class="mil">FCF Growth (5Y)</div><div class="miv ${growthRate>=0?'pos':'neg'}">${growthRate>=0?'+':''}${(growthRate*100).toFixed(1)}%<span style="font-size:8px;color:var(--tx3);font-weight:400;margin-left:4px">${growthSource}</span></div></div>
     <div class="mi"><div class="mil">FCF Source</div><div class="miv" style="font-size:9px">${fcfSource}</div></div>
   </div></div>`;
+
+  if (negativeFCFNote) {
+    html += `<div style="background:#1a1000;border:1px solid var(--amb);border-radius:6px;padding:8px 12px;margin-bottom:8px;font-family:var(--mono);font-size:9px;color:var(--amb)">
+  ⚠ ${negativeFCFNote} Using normalised operating cash flow for DCF instead.</div>`;
+  }
 
   if (baseFCF === null) {
     html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:10px 12px;font-family:var(--mono);font-size:10px;color:var(--amb)">
