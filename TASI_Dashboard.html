@@ -4177,6 +4177,7 @@ function yoyGrowth(arr, key) {
 
 function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', stockObj = null) {
   const { is, bs, cf } = data || {};
+  const isQ = period === 'quarterly';
   const noData = (arr) => !arr || !arr.length;
   if (noData(is) && noData(bs) && noData(cf)) {
     return `<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">
