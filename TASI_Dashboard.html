@@ -515,26 +515,26 @@ function showComparePanel() {
   if(compareList.length < 2) { showToast('Select 2–3 stocks to compare using the ⊕ button in the table', 3000); return; }
   const stocks = compareList.map(t => allData.find(d => d.ticker===t)).filter(Boolean);
   const metrics = [
-    {label:'Price (SAR)', fn: d => d.price?.toFixed(2)||'—'},
-    {label:'P/E Ratio', fn: d => d.pe?.toFixed(1)||'—'},
-    {label:'P/B Ratio', fn: d => d.pb?.toFixed(2)||'—'},
-    {label:'PEG Ratio', fn: d => d.peg?.toFixed(2)||'—'},
-    {label:'ROE', fn: d => d.roe!=null?(d.roe*100).toFixed(1)+'%':'—'},
-    {label:'Net Margin', fn: d => d.npm!=null?(d.npm*100).toFixed(1)+'%':'—'},
-    {label:'Debt/Equity', fn: d => d.de!=null?d.de.toFixed(0)+'%':'—'},
-    {label:'Div. Yield', fn: d => d.dy!=null?(d.dy*100).toFixed(2)+'%':'—'},
-    {label:'Revenue Growth', fn: d => d.rg!=null?(d.rg>=0?'+':'')+(d.rg*100).toFixed(1)+'%':'—'},
-    {label:'EPS Growth', fn: d => d.eg!=null?(d.eg>=0?'+':'')+(d.eg*100).toFixed(1)+'%':'—'},
-    {label:'Fundamental Score', fn: d => d.fundamental+'/100'},
-    {label:'Technical Score', fn: d => d.technical+'/100'},
-    {label:'Buffett Score', fn: d => d.buffett+'/100'},
-    {label:'Combined Score', fn: d => d.combined+'/100'},
-    {label:'Signal', fn: d => getSig(d.combined,d.buffett).label},
-    {label:'Moat', fn: d => d.criteria?.hasMoat?'✓ Yes':'✗ No'},
-    {label:'Free Cashflow', fn: d => d.fcf?'✓ Positive':'✗ Negative'},
-    {label:'Revenue (SAR B)', fn: d => d.rev?.toFixed(2)||'—'},
-    {label:'Net Income (SAR B)', fn: d => d.ni?.toFixed(2)||'—'},
-    {label:'Total Assets (SAR B)', fn: d => d.assets?.toFixed(1)||'—'},
+    {label:'Price (SAR)',          tip:TIPS.price,          fn: d => d.price?.toFixed(2)||'—'},
+    {label:'P/E Ratio',            tip:TIPS.pe,             fn: d => d.pe?.toFixed(1)||'—'},
+    {label:'P/B Ratio',            tip:TIPS.pb,             fn: d => d.pb?.toFixed(2)||'—'},
+    {label:'PEG Ratio',            tip:TIPS.peg,            fn: d => d.peg?.toFixed(2)||'—'},
+    {label:'ROE',                  tip:TIPS.roe,            fn: d => d.roe!=null?(d.roe*100).toFixed(1)+'%':'—'},
+    {label:'Net Margin',           tip:TIPS.net_margin,     fn: d => d.npm!=null?(d.npm*100).toFixed(1)+'%':'—'},
+    {label:'Debt/Equity',          tip:TIPS.de,             fn: d => d.de!=null?d.de.toFixed(0)+'%':'—'},
+    {label:'Div. Yield',           tip:TIPS.dy,             fn: d => d.dy!=null?(d.dy*100).toFixed(2)+'%':'—'},
+    {label:'Revenue Growth',       tip:TIPS.rev_growth,     fn: d => d.rg!=null?(d.rg>=0?'+':'')+(d.rg*100).toFixed(1)+'%':'—'},
+    {label:'EPS Growth',           tip:TIPS.eps_growth,     fn: d => d.eg!=null?(d.eg>=0?'+':'')+(d.eg*100).toFixed(1)+'%':'—'},
+    {label:'Fundamental Score',    tip:TIPS.fundamental,    fn: d => d.fundamental+'/100'},
+    {label:'Technical Score',      tip:TIPS.technical_score,fn: d => d.technical+'/100'},
+    {label:'Buffett Score',        tip:TIPS.buffett_score,  fn: d => d.buffett+'/100'},
+    {label:'Combined Score',       tip:TIPS.combined,       fn: d => d.combined+'/100'},
+    {label:'Signal',               tip:TIPS.signal,         fn: d => getSig(d.combined,d.buffett).label},
+    {label:'Moat',                 tip:TIPS.moat,           fn: d => d.criteria?.hasMoat?'✓ Yes':'✗ No'},
+    {label:'Free Cashflow',        tip:TIPS.fcf,            fn: d => d.fcf?'✓ Positive':'✗ Negative'},
+    {label:'Revenue (SAR B)',      tip:TIPS.revenue,        fn: d => d.rev?.toFixed(2)||'—'},
+    {label:'Net Income (SAR B)',   tip:TIPS.net_income,     fn: d => d.ni?.toFixed(2)||'—'},
+    {label:'Total Assets (SAR B)', tip:TIPS.total_assets,   fn: d => d.assets?.toFixed(1)||'—'},
   ];
   const winner = (vals, higher=true) => {
     const nums = vals.map(v => parseFloat(v));
@@ -563,7 +563,7 @@ function showComparePanel() {
         ${metrics.map(m => {
           const vals = stocks.map(s => m.fn(s));
           const winIdx = specialHigher.has(m.label) ? winner(vals,true) : specialLower.has(m.label) ? winner(vals,false) : -1;
-          return `<tr><td>${m.label}</td>${vals.map((v,i)=>`<td style="text-align:center;${i===winIdx?'color:var(--green);font-weight:600':''}">${v}</td>`).join('')}</tr>`;
+          return `<tr><td${m.tip?` data-tip="${m.tip}"`:''}>${m.label}</td>${vals.map((v,i)=>`<td style="text-align:center;${i===winIdx?'color:var(--green);font-weight:600':''}">${v}</td>`).join('')}</tr>`;
         }).join('')}
       </tbody>
     </table>
@@ -2247,6 +2247,12 @@ const TIPS = {
   upside:         'Difference between DCF intrinsic value and current market price as a percentage. Positive = undervalued vs model; negative = overvalued. Treat as a range, not a precise target.',
   dps:            'Dividends Per Share — estimated annual cash dividend paid per ordinary share. Formula: Dividend Yield × Share Price.',
   rev_momentum:   'Whether the most recent year\'s revenue growth rate is accelerating (above) or decelerating (below) the prior-year average.',
+  price:          'Last traded share price on Tadawul (Saudi Exchange) in Saudi Riyals (SAR). Updated live when Yahoo Finance data is available.',
+  fundamental:    'Composite score (0–100) measuring valuation, profitability, growth, and balance sheet strength. Higher = stronger financial fundamentals.',
+  technical_score:'Composite score (0–100) based on price momentum, RSI, moving average crossovers, and 52-week high/low position. Higher = stronger price trend.',
+  buffett_score:  'Score (0–100) based on Warren Buffett\'s criteria from "The Interpretation of Financial Statements": sustained ROE above 15%, low debt, wide margins, and consistent earnings growth.',
+  combined:       'Weighted blend of Fundamental, Technical, Buffett, PEG, and DCF/DDM scores. The overall ranking signal used to sort the dashboard.',
+  signal:         'Buy/Hold/Sell recommendation derived from the Combined Score. Buy ≥ 65, Hold 45–64, Sell < 45. Quantitative model output — not financial advice.',
 };
 // Helper: returns a data-tip attribute string for inline use in template literals
 function T(key) { const v = TIPS[key]; return v ? `data-tip="${v}"` : ''; }
