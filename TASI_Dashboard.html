@@ -1777,63 +1777,205 @@ function printReport(ticker) {
 
 // ── PORTFOLIO PANEL (full screen) ──
 function showPortfolioPanel() {
-  const stats = getPortfolioStats();
-  const pnlColor = stats.totalPnL >= 0 ? 'var(--green)' : 'var(--red)';
+  const existing = document.getElementById('portfolio-modal');
+  if(existing) existing.remove();
   const html = `
   <div class="mo" id="portfolio-modal" onclick="if(event.target===this)document.getElementById('portfolio-modal').remove()">
-  <div class="modal" style="width:750px;max-height:90vh">
+  <div class="modal" style="width:820px;max-height:92vh">
     <div class="mhead">
       <div class="mhtop">
-        <div><div class="mtitle">📊 Portfolio Simulator</div>
-        <div class="msub">Track your TASI holdings · P&L · Score</div></div>
+        <div><div class="mtitle">💼 Portfolio Manager</div>
+        <div class="msub">Fund manager view · P&L · Dividends · Events · Health check</div></div>
         <div class="mclose" onclick="document.getElementById('portfolio-modal').remove()">×</div>
       </div>
     </div>
     <div class="mbody" id="portfolio-panel">
-      ${renderPortfolioHTML(stats)}
+      ${renderPortfolioHTML(getPortfolioStats())}
     </div>
   </div></div>`;
-  const existing = document.getElementById('portfolio-modal');
-  if(existing) existing.remove();
   document.body.insertAdjacentHTML('beforeend', html);
 }
 
 function renderPortfolioHTML(stats) {
   const pnlColor = stats.totalPnL >= 0 ? 'var(--green)' : 'var(--red)';
-  return `
-  <div class="mgrid4" style="margin-bottom:12px">
-    <div class="mi"><div class="mil">Total Value</div><div class="miv">${stats.totalValue.toFixed(0)} SAR</div></div>
-    <div class="mi"><div class="mil">Total Cost</div><div class="miv">${stats.totalCost.toFixed(0)} SAR</div></div>
-    <div class="mi"><div class="mil">P&L</div><div class="miv" style="color:${pnlColor}">${stats.totalPnL>=0?'+':''}${stats.totalPnL.toFixed(0)} SAR (${stats.totalPnLPct.toFixed(1)}%)</div></div>
-    <div class="mi"><div class="mil">Avg Score</div><div class="miv" style="color:${sc(stats.avgScore)}">${stats.avgScore}</div></div>
+  const divYield = stats.totalCost > 0 ? (stats.totalAnnualDiv / stats.totalCost * 100) : 0;
+  const betaClr = !stats.portBeta ? 'var(--tx3)' : stats.portBeta < 0.85 ? 'var(--green)' : stats.portBeta < 1.15 ? 'var(--amb)' : 'var(--red)';
+
+  // ── SUMMARY CARDS ──
+  let html = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:14px">
+    <div class="mi"><div class="mil">Total Value</div><div class="miv" style="font-size:13px;font-weight:700">${stats.totalValue>=1e6?(stats.totalValue/1e6).toFixed(2)+'M':stats.totalValue.toFixed(0)} SAR</div></div>
+    <div class="mi"><div class="mil">Total Cost</div><div class="miv">${stats.totalCost>=1e6?(stats.totalCost/1e6).toFixed(2)+'M':stats.totalCost.toFixed(0)} SAR</div></div>
+    <div class="mi"><div class="mil">P&L</div><div class="miv" style="color:${pnlColor}">${stats.totalPnL>=0?'+':''}${stats.totalPnL.toFixed(0)} SAR<br><span style="font-size:9px">(${stats.totalPnLPct.toFixed(1)}%)</span></div></div>
+    <div class="mi"><div class="mil">Annual Dividends</div><div class="miv" style="color:var(--green)">${stats.totalAnnualDiv.toFixed(0)} SAR<br><span style="font-size:9px">${divYield.toFixed(2)}% yield on cost</span></div></div>
+    <div class="mi"><div class="mil" data-tip="Value-weighted average beta of all positions. Below 1 = less volatile than TASI index.">Portfolio Beta</div><div class="miv" style="color:${betaClr}">${stats.portBeta?.toFixed(2)||'—'}</div></div>
+    <div class="mi"><div class="mil">Avg Score</div><div class="miv" style="color:${sc(stats.avgScore)}">${stats.avgScore}/100</div></div>
+  </div>`;
+
+  if (stats.positions.length === 0) {
+    return html + `<div style="color:var(--tx3);font-family:var(--mono);font-size:11px;text-align:center;padding:30px 0">No positions yet. Add stocks below to start tracking.</div>` + _renderAddForm();
+  }
+
+  // ── FUND MANAGER HEALTH CHECK ──
+  const buys = stats.positions.filter(p=>p.signal.label==='BUY').length;
+  const sells = stats.positions.filter(p=>p.signal.label==='SELL').length;
+  const top1Pct = stats.positions[0] ? (stats.positions[0].weight*100).toFixed(0) : 0;
+  const top3Pct = stats.positions.slice(0,3).reduce((s,p)=>s+p.weight,0)*100;
+  const concRisk = top1Pct > 40 ? 'High' : top3Pct > 70 ? 'Medium' : 'Low';
+  const concColor = concRisk==='High'?'var(--red)':concRisk==='Medium'?'var(--amb)':'var(--green)';
+  const sectorCount = stats.sectorBreakdown.length;
+  const divColor = sectorCount >= 4 ? 'var(--green)' : sectorCount >= 2 ? 'var(--amb)' : 'var(--red)';
+  const sellWarning = stats.positions.filter(p=>p.signal.label==='SELL').map(p=>p.ticker.replace('.SR','')).join(', ');
+
+  html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:8px;padding:10px 12px;margin-bottom:12px">
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Fund Manager Health Check</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px">
+    <div><div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:2px">CONCENTRATION RISK</div><div style="font-family:var(--mono);font-size:12px;font-weight:600;color:${concColor}">${concRisk}<span style="font-size:9px;color:var(--tx3);font-weight:400"> — top position ${top1Pct}%</span></div></div>
+    <div><div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:2px">DIVERSIFICATION</div><div style="font-family:var(--mono);font-size:12px;font-weight:600;color:${divColor}">${sectorCount} sectors<span style="font-size:9px;color:var(--tx3);font-weight:400"> — ${sectorCount>=4?'well diversified':sectorCount>=2?'moderate':'concentrated'}</span></div></div>
+    <div><div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:2px">SIGNAL MIX</div><div style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--tx)">${buys} BUY · ${stats.positions.length-buys-sells} HOLD · <span style="color:${sells>0?'var(--red)':'var(--tx3)'}">${sells} SELL</span></div></div>
+    <div><div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:2px">ANNUAL INCOME</div><div style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--green)">${stats.totalAnnualDiv.toFixed(0)} SAR<span style="font-size:9px;color:var(--tx3);font-weight:400"> est. dividends</span></div></div>
   </div>
-  <div class="secl">Add / Edit Position</div>
-  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
-    <select id="port-ticker" style="flex:1;min-width:120px">${allData.map(d=>`<option value="${d.ticker}">${d.ticker.replace('.SR','')} — ${d.name.split(' ').slice(0,2).join(' ')}</option>`).join('')}</select>
-    <input type="number" id="port-shares" placeholder="Shares" style="width:90px;background:var(--bg3);border:1px solid var(--b2);border-radius:5px;color:var(--tx);font-family:var(--mono);font-size:11px;padding:5px 8px;outline:none" min="0">
-    <input type="number" id="port-cost" placeholder="Avg cost SAR" style="width:110px;background:var(--bg3);border:1px solid var(--b2);border-radius:5px;color:var(--tx);font-family:var(--mono);font-size:11px;padding:5px 8px;outline:none" min="0" step="0.01">
-    <button onclick="setPortfolioPosition(document.getElementById('port-ticker').value,document.getElementById('port-shares').value,document.getElementById('port-cost').value);document.getElementById('portfolio-panel').innerHTML=renderPortfolioHTML(getPortfolioStats())" style="font-family:var(--mono);font-size:10px;padding:5px 11px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">Add/Update</button>
-  </div>
-  ${stats.positions.length === 0 ? '<div style="color:var(--tx3);font-family:var(--mono);font-size:11px;text-align:center;padding:20px">No positions yet. Add stocks above.</div>' : `
-  <div style="overflow-x:auto"><table class="ft">
-    <thead><tr><th>Ticker</th><th>Name</th><th>Shares</th><th>Avg Cost</th><th>Price</th><th>Value SAR</th><th>P&L</th><th>Score</th><th>Signal</th><th></th></tr></thead>
+  ${sellWarning ? `<div style="margin-top:8px;padding:6px 8px;background:#1a0000;border-radius:4px;font-family:var(--mono);font-size:9px;color:var(--red)">⚠ SELL signal on: ${sellWarning} — review these positions</div>` : ''}
+  ${top1Pct > 30 ? `<div style="margin-top:6px;padding:6px 8px;background:#1a1000;border-radius:4px;font-family:var(--mono);font-size:9px;color:var(--amb)">⚠ ${stats.positions[0].ticker.replace('.SR','')} is ${top1Pct}% of portfolio — consider reducing concentration</div>` : ''}
+</div>`;
+
+  // ── SECTOR BREAKDOWN ──
+  html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:8px;padding:10px 12px;margin-bottom:12px">
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Sector Allocation</div>
+  <div style="display:flex;flex-direction:column;gap:5px">
+  ${stats.sectorBreakdown.map(s=>{
+    const w = (s.pct*100).toFixed(1);
+    return `<div style="display:flex;align-items:center;gap:8px">
+      <div style="font-family:var(--mono);font-size:9px;color:var(--tx2);min-width:110px">${s.sector}</div>
+      <div style="flex:1;background:var(--bg2);border-radius:2px;height:6px;overflow:hidden"><div style="height:100%;width:${Math.min(s.pct*100,100)}%;background:var(--acc);border-radius:2px"></div></div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);min-width:50px;text-align:right">${w}% · ${s.value.toFixed(0)} SAR</div>
+    </div>`;
+  }).join('')}
+  </div></div>`;
+
+  // ── POSITIONS TABLE ──
+  html += `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Positions (${stats.positions.length})</div>
+  <div style="overflow-x:auto;margin-bottom:12px"><table class="ft">
+    <thead><tr>
+      <th>Ticker</th><th>Name</th><th title="Portfolio weight">Wt%</th>
+      <th>Shares</th><th>Avg Cost</th><th>Price</th><th>Value SAR</th>
+      <th>P&L</th><th title="Annual dividend income from this position">Div Income</th>
+      <th title="Dividend yield based on your average cost">YoC%</th>
+      <th>Score</th><th>Signal</th><th title="Next estimated dividend or earnings event">Next Event</th>
+      <th></th>
+    </tr></thead>
     <tbody>${stats.positions.map(p=>{
       const pl = p.pnl>=0?'var(--green)':'var(--red)';
+      const nextDiv = p.nextDiv;
+      const nextEarn = p.nextEarnings;
+      const daysDiv = _daysUntil(nextDiv);
+      const daysEarn = _daysUntil(nextEarn);
+      // Show the sooner upcoming event
+      let eventHtml = '—';
+      if (nextDiv && nextEarn) {
+        if (daysDiv <= daysEarn) {
+          eventHtml = `<span style="color:var(--green)" title="Est. next dividend: ${_fmtDate(nextDiv)}">💰 div in ${daysDiv}d</span>`;
+        } else {
+          eventHtml = `<span style="color:var(--acc)" title="Est. next earnings: ${_fmtDate(nextEarn)}">📋 earn in ${daysEarn}d</span>`;
+        }
+      } else if (nextDiv) {
+        eventHtml = `<span style="color:var(--green)" title="Est. next dividend">💰 ${daysDiv}d</span>`;
+      } else if (nextEarn) {
+        eventHtml = `<span style="color:var(--acc)" title="Est. next earnings">📋 ${daysEarn}d</span>`;
+      }
       return `<tr>
-        <td class="tk">${p.ticker.replace('.SR','')}</td>
-        <td>${p.name.split(' ').slice(0,2).join(' ')}</td>
+        <td class="tk" style="cursor:pointer" onclick="document.getElementById('portfolio-modal').remove();openModal(window._fd?.findIndex(f=>f.ticker==='${p.ticker}'))">${p.ticker.replace('.SR','')}</td>
+        <td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.name}">${p.name.split(' ').slice(0,2).join(' ')}</td>
+        <td style="font-family:var(--mono);color:${p.weight>0.30?'var(--amb)':'var(--tx)'}">${(p.weight*100).toFixed(1)}%</td>
         <td style="font-family:var(--mono)">${p.shares}</td>
         <td style="font-family:var(--mono)">${p.avgCost.toFixed(2)}</td>
         <td style="font-family:var(--mono)">${p.currentPrice?.toFixed(2)||'—'}</td>
         <td style="font-family:var(--mono)">${p.currentValue.toFixed(0)}</td>
-        <td style="font-family:var(--mono);color:${pl}">${p.pnl>=0?'+':''}${p.pnl.toFixed(0)} (${p.pnlPct.toFixed(1)}%)</td>
+        <td style="font-family:var(--mono);color:${pl}">${p.pnl>=0?'+':''}${p.pnl.toFixed(0)}<br><span style="font-size:9px">${p.pnlPct.toFixed(1)}%</span></td>
+        <td style="font-family:var(--mono);color:var(--green)">${p.annualDiv>0?p.annualDiv.toFixed(0):'—'}</td>
+        <td style="font-family:var(--mono);color:var(--green)">${p.yieldOnCost!=null?p.yieldOnCost.toFixed(1)+'%':'—'}</td>
         <td>${bar(p.combined)}</td>
         <td><span class="badge ${p.signal.cls}">${p.signal.label}</span></td>
-        <td><button onclick="setPortfolioPosition('${p.ticker}',0,0);document.getElementById('portfolio-panel').innerHTML=renderPortfolioHTML(getPortfolioStats())" style="font-size:9px;color:var(--red);background:transparent;border:0;cursor:pointer">✕</button></td>
+        <td style="font-family:var(--mono);font-size:9px;white-space:nowrap">${eventHtml}</td>
+        <td><button onclick="setPortfolioPosition('${p.ticker}',0,0);document.getElementById('portfolio-panel').innerHTML=renderPortfolioHTML(getPortfolioStats())" style="font-size:9px;color:var(--red);background:transparent;border:0;cursor:pointer;padding:2px 4px" title="Remove position">✕</button></td>
       </tr>`;
     }).join('')}</tbody>
-  </table></div>`}
-  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:8px">Portfolio is saved locally in your browser. Not connected to any brokerage.</div>`;
+  </table></div>`;
+
+  // ── UPCOMING EVENTS CALENDAR ──
+  const allEvents = [];
+  stats.positions.forEach(p => {
+    if (p.nextDiv) allEvents.push({date:p.nextDiv, type:'div', ticker:p.ticker.replace('.SR',''), income:p.annualDiv/2});
+    allEvents.push({date:p.nextEarnings, type:'earn', ticker:p.ticker.replace('.SR','')});
+  });
+  // Deduplicate earnings (all share same date)
+  const earnDate = stats.positions[0]?.nextEarnings;
+  const earnTickers = stats.positions.map(p=>p.ticker.replace('.SR','')).join(', ');
+  const divEvents = allEvents.filter(e=>e.type==='div').sort((a,b)=>a.date-b.date);
+
+  html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:8px;padding:10px 12px;margin-bottom:12px">
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Upcoming Events Calendar</div>
+  <div style="display:flex;flex-direction:column;gap:6px">
+    ${earnDate ? `<div style="display:flex;align-items:center;gap:10px;padding:6px 8px;background:var(--bg2);border-radius:5px;border-left:3px solid var(--acc)">
+      <div style="font-family:var(--mono);font-size:10px;font-weight:600;color:var(--acc);min-width:24px">📋</div>
+      <div style="flex:1">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--tx2);font-weight:600">Q2 2026 Earnings Season</div>
+        <div style="font-family:var(--mono);font-size:8px;color:var(--tx3)">${earnTickers}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--acc)">${_fmtDate(earnDate)}</div>
+        <div style="font-family:var(--mono);font-size:8px;color:var(--tx3)">${_daysUntil(earnDate)} days</div>
+      </div>
+    </div>` : ''}
+    ${divEvents.map(e=>`<div style="display:flex;align-items:center;gap:10px;padding:6px 8px;background:var(--bg2);border-radius:5px;border-left:3px solid var(--green)">
+      <div style="font-family:var(--mono);font-size:10px;min-width:24px">💰</div>
+      <div style="flex:1">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--tx2);font-weight:600">${e.ticker} — Est. Dividend</div>
+        <div style="font-family:var(--mono);font-size:8px;color:var(--tx3)">Approx. ${e.income>0?e.income.toFixed(0)+' SAR from this position':''}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--green)">${_fmtDate(e.date)}</div>
+        <div style="font-family:var(--mono);font-size:8px;color:var(--tx3)">${_daysUntil(e.date)} days</div>
+      </div>
+    </div>`).join('')}
+  </div>
+  <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-top:6px">⚠ Dates are estimates based on typical TASI reporting cycles. Always verify on the Saudi Exchange website.</div>
+</div>`;
+
+  html += _renderAddForm();
+  html += `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:8px">Portfolio saved locally in your browser. Not connected to any brokerage. Dividend dates are estimates only.</div>`;
+  return html;
+}
+
+function _renderAddForm() {
+  return `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Add / Update Position</div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+    <select id="port-ticker" style="flex:2;min-width:150px;background:var(--bg2);border:1px solid var(--b2);border-radius:5px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">${allData.map(d=>`<option value="${d.ticker}">${d.ticker.replace('.SR','')} — ${d.name.split(' ').slice(0,3).join(' ')}</option>`).join('')}</select>
+    <input type="number" id="port-shares" placeholder="Shares" style="width:90px;background:var(--bg2);border:1px solid var(--b2);border-radius:5px;color:var(--tx);font-family:var(--mono);font-size:11px;padding:5px 8px;outline:none" min="1">
+    <input type="number" id="port-cost" placeholder="Price SAR" style="width:100px;background:var(--bg2);border:1px solid var(--b2);border-radius:5px;color:var(--tx);font-family:var(--mono);font-size:11px;padding:5px 8px;outline:none" min="0" step="0.01">
+    <button onclick="_portAddLot()" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer;white-space:nowrap">+ Buy / Add Lot</button>
+    <button onclick="_portSetPosition()" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:var(--bg2);color:var(--tx3);border:1px solid var(--b2);border-radius:4px;cursor:pointer;white-space:nowrap">Set Exact</button>
+  </div>
+  <div style="font-family:var(--mono);font-size:8px;color:var(--tx3)"><b style="color:var(--tx2)">+ Buy / Add Lot</b> — adds to existing position & recalculates avg cost &nbsp;|&nbsp; <b style="color:var(--tx2)">Set Exact</b> — overrides shares and avg cost directly</div>
+</div>`;
+}
+
+function _portAddLot() {
+  const t=document.getElementById('port-ticker')?.value;
+  const s=document.getElementById('port-shares')?.value;
+  const c=document.getElementById('port-cost')?.value;
+  if(!t||!s||!c){showToast('Fill in ticker, shares and price');return;}
+  addPortfolioLot(t,s,c);
+  document.getElementById('portfolio-panel').innerHTML=renderPortfolioHTML(getPortfolioStats());
+  showToast('Position updated — avg cost recalculated');
+}
+function _portSetPosition() {
+  const t=document.getElementById('port-ticker')?.value;
+  const s=document.getElementById('port-shares')?.value;
+  const c=document.getElementById('port-cost')?.value;
+  if(!t||!s||!c){showToast('Fill in ticker, shares and avg cost');return;}
+  setPortfolioPosition(t,s,c);
+  document.getElementById('portfolio-panel').innerHTML=renderPortfolioHTML(getPortfolioStats());
 }
 
 function renderPortfolioPanel() {
