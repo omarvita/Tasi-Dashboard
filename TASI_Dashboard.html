@@ -4915,24 +4915,33 @@ function computeBollinger(closes,period=20,stdMult=2){
   });
 }
 
+// ── Chart colour palette — one source of truth ────────────────────────────
+const CC = {
+  price: '#e2e8f0',   // near-white — main price line
+  sma20: '#fbbf24',   // amber      — SMA-20
+  sma50: '#38bdf8',   // sky-blue   — SMA-50
+  bb:    '#a78bfa',   // violet     — Bollinger Bands
+  rsi:   '#4ade80',   // emerald    — RSI line
+};
+
 function redrawChart(){
   const d=window._fd?.[window._curIdx];if(!d)return;
   drawChart(d);
-  // Update button styles
+  // Update button styles to match CC palette
   RANGES.forEach((r,i)=>{
     const b=document.getElementById("rng-"+i);
     if(b){b.style.background=i===chartRangeIdx?"var(--acc)":"var(--bg3)";b.style.color=i===chartRangeIdx?"#000":"var(--tx3)";}
   });
-  [["sma20",chartShowSMA20,"#78350f","var(--amb)"],
-   ["sma50",chartShowSMA50,"#1e3a5f","var(--blue)"],
-   ["bb",chartShowBollinger,"#3b0764","var(--pur)"],
-   ["rsi",chartShowRSI,"var(--gdim)","var(--green)"]
-  ].forEach(([id,on,col,txt])=>{
+  [["sma20",chartShowSMA20,CC.sma20],
+   ["sma50",chartShowSMA50,CC.sma50],
+   ["bb",chartShowBollinger,CC.bb],
+   ["rsi",chartShowRSI,CC.rsi]
+  ].forEach(([id,on,clr])=>{
     const b=document.getElementById("ov-"+id);
     if(!b)return;
-    b.style.background=on?col:"var(--bg3)";
-    b.style.color=on?txt:"var(--tx3)";
-    b.style.borderColor=on?txt:"var(--b2)";
+    b.style.background=on?clr+'1a':"var(--bg3)";
+    b.style.color=on?clr:"var(--tx3)";
+    b.style.borderColor=on?clr:"var(--b2)";
   });
 }
 
@@ -4953,19 +4962,19 @@ function drawChart(d){
     try{
       const ctx=document.getElementById("price-chart");if(!ctx)return;
       const labels=timestamps.map(t=>{const d=new Date(t*1000);return d.getDate()+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]+' '+String(d.getFullYear()).slice(-2);});
-      const datasets=[{label:"Price (SAR)",data:closes,borderColor:sc(d.combined),backgroundColor:"transparent",pointRadius:0,borderWidth:1.5,tension:0.2}];
+      const datasets=[{label:"Price (SAR)",data:closes,borderColor:CC.price,backgroundColor:"transparent",pointRadius:0,borderWidth:1.5,tension:0.2}];
       if(chartShowSMA20){
         const sma20arr=closes.map((_,i)=>{if(i<19)return null;return closes.slice(i-19,i+1).reduce((a,b)=>a+b,0)/20;});
-        datasets.push({label:"SMA-20",data:sma20arr,borderColor:"rgba(245,158,11,0.7)",backgroundColor:"transparent",pointRadius:0,borderWidth:1,borderDash:[4,3],tension:0.2});
+        datasets.push({label:"SMA-20",data:sma20arr,borderColor:CC.sma20,backgroundColor:"transparent",pointRadius:0,borderWidth:1,borderDash:[4,3],tension:0.2});
       }
       if(chartShowSMA50){
         const sma50arr=closes.map((_,i)=>{const l=Math.min(50,i+1);if(i<49)return null;return closes.slice(i-49,i+1).reduce((a,b)=>a+b,0)/50;});
-        datasets.push({label:"SMA-50",data:sma50arr,borderColor:"rgba(96,165,250,0.7)",backgroundColor:"transparent",pointRadius:0,borderWidth:1,borderDash:[6,3],tension:0.2});
+        datasets.push({label:"SMA-50",data:sma50arr,borderColor:CC.sma50,backgroundColor:"transparent",pointRadius:0,borderWidth:1,borderDash:[6,3],tension:0.2});
       }
       if(chartShowBollinger){
         const bb=computeBollinger(closes);
-        datasets.push({label:"BB Upper",data:bb.map(b=>b.upper),borderColor:"rgba(168,85,247,0.4)",backgroundColor:"transparent",pointRadius:0,borderWidth:1,borderDash:[2,2],tension:0.2});
-        datasets.push({label:"BB Lower",data:bb.map(b=>b.lower),borderColor:"rgba(168,85,247,0.4)",backgroundColor:"rgba(168,85,247,0.05)",pointRadius:0,borderWidth:1,borderDash:[2,2],fill:"-1",tension:0.2});
+        datasets.push({label:"BB Upper",data:bb.map(b=>b.upper),borderColor:CC.bb+'99',backgroundColor:"transparent",pointRadius:0,borderWidth:1,borderDash:[2,2],tension:0.2});
+        datasets.push({label:"BB Lower",data:bb.map(b=>b.lower),borderColor:CC.bb+'99',backgroundColor:CC.bb+'0d',pointRadius:0,borderWidth:1,borderDash:[2,2],fill:"-1",tension:0.2});
       }
       const fontOpts={size:8,family:"'IBM Plex Mono'"};
       const tooltipStyle={backgroundColor:"rgba(24,28,34,0.97)",borderColor:"#2d3440",borderWidth:1,titleColor:"#e8eaed",bodyColor:"#8a9ab5",titleFont:{family:"'IBM Plex Mono'",size:10},bodyFont:{family:"'IBM Plex Mono'",size:10},callbacks:{title:items=>`Date: ${items[0].label}`,label:item=>`${item.dataset.label}: ${item.raw!=null?item.raw.toFixed(2)+" SAR":"—"}`}};
@@ -4983,9 +4992,9 @@ function drawChart(d){
           rsiChartInst=new Chart(rsiCtx,{
             type:"line",
             data:{labels,datasets:[
-              {label:"RSI",data:rsiArr,borderColor:"#22c55e",backgroundColor:"transparent",pointRadius:0,borderWidth:1.5,tension:0.2},
-              {label:"70",data:rsiArr.map(()=>70),borderColor:"rgba(239,68,68,0.4)",pointRadius:0,borderWidth:1,borderDash:[5,3],backgroundColor:"transparent"},
-              {label:"30",data:rsiArr.map(()=>30),borderColor:"rgba(34,197,94,0.4)",pointRadius:0,borderWidth:1,borderDash:[5,3],backgroundColor:"transparent"}
+              {label:"RSI",data:rsiArr,borderColor:CC.rsi,backgroundColor:"transparent",pointRadius:0,borderWidth:1.5,tension:0.2},
+              {label:"Overbought (70)",data:rsiArr.map(()=>70),borderColor:"rgba(248,113,113,0.55)",pointRadius:0,borderWidth:1,borderDash:[5,3],backgroundColor:"transparent"},
+              {label:"Oversold (30)",data:rsiArr.map(()=>30),borderColor:CC.rsi+'66',pointRadius:0,borderWidth:1,borderDash:[5,3],backgroundColor:"transparent"}
             ]},
             options:{responsive:true,maintainAspectRatio:false,
               interaction:{mode:"index",intersect:false},
