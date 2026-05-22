@@ -3266,12 +3266,14 @@ async function openModal(idx){
   const sig=getSig(d.combined,d.buffett);
   const moat=d.criteria?.hasMoat?`<span class="badge b-moat">Moat</span>`:"";
   const reit=d.isReit?`<span class="badge b-reit">REIT</span>`:"";
+  const _risk=computeRiskRating(d);
+  const _capTier=(()=>{const mc=d.mktCap;if(!mc)return null;if(mc>=50e9)return{label:'Large Cap',color:'var(--acc)'};if(mc>=5e9)return{label:'Mid Cap',color:'var(--tx2)'};return{label:'Small Cap',color:'var(--tx3)'};})();
   document.getElementById("mc2").innerHTML=`
   <div class="mhead">
     <div class="mhtop">
       <div>
-        <div class="mtitle">${d.name} ${moat}${reit}</div>
-        <div class="msub">${d.ticker} · ${d.sector} · Signal: <span class="badge ${sig.cls}">${sig.label}</span> · ${d.priceLoaded?'<span style="color:var(--acc)">● Live data</span>':'<span style="color:var(--tx3)">○ Prices loading</span>'}</div>
+        <div class="mtitle">${d.name} ${moat}${reit}${_capTier?` <span style="color:${_capTier.color};font-size:8px;font-family:var(--mono)">${_capTier.label}</span>`:''}</div>
+        <div class="msub">${d.ticker} · ${d.sector} · Signal: <span class="badge ${sig.cls}">${sig.label}</span> &nbsp;<span style="font-family:var(--mono);font-size:9px;font-weight:600;padding:2px 7px;border-radius:3px;background:${_risk.color}22;color:${_risk.color};border:1px solid ${_risk.color}55" title="Risk factors: ${_risk.flags.join(', ')||'None identified'}">Risk: ${_risk.level}</span> · ${d.priceLoaded?'<span style="color:var(--acc)">● Live data</span>':'<span style="color:var(--tx3)">○ Prices loading</span>'}</div>
       </div>
       <div class="mclose" onclick="closeModal()">×</div>
     </div>
@@ -3346,6 +3348,37 @@ function switchTab(tab){
   else if(tab==="extra")body.innerHTML=buildExtraPanel(d);
 }
 
+function computeRiskRating(d) {
+  let score = 0, flags = [];
+  // Leverage
+  if (d.de != null) {
+    const de = d.de / 100; // convert to ratio
+    if (de > 3.0)       { score += 3; flags.push('Very high leverage'); }
+    else if (de > 1.5)  { score += 2; flags.push('High leverage'); }
+    else if (de > 0.5)  { score += 1; }
+  }
+  // Liquidity
+  if (d.cr != null) {
+    if (d.cr < 0.8)     { score += 3; flags.push('Liquidity risk (CR < 0.8)'); }
+    else if (d.cr < 1.2){ score += 2; flags.push('Tight liquidity'); }
+    else if (d.cr < 1.5){ score += 1; }
+  }
+  // Profitability
+  if (d.npm != null) {
+    if (d.npm < 0)      { score += 3; flags.push('Loss-making'); }
+    else if (d.npm < 0.03) { score += 2; flags.push('Very thin margins'); }
+    else if (d.npm < 0.07) { score += 1; }
+  }
+  // FCF
+  if (d.fcf === false)  { score += 1; flags.push('Negative FCF'); }
+  // Earnings trend
+  if (d.eg != null && d.eg < -0.10) { score += 2; flags.push('Declining earnings'); }
+
+  if (score >= 6)      return { level: 'HIGH',   color: 'var(--red)',   flags };
+  if (score >= 3)      return { level: 'MEDIUM', color: 'var(--amb)',   flags };
+  return               { level: 'LOW',    color: 'var(--green)', flags };
+}
+
 function buildOverview(d){
   const peg=d.peg;
   return`
@@ -3358,6 +3391,7 @@ function buildOverview(d){
   </div>
   <div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:8px 10px;font-family:var(--mono);font-size:9px;color:var(--tx3);margin-bottom:8px">
     ${(()=>{const W=SCORE_WEIGHTS;const parts=WEIGHT_KEYS.filter(k=>W[k]>0).map(k=>`${WEIGHT_LABELS[k]}×${W[k]}%`);return`Combined = ${parts.join(' + ')} = <span style="color:var(--acc);font-weight:600">${d.combined}</span>`;})()}
+    <span style="font-family:var(--mono);font-size:8px;color:var(--tx3)"> / 100 &nbsp;·&nbsp; <span style="color:var(--green)">70+ Strong</span> &nbsp;<span style="color:var(--amb)">50–70 Average</span> &nbsp;<span style="color:var(--red)">&lt;50 Weak</span></span>
   </div>
   <div class="secl">Market & Valuation</div>
   <div class="mgrid4">
@@ -3401,8 +3435,8 @@ function buildOverview(d){
     <div class="mi"><div class="mil">Total Assets</div><div class="miv">${d.assets!=null?d.assets.toFixed(1)+"B":"—"}</div></div>
     <div class="mi"><div class="mil">Net Margin</div><div class="miv">${d.npm!=null?(d.npm*100).toFixed(1)+"%":"—"}</div></div>
     <div class="mi"><div class="mil">Debt/Equity</div><div class="miv">${d.de!=null?d.de.toFixed(0)+"%":"N/A"}</div></div>
-    <div class="mi"><div class="mil">Free Cashflow</div><div class="miv ${d.fcf?"pos":"neg"}">${d.fcf?"Positive":"Negative"}</div></div>
-    <div class="mi"><div class="mil">Vision 2030</div><div class="miv" style="color:${getVision2030(d.ticker)>=70?'var(--green)':getVision2030(d.ticker)>=45?'var(--amb)':'var(--tx3)'}">${getVision2030(d.ticker)}/100</div></div>
+    ${(()=>{const fcfVal=d.rawTwelveData?.annual?.cf?.[0]?.free_cash_flow;const mktCap=d.mktCap||(d.price!=null&&d.sharesOutstanding!=null?d.price*d.sharesOutstanding:null);let fcfDisplay,fcfClass;if(fcfVal!=null){const fcfNum=parseFloat(fcfVal);const fcfB=(Math.abs(fcfNum)/1e9).toFixed(2)+'B';const yld=mktCap?((fcfNum/mktCap)*100).toFixed(1)+'% yield':'';fcfDisplay=`${fcfNum>=0?'':'-'}${fcfB}${yld?' · '+yld:''}`;fcfClass=fcfNum>=0?'pos':'neg';}else{fcfDisplay=d.fcf===true?'Positive':d.fcf===false?'Negative':'—';fcfClass=d.fcf?'pos':'neg';}return`<div class="mi"><div class="mil">Free Cashflow</div><div class="miv ${fcfClass}">${fcfDisplay}</div></div>`;})()}
+    <div class="mi"><div class="mil">Vision 2030 <span style="color:var(--tx3);font-size:9px" title="Measures how much this company benefits from Saudi Vision 2030 government spending programs. Not a financial metric.">ⓘ</span></div><div class="miv" style="color:${getVision2030(d.ticker)>=70?'var(--green)':getVision2030(d.ticker)>=45?'var(--amb)':'var(--tx3)'}" title="Measures how much this company benefits from Saudi Vision 2030 government spending programs. Not a financial metric.">${getVision2030(d.ticker)}/100</div></div>
   </div>
   <div class="secl">About</div>
   <div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:9px 11px;font-size:11px;color:var(--tx2);line-height:1.7;margin-bottom:8px">
@@ -3539,7 +3573,7 @@ function buildBreakdown(d){
     = ${fmCalc.join(' + ')} = <span class="val" style="color:${sc(d.combined)}">${d.combined}</span>
   </div>
   ${nW.fundamental>0?renderSteps(d.fundSteps||[],d.fundamental,"Fundamental Score","#60a5fa"):''}
-  ${nW.technical>0?renderSteps(d.techSteps||[],d.technical,"Technical Score","#a855f7"):''}
+  ${nW.technical>0?`<div style="font-family:var(--mono);font-size:8px;color:var(--tx3);padding:5px 8px;background:var(--bg2);border-radius:3px;margin-bottom:6px">⚠ Technical score reflects short-term price momentum (days–weeks), not business quality. Weighting it equally to fundamentals in combined score may penalize good companies in temporary downtrends.</div>`+renderSteps(d.techSteps||[],d.technical,"Technical Score","#a855f7"):''}
   ${nW.buffett>0?renderSteps(d.buffSteps||[],d.buffett,"Buffett Score","#f59e0b"):''}
   ${nW.peg>0?renderSteps(pegSteps,pegScore,"PEG Score","#22c55e"):''}
   ${dcfStepsHtml}`;
@@ -4126,7 +4160,14 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
   }
 
   const analysisHtml = generateFundManagerAnalysis(is, bs, cf, period, stockObj);
-  return validationHtml
+  const tableIntro = `<div style="font-family:var(--mono);font-size:8px;color:var(--tx3);padding:6px 10px;background:var(--bg2);border-radius:4px;margin-bottom:8px;line-height:1.6">
+    <b style="color:var(--tx2)">How to read these tables:</b> &nbsp;
+    <b>Income Statement</b> = what the company earned (Revenue → Net Income). &nbsp;
+    <b>Balance Sheet</b> = what it owns and owes (Assets, Debt, Equity). &nbsp;
+    <b>Cash Flow</b> = actual cash generated (Operating CF) vs spent (CapEx). &nbsp;
+    Green numbers = positive/growing · Red = negative/declining · % rows show year-on-year change.
+  </div>`;
+  return tableIntro + validationHtml
        + makeTable(period === 'quarterly' ? 'Quarterly Income Statement' : '5-Year Income Statement', isRows, is?.map(pLabel) || [])
        + makeTable(period === 'quarterly' ? 'Quarterly Balance Sheet'    : '5-Year Balance Sheet',    bsRows, bs?.map(pLabel) || [])
        + makeTable(period === 'quarterly' ? 'Quarterly Cash Flow'        : '5-Year Cash Flow',        cfRows, cf?.map(pLabel) || [])
