@@ -4106,7 +4106,7 @@ function switchTab(tab){
     buildAnnual(d).then(html=>{if(body.isConnected)body.innerHTML=html;}).catch(e=>{console.error('buildAnnual failed:',e);if(body.isConnected)body.innerHTML=`<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">⚠ Error: ${e?.message||String(e)}. <button onclick="switchTab('annual')" style="background:var(--acc);color:#000;border:none;border-radius:3px;padding:2px 8px;cursor:pointer;font-family:var(--mono);font-size:10px">Retry</button></div>`;});
   }
   else if(tab==="buffett")body.innerHTML=buildBuffett(d);
-  else if(tab==="chart"){chartRangeIdx=3;chartShowRSI=false;chartShowSMA20=true;chartShowSMA50=false;chartShowBollinger=false;body.innerHTML=buildChartPanel(d);drawChart(d);}
+  else if(tab==="chart"){chartRangeIdx=3;chartShowRSI=false;chartShowSMA20=true;chartShowSMA50=false;chartShowBollinger=false;chartShowVolume=true;chartShowMACD=false;chartShowStoch=false;body.innerHTML=buildChartPanel(d);drawChart(d);}
   else if(tab==="dcf"){body.innerHTML=`<div class="tab-loading"><span class="spin"></span> Building fair value model…</div>`;buildDCF(d).then(html=>{if(body.isConnected)body.innerHTML=html;});}
   else if(tab==="extra")body.innerHTML=buildExtraPanel(d);
 }
@@ -5592,6 +5592,144 @@ const RANGES=[{label:"1M",days:21},{label:"3M",days:63},{label:"6M",days:126},{l
 
 function buildChartPanel(d){
   const hasData=(d.closes||[]).length>1;
+  const hasFull=hasData&&(d.volumes||[]).length>1;
+
+  // Pre-compute signals for the signals section
+  const closes=d.closes||[];
+  const highs=d.highs||[];
+  const lows=d.lows||[];
+  const volumes=d.volumes||[];
+  const n=closes.length;
+
+  // MACD signal
+  let macdSignal='neutral',macdDesc='';
+  if(n>=27){
+    const {macd,signal:sig}=computeMACD(closes);
+    const m=macd[n-1],s=sig[n-1],mp=macd[n-2],sp=sig[n-2];
+    if(m!=null&&s!=null&&mp!=null&&sp!=null){
+      if(mp<=sp&&m>s){macdSignal='bullish';macdDesc='MACD crossed above signal — bullish crossover';}
+      else if(mp>=sp&&m<s){macdSignal='bearish';macdDesc='MACD crossed below signal — bearish crossover';}
+      else if(m>s){macdSignal='bullish';macdDesc='MACD above signal line — upward momentum';}
+      else{macdSignal='bearish';macdDesc='MACD below signal line — downward momentum';}
+    }
+  } else {macdDesc='Insufficient data (need 27+ days)';}
+
+  // RSI signal
+  let rsiSignal='neutral',rsiDesc='';
+  const rsiV=d.rsi;
+  if(rsiV!=null){
+    if(rsiV<30){rsiSignal='bullish';rsiDesc='RSI '+rsiV.toFixed(1)+' — oversold, potential reversal';}
+    else if(rsiV<45){rsiSignal='bullish';rsiDesc='RSI '+rsiV.toFixed(1)+' — approaching oversold, watch for reversal';}
+    else if(rsiV>70){rsiSignal='bearish';rsiDesc='RSI '+rsiV.toFixed(1)+' — overbought, pullback risk';}
+    else if(rsiV>55){rsiSignal='bearish';rsiDesc='RSI '+rsiV.toFixed(1)+' — approaching overbought';}
+    else{rsiDesc='RSI '+rsiV.toFixed(1)+' — neutral momentum zone';}
+  } else {rsiDesc='RSI not yet computed';}
+
+  // Stochastic signal
+  let stochSignal='neutral',stochDesc='';
+  if(n>=17&&highs.length>=17&&lows.length>=17){
+    const {kLine,dLine}=computeStochastic(highs,lows,closes);
+    const kv=kLine[n-1],dv=dLine[n-1];
+    if(kv!=null&&dv!=null){
+      if(kv<20&&dv<20){stochSignal='bullish';stochDesc='Stochastic %K='+kv.toFixed(0)+' %D='+dv.toFixed(0)+' — oversold';}
+      else if(kv>80&&dv>80){stochSignal='bearish';stochDesc='Stochastic %K='+kv.toFixed(0)+' %D='+dv.toFixed(0)+' — overbought';}
+      else if(kv>dv&&kv<80){stochSignal='bullish';stochDesc='%K='+kv.toFixed(0)+' above %D — bullish';}
+      else if(kv<dv&&kv>20){stochSignal='bearish';stochDesc='%K='+kv.toFixed(0)+' below %D — bearish';}
+      else{stochDesc='%K='+kv.toFixed(0)+' %D='+(dv!=null?dv.toFixed(0):'—')+' — neutral';}
+    }
+  } else if(n<17){stochDesc='Need 17+ days for stochastic';}
+  else {stochDesc='Need OHLCV data — click Load chart';}
+
+  // Volume signal
+  let volSignal='neutral',volDesc='';
+  const avgVol=d.avgVolume3M??d.volume;
+  const curVol=volumes.length>0?volumes[volumes.length-1]:null;
+  const volRatio=curVol&&avgVol?curVol/avgVol:null;
+  if(volumes.length>=5){
+    const priceUp=n>=2&&closes[n-1]>closes[n-2];
+    if(volRatio!=null&&volRatio>1.5&&priceUp){volSignal='bullish';volDesc='Volume '+volRatio.toFixed(1)+'x above avg — strong buying';}
+    else if(volRatio!=null&&volRatio>1.5&&!priceUp){volSignal='bearish';volDesc='High volume on down day — selling pressure';}
+    else if(volRatio!=null&&volRatio<0.5){volDesc='Low volume ('+volRatio.toFixed(1)+'x avg) — weak conviction';}
+    else if(volRatio!=null){volDesc='Volume '+volRatio.toFixed(1)+'x avg — normal activity';}
+    else{volDesc='Volume trend normal';}
+  } else {volDesc=hasFull?'Insufficient volume data':'Click Load chart for volume data';}
+
+  // Bollinger signal
+  let bbSignal='neutral',bbDesc='';
+  if(n>=20){
+    const bb=computeBollinger(closes);
+    const cur=closes[n-1],bu=bb[n-1]?.upper,bl=bb[n-1]?.lower,bm=bb[n-1]?.mid;
+    if(bu&&bl&&bm){
+      const pct=((cur-bl)/(bu-bl)*100);
+      if(cur>bu){bbSignal='bearish';bbDesc='Price above upper band — overbought stretch';}
+      else if(cur<bl){bbSignal='bullish';bbDesc='Price below lower band — oversold stretch';}
+      else if(pct>70){bbSignal='bearish';bbDesc='Price at '+pct.toFixed(0)+'% of BB range — upper zone';}
+      else if(pct<30){bbSignal='bullish';bbDesc='Price at '+pct.toFixed(0)+'% of BB range — lower zone';}
+      else{bbDesc='Price at '+pct.toFixed(0)+'% of Bollinger range — mid zone';}
+    }
+  } else {bbDesc='Need 20+ days for Bollinger';}
+
+  // SMA cross
+  let smaSignal='neutral',smaDesc='';
+  if(d.sma20!=null&&d.sma50!=null){
+    const spread=((d.sma20-d.sma50)/d.sma50*100).toFixed(1);
+    if(d.sma20>d.sma50){smaSignal='bullish';smaDesc='Golden cross — SMA-20 '+spread+'% above SMA-50';}
+    else{smaSignal='bearish';smaDesc='Death cross — SMA-20 '+Math.abs(parseFloat(spread)).toFixed(1)+'% below SMA-50';}
+  } else {smaDesc='SMA data pending';}
+
+  // 52W position
+  let w52Signal='neutral',w52Desc='';
+  if(d.w52high&&d.w52low&&d.price){
+    const pct=((d.price-d.w52low)/(d.w52high-d.w52low)*100).toFixed(0);
+    if(pct>85){w52Signal='bearish';w52Desc='At '+pct+'% of 52W range — near year high';}
+    else if(pct<15){w52Signal='bullish';w52Desc='At '+pct+'% of 52W range — near year low';}
+    else{w52Desc='At '+pct+'% of 52W range — mid range';}
+  } else {w52Desc='52W data pending';}
+
+  // ATR
+  let atrVal=null;
+  if(n>=15&&highs.length>=15&&lows.length>=15){
+    const atrArr=computeATR(highs,lows,closes);
+    atrVal=atrArr[atrArr.length-1];
+  }
+
+  // Signal color helper
+  const sigCol=s=>s==='bullish'?'var(--green)':s==='bearish'?'var(--red)':'var(--amb)';
+  const sigBg=s=>s==='bullish'?'rgba(34,197,94,0.08)':s==='bearish'?'rgba(239,68,68,0.08)':'rgba(245,158,11,0.08)';
+  const sigBd=s=>s==='bullish'?'rgba(34,197,94,0.25)':s==='bearish'?'rgba(239,68,68,0.25)':'rgba(245,158,11,0.25)';
+  const sigLbl=s=>s==='bullish'?'BULLISH':s==='bearish'?'BEARISH':'NEUTRAL';
+
+  // Composite technical verdict
+  const scores={bullish:0,bearish:0,neutral:0};
+  [macdSignal,rsiSignal,stochSignal,volSignal,bbSignal,smaSignal,w52Signal].forEach(s=>{scores[s]++;});
+  const verdict=scores.bullish>scores.bearish?'bullish':scores.bearish>scores.bullish?'bearish':'neutral';
+  const verdictScore=Math.round((scores.bullish-scores.bearish)/7*50+50);
+
+  // Macro context by sector
+  const sectorMacro={
+    'Energy':{oil:'High — oil prices directly drive revenue',rates:'Low sensitivity — commodity business',tasi:'High correlation — Energy is 10% of TASI',theme:'OPEC+ cuts, Saudi Aramco dividend policy, energy transition risk'},
+    'Banking':{oil:'Moderate — oil economy drives loan growth',rates:'High — NIM expands with higher rates',tasi:'High correlation — Banks are 35%+ of TASI',theme:'SAMA rate policy, mortgage growth, Basel III implementation'},
+    'Materials':{oil:'Moderate — input cost sensitivity',rates:'Low-moderate',tasi:'Moderate',theme:'NEOM construction, mining strategy, industrial city expansion'},
+    'Real Estate':{oil:'Indirect — economic activity correlation',rates:'High negative — lower rates expand buyers',tasi:'Moderate',theme:'Affordable housing, Diriyah Gate, foreign ownership rules'},
+    'Telecom':{oil:'Low',rates:'Low',tasi:'Moderate',theme:'5G rollout, digital government, smart city contracts'},
+    'Healthcare':{oil:'Low',rates:'Low',tasi:'Low',theme:'Health Sector Transformation 2030, insurance expansion, medical tourism'},
+    'Utilities':{oil:'Moderate — subsidized energy reform',rates:'Moderate — capital intensive',tasi:'Low',theme:'Renewable energy 50% by 2030, desalination, grid modernization'},
+    'Consumer':{oil:'Indirect — consumer confidence',rates:'Low-moderate',tasi:'Moderate',theme:'Tourism 100M target, entertainment sector, young population spending'},
+    'Transportation':{oil:'High input cost — fuel prices',rates:'Low',tasi:'Moderate',theme:'Logistics for NEOM, Vision 2030 tourism, Saudi Arabia exports'},
+    'Insurance':{oil:'Low',rates:'Positive — investment returns',tasi:'Low',theme:'Mandatory insurance expansion, health reform, auto insurance'},
+    'REITs':{oil:'Indirect',rates:'High negative — cap rate compression',tasi:'Low-moderate',theme:'Hospitality growth, Makkah expansion, tourism REITs'},
+    'Industrial':{oil:'Moderate',rates:'Low',tasi:'Moderate',theme:'National industrial strategy, NEOM supply chain, defense localization'},
+  };
+  const mac=sectorMacro[d.sector]||{oil:'Moderate',rates:'Moderate',tasi:'Moderate',theme:'General Saudi economic growth and Vision 2030'};
+
+  // Build signal card HTML
+  const sigCard=(icon,label,signal,desc)=>
+    '<div style="background:'+sigBg(signal)+';border:1px solid '+sigBd(signal)+';border-radius:6px;padding:8px 10px;flex:1;min-width:130px">'+
+    '<div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:3px">'+icon+' '+label+'</div>'+
+    '<div style="font-family:var(--mono);font-size:9px;font-weight:700;color:'+sigCol(signal)+';margin-bottom:3px">'+sigLbl(signal)+'</div>'+
+    '<div style="font-size:9px;color:var(--tx2);line-height:1.35">'+desc+'</div>'+
+    '</div>';
+
   return`
   <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:8px">
     <span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Range:</span>
@@ -5603,12 +5741,28 @@ function buildChartPanel(d){
     <button id="ov-sma50" onclick="chartShowSMA50=!chartShowSMA50;redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;cursor:pointer">SMA-50</button>
     <button id="ov-bb"    onclick="chartShowBollinger=!chartShowBollinger;redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;cursor:pointer">Bollinger</button>
     <button id="ov-rsi"   onclick="chartShowRSI=!chartShowRSI;redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;cursor:pointer">RSI (14)</button>
-    ${!hasData?`<button onclick="fetchChartData()" style="font-family:var(--mono);font-size:9px;padding:2px 10px;border:1px solid var(--acc);border-radius:3px;background:var(--adm);color:var(--acc);cursor:pointer">↓ Load chart</button>`:""}
+    <button id="ov-vol"   onclick="chartShowVolume=!chartShowVolume;redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;cursor:pointer">Volume</button>
+    <button id="ov-macd"  onclick="chartShowMACD=!chartShowMACD;redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;cursor:pointer">MACD</button>
+    <button id="ov-stoch" onclick="chartShowStoch=!chartShowStoch;redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;cursor:pointer">Stoch</button>
+    ${!hasData?'<button onclick="fetchChartData()" style="font-family:var(--mono);font-size:9px;padding:2px 10px;border:1px solid var(--acc);border-radius:3px;background:var(--adm);color:var(--acc);cursor:pointer">&#8595; Load chart</button>':""}
+    ${hasData&&!hasFull?'<button onclick="fetchChartData()" style="font-family:var(--mono);font-size:9px;padding:2px 10px;border:1px solid var(--acc);border-radius:3px;background:var(--adm);color:var(--acc);cursor:pointer">&#8595; Load OHLCV</button>':""}
   </div>
-  <div class="cbox" style="height:200px;margin-bottom:4px"><canvas id="price-chart"></canvas></div>
+  <div class="cbox" style="height:210px;margin-bottom:4px"><canvas id="price-chart"></canvas></div>
+  <div id="vol-panel" style="display:none">
+    <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);padding:2px 0">Volume &middot; bars = daily &middot; line = 20-day average</div>
+    <div class="cbox" style="height:70px;margin-bottom:4px"><canvas id="vol-chart"></canvas></div>
+  </div>
   <div id="rsi-panel" style="display:none">
-    <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);padding:2px 0">RSI 14-day · 🔴 Overbought &gt;70 · 🟢 Oversold &lt;30</div>
-    <div class="cbox" style="height:90px;margin-bottom:4px"><canvas id="rsi-chart"></canvas></div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);padding:2px 0">RSI 14-day &middot; Overbought &gt;70 &middot; Oversold &lt;30</div>
+    <div class="cbox" style="height:80px;margin-bottom:4px"><canvas id="rsi-chart"></canvas></div>
+  </div>
+  <div id="macd-panel" style="display:none">
+    <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);padding:2px 0">MACD (12,26,9) &middot; Pink=MACD &middot; Orange=Signal &middot; Bars=Histogram</div>
+    <div class="cbox" style="height:80px;margin-bottom:4px"><canvas id="macd-chart"></canvas></div>
+  </div>
+  <div id="stoch-panel" style="display:none">
+    <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);padding:2px 0">Stochastic (14,3) &middot; Overbought &gt;80 &middot; Oversold &lt;20</div>
+    <div class="cbox" style="height:80px;margin-bottom:4px"><canvas id="stoch-chart"></canvas></div>
   </div>
   <div class="mgrid" style="margin-top:6px">
     <div class="mi"><div class="mil">Technical Score</div><div class="miv" style="color:${sc(d.technical)}">${d.technical}/100</div></div>
@@ -5617,8 +5771,55 @@ function buildChartPanel(d){
     <div class="mi"><div class="mil" ${T('sma20')}>SMA-20</div><div class="miv">${d.sma20!=null?d.sma20.toFixed(2)+" SAR":"—"}</div></div>
     <div class="mi"><div class="mil" ${T('sma50')}>SMA-50</div><div class="miv">${d.sma50!=null?d.sma50.toFixed(2)+" SAR":"—"}</div></div>
     <div class="mi"><div class="mil" ${T('momentum')}>1M Momentum</div><div class="miv ${d.momentum!=null?(d.momentum>=0?'pos':'neg'):''}">${d.momentum!=null?(d.momentum>=0?"+":"")+(d.momentum*100).toFixed(1)+"%":"—"}</div></div>
+    <div class="mi"><div class="mil">ATR (14-day)</div><div class="miv">${atrVal!=null?atrVal.toFixed(2)+" SAR":"—"}</div></div>
+    <div class="mi"><div class="mil">Vol / Avg</div><div class="miv" style="color:${volRatio!=null?(volRatio>1.5?"var(--green)":volRatio<0.5?"var(--red)":"var(--tx)"):"var(--tx3)"}">${volRatio!=null?volRatio.toFixed(2)+"x":"—"}</div></div>
+    <div class="mi"><div class="mil">52W High</div><div class="miv">${d.w52high!=null?d.w52high.toFixed(2)+" SAR":"—"}</div></div>
+    <div class="mi"><div class="mil">52W Low</div><div class="miv">${d.w52low!=null?d.w52low.toFixed(2)+" SAR":"—"}</div></div>
+    <div class="mi"><div class="mil">Beta</div><div class="miv">${d.beta!=null?d.beta.toFixed(2):"—"}</div></div>
+    <div class="mi"><div class="mil">Volatility (Ann.)</div><div class="miv">${d.volatility!=null?(d.volatility*100).toFixed(1)+"%":"—"}</div></div>
   </div>
-  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Hover chart for exact date+price · Chart fetched on-demand when you open this tab</div>`;
+
+  <div style="font-family:var(--mono);font-size:10px;font-weight:700;color:var(--tx);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">Multi-Indicator Technical Analysis</div>
+  <div style="background:${sigBg(verdict)};border:1px solid ${sigBd(verdict)};border-radius:6px;padding:8px 12px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
+    <div>
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:2px">COMPOSITE VERDICT (${scores.bullish} bull &middot; ${scores.neutral} neutral &middot; ${scores.bearish} bear)</div>
+      <div style="font-family:var(--mono);font-size:14px;font-weight:700;color:${sigCol(verdict)}">${verdict==='bullish'?'Technically Bullish':verdict==='bearish'?'Technically Bearish':'Mixed / Neutral'}</div>
+    </div>
+    <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:${sigCol(verdict)}">${verdictScore}</div>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">
+    ${sigCard('&#x22c4;','Trend — MACD',macdSignal,macdDesc)}
+    ${sigCard('&#x223f;','Momentum — RSI',rsiSignal,rsiDesc)}
+    ${sigCard('&#x25ce;','Momentum — Stoch',stochSignal,stochDesc)}
+    ${sigCard('&#x25a3;','Volume',volSignal,volDesc)}
+    ${sigCard('&#x25ab;','Volatility — BB',bbSignal,bbDesc)}
+    ${sigCard('&#x2194;','Trend — SMA Cross',smaSignal,smaDesc)}
+    ${sigCard('&#x25c6;','Range — 52W',w52Signal,w52Desc)}
+  </div>
+
+  <div style="font-family:var(--mono);font-size:10px;font-weight:700;color:var(--tx);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">Market Economics &amp; Macro Context</div>
+  <div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:10px 12px;margin-bottom:8px">
+    <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:6px">Sector: ${d.sector||'—'}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+      <div><div style="font-family:var(--mono);font-size:8px;color:var(--tx3)">OIL PRICE SENSITIVITY</div><div style="font-size:10px;color:var(--tx2);margin-top:2px">${mac.oil}</div></div>
+      <div><div style="font-family:var(--mono);font-size:8px;color:var(--tx3)">INTEREST RATE SENSITIVITY</div><div style="font-size:10px;color:var(--tx2);margin-top:2px">${mac.rates}</div></div>
+      <div><div style="font-family:var(--mono);font-size:8px;color:var(--tx3)">TASI CORRELATION</div><div style="font-size:10px;color:var(--tx2);margin-top:2px">${mac.tasi}${d.beta!=null?' &middot; Beta: '+d.beta.toFixed(2):''}</div></div>
+      <div><div style="font-family:var(--mono);font-size:8px;color:var(--tx3)">VOLATILITY PROFILE</div><div style="font-size:10px;color:var(--tx2);margin-top:2px">${d.volatility!=null?((d.volatility*100).toFixed(1)+'% ann. — '+(d.volatility>0.4?'High':d.volatility>0.2?'Moderate':'Low')):'—'}</div></div>
+    </div>
+    <div><div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:4px">VISION 2030 &amp; SAUDI MACRO THEMES</div><div style="font-size:10px;color:var(--tx2);line-height:1.55">${mac.theme}</div></div>
+  </div>
+  <div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:10px 12px;margin-bottom:8px">
+    <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:6px">Saudi Macro Environment (2025–2026)</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px">
+      <div style="font-size:9px;color:var(--tx2)">Brent Oil ~75–85 USD/bbl — OPEC+ managing supply</div>
+      <div style="font-size:9px;color:var(--tx2)">NEOM Phase 1 construction in full swing</div>
+      <div style="font-size:9px;color:var(--tx2)">SAMA policy rate 5.5% (USD peg follower)</div>
+      <div style="font-size:9px;color:var(--tx2)">TASI: 10,000–12,500 range, Vision 2030 premium</div>
+      <div style="font-size:9px;color:var(--tx2)">SAR pegged to USD — no FX risk for USD investors</div>
+      <div style="font-size:9px;color:var(--tx2)">65%+ population under 35 — consumer growth driver</div>
+    </div>
+  </div>
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Hover chart for exact date+price &middot; Chart fetched on-demand when you open this tab &middot; OHLCV needed for Volume/Stoch/ATR</div>`;
 }
 
 let rsiChartInst=null;
@@ -5751,7 +5952,10 @@ function redrawChart(){
   [["sma20",chartShowSMA20,CC.sma20],
    ["sma50",chartShowSMA50,CC.sma50],
    ["bb",chartShowBollinger,CC.bb],
-   ["rsi",chartShowRSI,CC.rsi]
+   ["rsi",chartShowRSI,CC.rsi],
+   ["vol",chartShowVolume,CC.vol],
+   ["macd",chartShowMACD,CC.macd],
+   ["stoch",chartShowStoch,CC.stk]
   ].forEach(([id,on,clr])=>{
     const b=document.getElementById("ov-"+id);
     if(!b)return;
@@ -5761,9 +5965,14 @@ function redrawChart(){
   });
 }
 
+function fmtVol(v){if(!v)return'0';if(v>=1e9)return(v/1e9).toFixed(1)+'B';if(v>=1e6)return(v/1e6).toFixed(1)+'M';if(v>=1e3)return(v/1e3).toFixed(0)+'K';return v.toFixed(0);}
+
 function drawChart(d){
   if(chartInst){try{chartInst.destroy();}catch(e){}}
   if(rsiChartInst){try{rsiChartInst.destroy();}catch(e){}}
+  if(volumeChartInst){try{volumeChartInst.destroy();}catch(e){}}
+  if(macdChartInst){try{macdChartInst.destroy();}catch(e){}}
+  if(stochChartInst){try{stochChartInst.destroy();}catch(e){}}
   let closes=d.closes||[];let timestamps=d.timestamps||[];
   if(closes.length<2){
     // Show placeholder
@@ -5823,6 +6032,83 @@ function drawChart(d){
                   callback:v=>v===70?"OB":v===30?"OS":v},
                   grid:{color:"rgba(255,255,255,0.03)"},border:{color:"#232830"}}
               }}
+          });
+        },80);
+      }
+
+      // Volume chart
+      const volPanel=document.getElementById("vol-panel");
+      if(volPanel) volPanel.style.display=chartShowVolume?"block":"none";
+      if(chartShowVolume){
+        setTimeout(()=>{
+          const volCtx=document.getElementById("vol-chart");
+          if(!volCtx)return;
+          if(volumeChartInst){try{volumeChartInst.destroy();}catch(e){}}
+          const vols=(d.volumes||[]).slice(-maxDays);
+          if(!vols.length){return;}
+          const volSMA20=vols.map((_,i)=>{if(i<19)return null;const sl=vols.slice(i-19,i+1).filter(v=>v!=null);return sl.reduce((a,b)=>a+b,0)/sl.length;});
+          const volColors=closes.map((_,i)=>i===0?"rgba(99,102,241,0.5)":closes[i]>=closes[i-1]?"rgba(34,197,94,0.5)":"rgba(239,68,68,0.5)");
+          volumeChartInst=new Chart(volCtx,{
+            type:"bar",
+            data:{labels,datasets:[
+              {label:"Volume",data:vols,backgroundColor:volColors,borderWidth:0,barPercentage:0.9},
+              {label:"Vol SMA-20",data:volSMA20,type:"line",borderColor:CC.vol,backgroundColor:"transparent",pointRadius:0,borderWidth:1.5,tension:0.3}
+            ]},
+            options:{responsive:true,maintainAspectRatio:false,
+              interaction:{mode:"index",intersect:false},
+              plugins:{legend:{display:false},tooltip:{...tooltipStyle,callbacks:{title:items=>"Date: "+items[0].label,label:item=>{const v=item.raw;if(v==null)return null;return item.datasetIndex===0?"Vol: "+fmtVol(v):"Vol SMA-20: "+fmtVol(v);}}}},
+              scales:{x:{display:false},y:{ticks:{font:fontOpts,color:"#4a5568",maxTicksLimit:3,callback:v=>fmtVol(v)},grid:{color:"rgba(255,255,255,0.03)"},border:{color:"#232830"}}}}
+          });
+        },80);
+      }
+
+      // MACD chart
+      const macdPanel=document.getElementById("macd-panel");
+      if(macdPanel) macdPanel.style.display=chartShowMACD?"block":"none";
+      if(chartShowMACD&&closes.length>=27){
+        setTimeout(()=>{
+          const macdCtx=document.getElementById("macd-chart");
+          if(!macdCtx)return;
+          if(macdChartInst){try{macdChartInst.destroy();}catch(e){}}
+          const {macd:macdArr,signal:sigArr,histogram:histArr}=computeMACD(closes);
+          const histColors=histArr.map(v=>v==null?"transparent":v>=0?"rgba(34,197,94,0.6)":"rgba(239,68,68,0.6)");
+          macdChartInst=new Chart(macdCtx,{
+            type:"bar",
+            data:{labels,datasets:[
+              {label:"Histogram",data:histArr,backgroundColor:histColors,borderWidth:0,barPercentage:0.9,order:2},
+              {label:"MACD",data:macdArr,type:"line",borderColor:CC.macd,backgroundColor:"transparent",pointRadius:0,borderWidth:1.5,tension:0.2,order:1},
+              {label:"Signal",data:sigArr,type:"line",borderColor:CC.msig,backgroundColor:"transparent",pointRadius:0,borderWidth:1.2,borderDash:[4,2],tension:0.2,order:1},
+            ]},
+            options:{responsive:true,maintainAspectRatio:false,
+              interaction:{mode:"index",intersect:false},
+              plugins:{legend:{display:false},tooltip:{...tooltipStyle,callbacks:{title:items=>"Date: "+items[0].label,label:item=>{if(item.raw==null)return null;const lbl=["Hist","MACD","Signal"][item.datasetIndex];return lbl+": "+(item.raw).toFixed(3);}}}},
+              scales:{x:{display:false},y:{ticks:{font:fontOpts,color:"#4a5568",maxTicksLimit:4},grid:{color:"rgba(255,255,255,0.03)"},border:{color:"#232830"}}}}
+          });
+        },80);
+      }
+
+      // Stochastic chart
+      const stochPanel=document.getElementById("stoch-panel");
+      if(stochPanel) stochPanel.style.display=chartShowStoch?"block":"none";
+      if(chartShowStoch&&(d.highs||[]).length>=17){
+        setTimeout(()=>{
+          const stCtx=document.getElementById("stoch-chart");
+          if(!stCtx)return;
+          if(stochChartInst){try{stochChartInst.destroy();}catch(e){}}
+          const highs=(d.highs||[]).slice(-maxDays),lows=(d.lows||[]).slice(-maxDays);
+          const {kLine,dLine}=computeStochastic(highs,lows,closes);
+          stochChartInst=new Chart(stCtx,{
+            type:"line",
+            data:{labels,datasets:[
+              {label:"%K",data:kLine,borderColor:CC.stk,backgroundColor:"transparent",pointRadius:0,borderWidth:1.5,tension:0.2},
+              {label:"%D",data:dLine,borderColor:CC.std,backgroundColor:"transparent",pointRadius:0,borderWidth:1.2,borderDash:[4,2],tension:0.2},
+              {label:"OB (80)",data:kLine.map(()=>80),borderColor:"rgba(248,113,113,0.45)",pointRadius:0,borderWidth:1,borderDash:[5,3],backgroundColor:"transparent"},
+              {label:"OS (20)",data:kLine.map(()=>20),borderColor:"rgba(99,102,241,0.45)",pointRadius:0,borderWidth:1,borderDash:[5,3],backgroundColor:"transparent"},
+            ]},
+            options:{responsive:true,maintainAspectRatio:false,
+              interaction:{mode:"index",intersect:false},
+              plugins:{legend:{display:false},tooltip:{...tooltipStyle,callbacks:{title:items=>"Date: "+items[0].label,label:item=>{if(item.datasetIndex>1||item.raw==null)return null;return ["%K: ","%D: "][item.datasetIndex]+(item.raw).toFixed(1);}}}},
+              scales:{x:{display:false},y:{min:0,max:100,ticks:{font:fontOpts,color:"#4a5568",stepSize:20,callback:v=>v===80?"OB":v===20?"OS":v},grid:{color:"rgba(255,255,255,0.03)"},border:{color:"#232830"}}}}
           });
         },80);
       }
@@ -5909,6 +6195,9 @@ function closeModal(){
   document.getElementById("modal").style.display="none";
   if(chartInst){try{chartInst.destroy();}catch(e){}chartInst=null;}
   if(rsiChartInst){try{rsiChartInst.destroy();}catch(e){}rsiChartInst=null;}
+  if(volumeChartInst){try{volumeChartInst.destroy();}catch(e){}volumeChartInst=null;}
+  if(macdChartInst){try{macdChartInst.destroy();}catch(e){}macdChartInst=null;}
+  if(stochChartInst){try{stochChartInst.destroy();}catch(e){}stochChartInst=null;}
 }
 
 // ═══════════════════════════════════════
