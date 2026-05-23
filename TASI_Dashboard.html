@@ -746,7 +746,7 @@ function renderWeightsUI() {
     {k:'technical',   label:'Technical'},
     {k:'buffett',     label:'Buffett'},
     {k:'peg',         label:'PEG Score'},
-    {k:'dcf',         label:'DCF / DDM'},
+    {k:'dcf',         label:'Fair Value'},
   ];
   el.innerHTML = items.map(({k, label}) => `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
@@ -4143,7 +4143,7 @@ function buildBreakdown(d){
     {key:'technical',   label:'Technical',   value:d.technical},
     {key:'buffett',     label:'Buffett',      value:d.buffett},
     {key:'peg',         label:'PEG Score',   value:pegScore},
-    {key:'dcf',         label:'DCF/DDM',     value:dcfScore},
+    {key:'dcf',         label:'Fair Value',  value:dcfScore},
   ];
   for(const {key,label,value} of fmComponents){
     if(nW[key]<=0)continue;
@@ -4155,13 +4155,13 @@ function buildBreakdown(d){
   if(nW.dcf>0){
     const upside=d.dcfUpside;
     const dcfSteps=upside!=null?[{
-      label:d.dcfMethod||'DCF/DDM',
+      label:d.dcfMethod||'Fair Value',
       raw:`${upside>=0?'+':''}${(upside*100).toFixed(1)}%`,
       why:upside>0.10?'Strong upside vs fair value':upside>-0.10?'Near fair value':'Overvalued vs DCF estimate',
       delta:Math.round(dcfScore-50),
       detail:`DCF/DDM upside of ${(upside*100).toFixed(1)}% maps to a score of ${dcfScore}/100.<br>Scoring: 50 base + (upside ÷ 50%) × 50, clamped 0–100.<br>+50% upside → 100 · 0% → 50 · −50% → 0.`
     }]:[{label:'DCF/DDM',raw:'—',why:'DCF not yet calculated — open DCF tab first',delta:0,detail:'Open the Fair Value tab to run the valuation model and populate this score.'}];
-    dcfStepsHtml=renderSteps(dcfSteps,upside!=null?dcfScore:50,'DCF / DDM Score','#00d4aa',50);
+    dcfStepsHtml=renderSteps(dcfSteps,upside!=null?dcfScore:50,'Fair Value Score','#00d4aa',50);
   }
 
   return`
@@ -6148,7 +6148,7 @@ function buildSectorPerf() {
     <!-- Combined Score Weights -->
     <div style="font-family:var(--mono);font-size:10px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Combined Score Weights</div>
     <div class="sp-desc" style="margin-bottom:10px">
-      Adjust how each criteria contributes to the Combined Score. Set to 0 to exclude. Include DCF to factor in fair value upside. Weights auto-normalize to 100%.
+      Adjust how each criteria contributes to the Combined Score. Set to 0 to exclude. Include Fair Value to factor in upside. Weights auto-normalize to 100%.
     </div>
     <div id="score-weights-ui"></div>
     <div style="font-family:var(--mono);font-size:9px;margin:6px 0 10px" id="weights-total-lbl"></div>
