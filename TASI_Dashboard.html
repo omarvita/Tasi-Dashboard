@@ -4146,11 +4146,13 @@ function buildOverview(d){
   const peg=d.peg;
   return`
   ${d.noHardcodedData&&!d.fullLoaded?`<div style="background:#1a0f00;border:1px solid var(--amb);border-radius:6px;padding:9px 12px;margin-bottom:8px;font-family:var(--mono);font-size:9px;color:var(--amb);line-height:1.7">⚠ No hardcoded fundamentals — scores based on live Yahoo data only. Open this stock to load full data.</div>`:''}
-  <div class="strio">
-    <div class="scard"><div class="slbl">Fundamental</div><div class="sval" style="color:${sc(d.fundamental??50)}">${d.fundamental!=null?d.fundamental:(d.noHardcodedData?'—':'50')}</div></div>
-    <div class="scard"><div class="slbl">Technical</div><div class="sval" style="color:${sc(d.technical)}">${d.technical}</div></div>
-    <div class="scard"><div class="slbl">Buffett</div><div class="sval" style="color:${sc(d.buffett??50)}">${d.buffett!=null?d.buffett:(d.noHardcodedData?'—':'50')}</div></div>
-    <div class="scard hl"><div class="slbl">Combined</div><div class="sval" style="color:${sc(d.combined??50)}">${d.combined!=null?d.combined:(d.noHardcodedData?'—':'50')}</div></div>
+  <div class="strio" style="grid-template-columns:repeat(3,1fr)">
+    <div class="scard"><div class="slbl">Fundamental</div><div class="sval" style="color:${sc(d.fundamental??50)}">${d.fundamental!=null?d.fundamental:(d.noHardcodedData?'—':'50')}</div><div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-top:2px">wt ${SCORE_WEIGHTS.fundamental}%</div></div>
+    <div class="scard"><div class="slbl">Technical</div><div class="sval" style="color:${sc(d.technical)}">${d.technical}</div><div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-top:2px">wt ${SCORE_WEIGHTS.technical}%</div></div>
+    <div class="scard"><div class="slbl">Buffett</div><div class="sval" style="color:${sc(d.buffett??50)}">${d.buffett!=null?d.buffett:(d.noHardcodedData?'—':'50')}</div><div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-top:2px">wt ${SCORE_WEIGHTS.buffett}%</div></div>
+    <div class="scard"><div class="slbl">PEG Score</div><div class="sval" style="color:${sc(d.pegScore??50)}">${d.pegScore!=null?d.pegScore:(d.noHardcodedData?'—':'50')}</div><div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-top:2px">wt ${SCORE_WEIGHTS.peg}%${d.peg!=null?' · PEG '+d.peg.toFixed(2):''}</div></div>
+    <div class="scard"><div class="slbl">Fair Value</div><div class="sval" style="color:${d.dcfUpside!=null?sc(dcfUpsideToScore(d.dcfUpside)):'var(--tx3)'}">${d.dcfUpside!=null?dcfUpsideToScore(d.dcfUpside):'—'}</div><div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-top:2px">${d.dcfUpside!=null?(d.dcfUpside>=0?'+':'')+(d.dcfUpside*100).toFixed(1)+'% upside':'open tab ↗'}</div></div>
+    <div class="scard hl"><div class="slbl">Combined</div><div class="sval" style="color:${sc(d.combined??50)}">${d.combined!=null?d.combined:(d.noHardcodedData?'—':'50')}</div><div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-top:2px">weighted total</div></div>
   </div>
   <div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:8px 10px;font-family:var(--mono);font-size:9px;color:var(--tx3);margin-bottom:8px">
     ${(()=>{const W=SCORE_WEIGHTS;const parts=WEIGHT_KEYS.filter(k=>W[k]>0).map(k=>`${WEIGHT_LABELS[k]}×${W[k]}%`);return`Combined = ${parts.join(' + ')} = <span style="color:var(--acc);font-weight:600">${d.combined}</span>`;})()}
@@ -5584,7 +5586,8 @@ function buildBuffett(d){
 }
 
 // Chart state
-let chartRangeIdx=0,chartShowRSI=false,chartShowSMA20=true,chartShowSMA50=false,chartShowBollinger=false,chartShowVolume=false;
+let chartRangeIdx=0,chartShowRSI=false,chartShowSMA20=true,chartShowSMA50=false,chartShowBollinger=false,chartShowVolume=true,chartShowMACD=false,chartShowStoch=false;
+let volumeChartInst=null,macdChartInst=null,stochChartInst=null;
 const RANGES=[{label:"1M",days:21},{label:"3M",days:63},{label:"6M",days:126},{label:"1Y",days:252},{label:"2Y",days:504},{label:"All",days:9999}];
 
 function buildChartPanel(d){
@@ -5624,16 +5627,24 @@ async function fetchChartData(){
   const d=window._fd?.[window._curIdx];if(!d)return;
   const pw2=document.getElementById("pw");if(pw2)pw2.style.display="block";
   try{
-    const url=`https://query1.finance.yahoo.com/v8/finance/chart/${d.ticker}?interval=1d&range=2y`; // 2 years for full history
+    const url=`https://query1.finance.yahoo.com/v8/finance/chart/${d.ticker}?interval=1d&range=2y`;
     const res=await fetch("https://api.allorigins.win/get?url="+encodeURIComponent(url));
     const j=await res.json();const raw=JSON.parse(j.contents);
-    const closes=(raw?.chart?.result?.[0]?.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
-    const timestamps=raw?.chart?.result?.[0]?.timestamp||[];
+    const q=raw?.chart?.result?.[0]?.indicators?.quote?.[0]||{};
+    const ts=raw?.chart?.result?.[0]?.timestamp||[];
+    const cr=q.close||[],vr=q.volume||[],hr=q.high||[],lr=q.low||[];
+    const vi=cr.map((_,i)=>cr[i]!=null?i:null).filter(i=>i!==null);
+    const closes=vi.map(i=>cr[i]),volumes=vi.map(i=>vr[i]??null);
+    const highs=vi.map(i=>hr[i]??null),lows=vi.map(i=>lr[i]??null);
+    const timestamps=vi.map(i=>ts[i]);
     if(closes.length>0){
-      allData.find(a=>a.ticker===d.ticker)&&(allData.find(a=>a.ticker===d.ticker).closes=closes);
-      allData.find(a=>a.ticker===d.ticker)&&(allData.find(a=>a.ticker===d.ticker).timestamps=timestamps);
+      const rec=allData.find(a=>a.ticker===d.ticker);
+      if(rec){rec.closes=closes;rec.timestamps=timestamps;rec.volumes=volumes;rec.highs=highs;rec.lows=lows;}
       window._fd[window._curIdx].closes=closes;
       window._fd[window._curIdx].timestamps=timestamps;
+      window._fd[window._curIdx].volumes=volumes;
+      window._fd[window._curIdx].highs=highs;
+      window._fd[window._curIdx].lows=lows;
     }
   }catch(e){}
   if(pw2)pw2.style.display="none";
@@ -5668,6 +5679,53 @@ function computeBollinger(closes,period=20,stdMult=2){
   });
 }
 
+function computeEMA(arr, period){
+  const k=2/(period+1), ema=new Array(arr.length).fill(null);
+  let sum=0,count=0;
+  for(let i=0;i<arr.length;i++){
+    if(arr[i]==null)continue;
+    sum+=arr[i];count++;
+    if(count===period){ema[i]=sum/period;}
+    else if(count>period){ema[i]=arr[i]*k+ema[i-1]*(1-k);}
+  }
+  return ema;
+}
+
+function computeMACD(closes,fast=12,slow=26,sig=9){
+  const e12=computeEMA(closes,fast),e26=computeEMA(closes,slow);
+  const macd=closes.map((_,i)=>(e12[i]!=null&&e26[i]!=null)?e12[i]-e26[i]:null);
+  const sigArr=computeEMA(macd,sig);
+  const hist=macd.map((_,i)=>(macd[i]!=null&&sigArr[i]!=null)?macd[i]-sigArr[i]:null);
+  return{macd,signal:sigArr,histogram:hist};
+}
+
+function computeStochastic(highs,lows,closes,k=14,d=3){
+  if(!highs||!lows||highs.length<k)return{kLine:[],dLine:[]};
+  const kLine=closes.map((_,i)=>{
+    if(i<k-1)return null;
+    const sh=highs.slice(i-k+1,i+1),sl=lows.slice(i-k+1,i+1);
+    const hh=Math.max(...sh),ll=Math.min(...sl);
+    return hh===ll?50:((closes[i]-ll)/(hh-ll))*100;
+  });
+  const dLine=kLine.map((_,i)=>{
+    if(i<k+d-2)return null;
+    const sl=kLine.slice(i-d+1,i+1);
+    if(sl.some(v=>v==null))return null;
+    return sl.reduce((a,b)=>a+b,0)/d;
+  });
+  return{kLine,dLine};
+}
+
+function computeATR(highs,lows,closes,period=14){
+  if(!highs||!lows||highs.length<period+1)return[];
+  const tr=closes.map((_,i)=>i===0?highs[0]-lows[0]:Math.max(highs[i]-lows[i],Math.abs(highs[i]-closes[i-1]),Math.abs(lows[i]-closes[i-1])));
+  const atr=new Array(closes.length).fill(null);
+  let s=tr.slice(0,period).reduce((a,b)=>a+b,0);
+  atr[period-1]=s/period;
+  for(let i=period;i<tr.length;i++) atr[i]=(atr[i-1]*(period-1)+tr[i])/period;
+  return atr;
+}
+
 // ── Chart colour palette — one source of truth ────────────────────────────
 const CC = {
   price: '#e2e8f0',   // near-white — main price line
@@ -5675,6 +5733,11 @@ const CC = {
   sma50: '#38bdf8',   // sky-blue   — SMA-50
   bb:    '#a78bfa',   // violet     — Bollinger Bands
   rsi:   '#4ade80',   // emerald    — RSI line
+  vol:   '#6366f1',   // indigo     — Volume
+  macd:  '#f472b6',   // pink       — MACD line
+  msig:  '#fb923c',   // orange     — MACD signal
+  stk:   '#c084fc',   // purple     — Stochastic %K
+  std:   '#818cf8',   // indigo-400 — Stochastic %D
 };
 
 function redrawChart(){
