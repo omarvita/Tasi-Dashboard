@@ -2735,6 +2735,25 @@ const TIPS = {
   buffett_score:  'Score (0–100) based on Warren Buffett\'s criteria from "The Interpretation of Financial Statements": sustained ROE above 15%, low debt, wide margins, and consistent earnings growth.',
   combined:       'Weighted blend of Fundamental, Technical, Buffett, PEG, and DCF/DDM scores. The overall ranking signal used to sort the dashboard.',
   signal:         'Buy/Hold/Sell recommendation derived from the Combined Score. Buy ≥ 65, Hold 45–64, Sell < 45. Quantitative model output — not financial advice.',
+  atr:            'Average True Range (14-day) — measures daily price volatility. Calculated as the greatest of: current High−Low, |High−prev Close|, |Low−prev Close|. Higher ATR = wider daily swings. Use for stop-loss sizing: a stop 2×ATR below entry gives room for normal noise.',
+  vol_ratio:      'Today\'s volume divided by the 3-month average daily volume. Above 1.5x = unusually high activity — potential breakout or institutional move. Below 0.5x = low conviction. Volume confirms price moves; price moving on low volume is suspect.',
+  bollinger:      'Bollinger Bands (20-day, 2σ) — dynamic support/resistance based on volatility. Upper band = overbought stretch; lower band = oversold stretch. When bands narrow (squeeze), a volatility expansion often follows. Price touching upper band ≠ sell signal on its own — trend matters.',
+  macd_ind:       'MACD (12,26,9) — Moving Average Convergence/Divergence. Compares the 12-day EMA to the 26-day EMA (MACD line). A 9-day EMA of MACD is the signal line. Histogram shows their difference. Bullish: MACD crosses above signal. Bearish: crosses below. Best used with trend confirmation.',
+  stochastic:     'Stochastic Oscillator (14,3) — shows where price closed within its 14-day High–Low range. %K = current reading; %D = 3-day smoothing. Above 80 = overbought; below 20 = oversold. %K crossing above %D in oversold zone is a bullish setup; crossing below in overbought is bearish.',
+  sma_cross:      'SMA Crossover: when the 20-day moving average crosses above the 50-day, it\'s a Golden Cross (bullish trend confirmation). When it crosses below, it\'s a Death Cross (bearish). Institutional algorithms often trigger orders on these signals — reliable for Saudi blue chips in trending markets.',
+  w52range_pos:   'Where today\'s price sits within the 52-week High–Low range as a %. Near 100% = trading near the year\'s high (momentum). Near 0% = near the year\'s low (potential value or falling trend). The best Buffett buy zones are often at 20–40% of the 52W range.',
+  oil_sens:       'How much oil price movements flow through to this company. Saudi Arabia generates ~70% of government revenue from oil — downstream sectors feel this indirectly through consumer spending, credit growth, and government capex cycles.',
+  rate_sens:      'How sensitive this company is to SAMA interest rate changes. SAMA follows the US Fed (USD peg). Banks benefit from higher rates via wider net interest margins. REITs, Real Estate, and high-debt companies suffer as borrowing costs rise.',
+  tasi_corr:      'Estimated co-movement with the TASI index. High-correlation stocks move with the market — less diversification value but more liquidity. Low-correlation sectors (Healthcare, Telecom) can cushion a portfolio during broad market sell-offs.',
+  vol_profile:    'Annualised standard deviation of daily price returns. Low (<20%): stable, predictable; Medium (20–40%): typical Saudi stock; High (>40%): speculative or news-driven. Compare to the stock\'s historical average to detect regime changes.',
+  composite_ta:   'Counts bullish vs bearish signals from 7 independent indicators: MACD, RSI, Stochastic, Volume, Bollinger Bands, SMA Cross, and 52W Range position. Score: 50=all neutral, 100=all 7 bullish, 0=all 7 bearish. Use with fundamental analysis — technical signals alone are not buy/sell advice.',
+  macd_card:      'MACD trend signal: bullish when MACD line is above the signal line (buying momentum), bearish when below. A fresh crossover is stronger than a sustained position above/below.',
+  rsi_card:       'RSI momentum signal: oversold (<30) is bullish setup; overbought (>70) is bearish. In strong trends, RSI can stay extreme for weeks — always combine with trend direction.',
+  stoch_card:     'Stochastic momentum: best signals occur when %K crosses %D in the oversold zone (bullish) or overbought zone (bearish). Avoid using in strongly trending markets where stochastic can stay extreme.',
+  vol_card:       'Volume signal: rising price on high volume confirms institutional buying. Rising price on low volume is suspect. High volume on a down day is a warning sign of heavy distribution.',
+  bb_card:        'Bollinger Band signal: price touching the upper band in an uptrend is not a sell — it confirms momentum. Price closing outside the band is unusual and often reverts to the mean within 1–5 days.',
+  sma_card:       'SMA trend signal: Golden Cross (SMA-20 above SMA-50) historically precedes 6-month positive returns in 60–65% of cases on TASI. Death Cross has similar predictive value for downtrends.',
+  w52_card:       'Price range context: being near the 52-week high in a strong uptrend is bullish (momentum). Being near the 52-week low in a downtrend is bearish. Contrarian investors look for quality stocks near 52-week lows.',
 };
 // Helper: returns a data-tip attribute string for inline use in template literals
 function T(key) { const v = TIPS[key]; return v ? `data-tip="${v}"` : ''; }
@@ -5723,9 +5742,9 @@ function buildChartPanel(d){
   const mac=sectorMacro[d.sector]||{oil:'Moderate',rates:'Moderate',tasi:'Moderate',theme:'General Saudi economic growth and Vision 2030'};
 
   // Build signal card HTML
-  const sigCard=(icon,label,signal,desc)=>
+  const sigCard=(icon,label,signal,desc,tipKey)=>
     '<div style="background:'+sigBg(signal)+';border:1px solid '+sigBd(signal)+';border-radius:6px;padding:8px 10px;flex:1;min-width:130px">'+
-    '<div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:3px">'+icon+' '+label+'</div>'+
+    '<div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:3px;cursor:help"'+(tipKey&&TIPS[tipKey]?' data-tip="'+TIPS[tipKey]+'"':'')+'>'+icon+' '+label+' ⓘ</div>'+
     '<div style="font-family:var(--mono);font-size:9px;font-weight:700;color:'+sigCol(signal)+';margin-bottom:3px">'+sigLbl(signal)+'</div>'+
     '<div style="font-size:9px;color:var(--tx2);line-height:1.35">'+desc+'</div>'+
     '</div>';
@@ -5737,13 +5756,13 @@ function buildChartPanel(d){
   </div>
   <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:8px">
     <span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Overlays:</span>
-    <button id="ov-sma20" onclick="chartShowSMA20=!chartShowSMA20;redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;cursor:pointer">SMA-20</button>
-    <button id="ov-sma50" onclick="chartShowSMA50=!chartShowSMA50;redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;cursor:pointer">SMA-50</button>
-    <button id="ov-bb"    onclick="chartShowBollinger=!chartShowBollinger;redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;cursor:pointer">Bollinger</button>
-    <button id="ov-rsi"   onclick="chartShowRSI=!chartShowRSI;redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;cursor:pointer">RSI (14)</button>
-    <button id="ov-vol"   onclick="chartShowVolume=!chartShowVolume;redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;cursor:pointer">Volume</button>
-    <button id="ov-macd"  onclick="chartShowMACD=!chartShowMACD;redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;cursor:pointer">MACD</button>
-    <button id="ov-stoch" onclick="chartShowStoch=!chartShowStoch;redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;cursor:pointer">Stoch</button>
+    <button id="ov-sma20" data-tip="${TIPS.sma20}" onclick="chartShowSMA20=!chartShowSMA20;redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;cursor:pointer">SMA-20</button>
+    <button id="ov-sma50" data-tip="${TIPS.sma50}" onclick="chartShowSMA50=!chartShowSMA50;redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;cursor:pointer">SMA-50</button>
+    <button id="ov-bb"    data-tip="${TIPS.bollinger}" onclick="chartShowBollinger=!chartShowBollinger;redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;cursor:pointer">Bollinger</button>
+    <button id="ov-rsi"   data-tip="${TIPS.rsi}" onclick="chartShowRSI=!chartShowRSI;redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;cursor:pointer">RSI (14)</button>
+    <button id="ov-vol"   data-tip="${TIPS.vol_ratio}" onclick="chartShowVolume=!chartShowVolume;redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;cursor:pointer">Volume</button>
+    <button id="ov-macd"  data-tip="${TIPS.macd_ind}" onclick="chartShowMACD=!chartShowMACD;redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;cursor:pointer">MACD</button>
+    <button id="ov-stoch" data-tip="${TIPS.stochastic}" onclick="chartShowStoch=!chartShowStoch;redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;cursor:pointer">Stoch</button>
     ${!hasData?'<button onclick="fetchChartData()" style="font-family:var(--mono);font-size:9px;padding:2px 10px;border:1px solid var(--acc);border-radius:3px;background:var(--adm);color:var(--acc);cursor:pointer">&#8595; Load chart</button>':""}
     ${hasData&&!hasFull?'<button onclick="fetchChartData()" style="font-family:var(--mono);font-size:9px;padding:2px 10px;border:1px solid var(--acc);border-radius:3px;background:var(--adm);color:var(--acc);cursor:pointer">&#8595; Load OHLCV</button>':""}
   </div>
@@ -5765,22 +5784,22 @@ function buildChartPanel(d){
     <div class="cbox" style="height:80px;margin-bottom:4px"><canvas id="stoch-chart"></canvas></div>
   </div>
   <div class="mgrid" style="margin-top:6px">
-    <div class="mi"><div class="mil">Technical Score</div><div class="miv" style="color:${sc(d.technical)}">${d.technical}/100</div></div>
+    <div class="mi"><div class="mil" ${T('technical_score')}>Technical Score</div><div class="miv" style="color:${sc(d.technical)}">${d.technical}/100</div></div>
     <div class="mi"><div class="mil" ${T('rsi')}>RSI (14-day)</div><div class="miv" style="color:${d.rsi!=null?(d.rsi<30?"var(--green)":d.rsi>70?"var(--red)":"var(--tx)"):"var(--tx3)"}">${d.rsi!=null?d.rsi.toFixed(1):"—"}</div></div>
     <div class="mi"><div class="mil">6M Price Chg</div><div class="miv">${d.closes?.length>1?((d.closes[d.closes.length-1]-d.closes[0])/d.closes[0]*100).toFixed(2)+"%":"—"}</div></div>
     <div class="mi"><div class="mil" ${T('sma20')}>SMA-20</div><div class="miv">${d.sma20!=null?d.sma20.toFixed(2)+" SAR":"—"}</div></div>
     <div class="mi"><div class="mil" ${T('sma50')}>SMA-50</div><div class="miv">${d.sma50!=null?d.sma50.toFixed(2)+" SAR":"—"}</div></div>
     <div class="mi"><div class="mil" ${T('momentum')}>1M Momentum</div><div class="miv ${d.momentum!=null?(d.momentum>=0?'pos':'neg'):''}">${d.momentum!=null?(d.momentum>=0?"+":"")+(d.momentum*100).toFixed(1)+"%":"—"}</div></div>
-    <div class="mi"><div class="mil">ATR (14-day)</div><div class="miv">${atrVal!=null?atrVal.toFixed(2)+" SAR":"—"}</div></div>
-    <div class="mi"><div class="mil">Vol / Avg</div><div class="miv" style="color:${volRatio!=null?(volRatio>1.5?"var(--green)":volRatio<0.5?"var(--red)":"var(--tx)"):"var(--tx3)"}">${volRatio!=null?volRatio.toFixed(2)+"x":"—"}</div></div>
-    <div class="mi"><div class="mil">52W High</div><div class="miv">${d.w52high!=null?d.w52high.toFixed(2)+" SAR":"—"}</div></div>
-    <div class="mi"><div class="mil">52W Low</div><div class="miv">${d.w52low!=null?d.w52low.toFixed(2)+" SAR":"—"}</div></div>
-    <div class="mi"><div class="mil">Beta</div><div class="miv">${d.beta!=null?d.beta.toFixed(2):"—"}</div></div>
-    <div class="mi"><div class="mil">Volatility (Ann.)</div><div class="miv">${d.volatility!=null?(d.volatility*100).toFixed(1)+"%":"—"}</div></div>
+    <div class="mi"><div class="mil" ${T('atr')}>ATR (14-day)</div><div class="miv">${atrVal!=null?atrVal.toFixed(2)+" SAR":"—"}</div></div>
+    <div class="mi"><div class="mil" ${T('vol_ratio')}>Vol / Avg</div><div class="miv" style="color:${volRatio!=null?(volRatio>1.5?"var(--green)":volRatio<0.5?"var(--red)":"var(--tx)"):"var(--tx3)"}">${volRatio!=null?volRatio.toFixed(2)+"x":"—"}</div></div>
+    <div class="mi"><div class="mil" ${T('w52h')}>52W High</div><div class="miv">${d.w52high!=null?d.w52high.toFixed(2)+" SAR":"—"}</div></div>
+    <div class="mi"><div class="mil" ${T('w52l')}>52W Low</div><div class="miv">${d.w52low!=null?d.w52low.toFixed(2)+" SAR":"—"}</div></div>
+    <div class="mi"><div class="mil" ${T('beta')}>Beta</div><div class="miv">${d.beta!=null?d.beta.toFixed(2):"—"}</div></div>
+    <div class="mi"><div class="mil" ${T('vol_profile')}>Volatility (Ann.)</div><div class="miv">${d.volatility!=null?(d.volatility*100).toFixed(1)+"%":"—"}</div></div>
   </div>
 
   <div style="font-family:var(--mono);font-size:10px;font-weight:700;color:var(--tx);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">Multi-Indicator Technical Analysis</div>
-  <div style="background:${sigBg(verdict)};border:1px solid ${sigBd(verdict)};border-radius:6px;padding:8px 12px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
+  <div data-tip="${TIPS.composite_ta}" style="background:${sigBg(verdict)};border:1px solid ${sigBd(verdict)};border-radius:6px;padding:8px 12px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;cursor:help">
     <div>
       <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:2px">COMPOSITE VERDICT (${scores.bullish} bull &middot; ${scores.neutral} neutral &middot; ${scores.bearish} bear)</div>
       <div style="font-family:var(--mono);font-size:14px;font-weight:700;color:${sigCol(verdict)}">${verdict==='bullish'?'Technically Bullish':verdict==='bearish'?'Technically Bearish':'Mixed / Neutral'}</div>
@@ -5788,23 +5807,23 @@ function buildChartPanel(d){
     <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:${sigCol(verdict)}">${verdictScore}</div>
   </div>
   <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">
-    ${sigCard('&#x22c4;','Trend — MACD',macdSignal,macdDesc)}
-    ${sigCard('&#x223f;','Momentum — RSI',rsiSignal,rsiDesc)}
-    ${sigCard('&#x25ce;','Momentum — Stoch',stochSignal,stochDesc)}
-    ${sigCard('&#x25a3;','Volume',volSignal,volDesc)}
-    ${sigCard('&#x25ab;','Volatility — BB',bbSignal,bbDesc)}
-    ${sigCard('&#x2194;','Trend — SMA Cross',smaSignal,smaDesc)}
-    ${sigCard('&#x25c6;','Range — 52W',w52Signal,w52Desc)}
+    ${sigCard('&#x22c4;','Trend — MACD',macdSignal,macdDesc,'macd_card')}
+    ${sigCard('&#x223f;','Momentum — RSI',rsiSignal,rsiDesc,'rsi_card')}
+    ${sigCard('&#x25ce;','Momentum — Stoch',stochSignal,stochDesc,'stoch_card')}
+    ${sigCard('&#x25a3;','Volume',volSignal,volDesc,'vol_card')}
+    ${sigCard('&#x25ab;','Volatility — BB',bbSignal,bbDesc,'bb_card')}
+    ${sigCard('&#x2194;','Trend — SMA Cross',smaSignal,smaDesc,'sma_card')}
+    ${sigCard('&#x25c6;','Range — 52W',w52Signal,w52Desc,'w52_card')}
   </div>
 
   <div style="font-family:var(--mono);font-size:10px;font-weight:700;color:var(--tx);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">Market Economics &amp; Macro Context</div>
   <div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:10px 12px;margin-bottom:8px">
     <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:6px">Sector: ${d.sector||'—'}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
-      <div><div style="font-family:var(--mono);font-size:8px;color:var(--tx3)">OIL PRICE SENSITIVITY</div><div style="font-size:10px;color:var(--tx2);margin-top:2px">${mac.oil}</div></div>
-      <div><div style="font-family:var(--mono);font-size:8px;color:var(--tx3)">INTEREST RATE SENSITIVITY</div><div style="font-size:10px;color:var(--tx2);margin-top:2px">${mac.rates}</div></div>
-      <div><div style="font-family:var(--mono);font-size:8px;color:var(--tx3)">TASI CORRELATION</div><div style="font-size:10px;color:var(--tx2);margin-top:2px">${mac.tasi}${d.beta!=null?' &middot; Beta: '+d.beta.toFixed(2):''}</div></div>
-      <div><div style="font-family:var(--mono);font-size:8px;color:var(--tx3)">VOLATILITY PROFILE</div><div style="font-size:10px;color:var(--tx2);margin-top:2px">${d.volatility!=null?((d.volatility*100).toFixed(1)+'% ann. — '+(d.volatility>0.4?'High':d.volatility>0.2?'Moderate':'Low')):'—'}</div></div>
+      <div><div data-tip="${TIPS.oil_sens}" style="font-family:var(--mono);font-size:8px;color:var(--tx3);cursor:help">OIL PRICE SENSITIVITY ⓘ</div><div style="font-size:10px;color:var(--tx2);margin-top:2px">${mac.oil}</div></div>
+      <div><div data-tip="${TIPS.rate_sens}" style="font-family:var(--mono);font-size:8px;color:var(--tx3);cursor:help">INTEREST RATE SENSITIVITY ⓘ</div><div style="font-size:10px;color:var(--tx2);margin-top:2px">${mac.rates}</div></div>
+      <div><div data-tip="${TIPS.tasi_corr}" style="font-family:var(--mono);font-size:8px;color:var(--tx3);cursor:help">TASI CORRELATION ⓘ</div><div style="font-size:10px;color:var(--tx2);margin-top:2px">${mac.tasi}${d.beta!=null?' &middot; Beta: '+d.beta.toFixed(2):''}</div></div>
+      <div><div data-tip="${TIPS.vol_profile}" style="font-family:var(--mono);font-size:8px;color:var(--tx3);cursor:help">VOLATILITY PROFILE ⓘ</div><div style="font-size:10px;color:var(--tx2);margin-top:2px">${d.volatility!=null?((d.volatility*100).toFixed(1)+'% ann. — '+(d.volatility>0.4?'High':d.volatility>0.2?'Moderate':'Low')):'—'}</div></div>
     </div>
     <div><div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:4px">VISION 2030 &amp; SAUDI MACRO THEMES</div><div style="font-size:10px;color:var(--tx2);line-height:1.55">${mac.theme}</div></div>
   </div>
@@ -6045,7 +6064,11 @@ function drawChart(d){
           if(!volCtx)return;
           if(volumeChartInst){try{volumeChartInst.destroy();}catch(e){}}
           const vols=(d.volumes||[]).slice(-maxDays);
-          if(!vols.length){return;}
+          if(!vols.length){
+            const c2=volCtx.getContext("2d");
+            if(c2){c2.fillStyle="#4a5568";c2.font="10px IBM Plex Mono";c2.fillText("No volume data — click '↓ Load OHLCV' button above",14,38);}
+            return;
+          }
           const volSMA20=vols.map((_,i)=>{if(i<19)return null;const sl=vols.slice(i-19,i+1).filter(v=>v!=null);return sl.reduce((a,b)=>a+b,0)/sl.length;});
           const volColors=closes.map((_,i)=>i===0?"rgba(99,102,241,0.5)":closes[i]>=closes[i-1]?"rgba(34,197,94,0.5)":"rgba(239,68,68,0.5)");
           volumeChartInst=new Chart(volCtx,{
