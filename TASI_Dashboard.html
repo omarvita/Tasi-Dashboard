@@ -902,6 +902,17 @@ function tdCacheSet(ticker, quarterly, annual) {
   } catch(e) {}
 }
 
+// True when cached annual data is missing the most-recently-completed fiscal year.
+// After April of year Y: expect FY(Y-1) data to exist; Jan-Mar: expect FY(Y-2).
+function isAnnualDataStale(data) {
+  if (!data?.is?.length) return true;
+  const latestYear = parseInt((data.is[0]?.fiscal_date || '').slice(0, 4));
+  if (isNaN(latestYear)) return false;
+  const m = new Date().getMonth() + 1; // 1-12
+  const expectedFY = m >= 4 ? new Date().getFullYear() - 1 : new Date().getFullYear() - 2;
+  return latestYear < expectedFY;
+}
+
 async function fetchFMPStatements(ticker, period) {
   const key = getFMPKey();
   if (!key) return { is: null, bs: null, cf: null };
@@ -1341,6 +1352,57 @@ function extractNextData(html) {
   try { return JSON.parse(m[1]); } catch(e) { return null; }
 }
 
+// Scan script tags for JSON arrays/objects containing financial row data
+function extractArgaamInlineJSON(html, period) {
+  if (!html) return { is: null, bs: null, cf: null };
+  const scripts = html.match(/<script[^>]*>([\s\S]*?)<\/script>/gi) || [];
+  for (const script of scripts) {
+    const content = script.replace(/<\/?script[^>]*>/gi, '');
+    if (content.length < 100 || !/Revenue|NetProfit|netIncome|OperatingIncome/i.test(content)) continue;
+    const arrMatch = content.match(/(?:=|\s|:)\s*(\[(?:\{[^[\]]{10,500}\}[,\s]*){2,}\])/);
+    if (arrMatch) {
+      try {
+        const rows = JSON.parse(arrMatch[1]);
+        if (Array.isArray(rows) && rows.length > 1) {
+          const result = parseArgaamAPIData({ Data: rows }, period);
+          if (result.is?.length) return result;
+        }
+      } catch(e) {}
+    }
+  }
+  return { is: null, bs: null, cf: null };
+}
+
+// Generic HTML financial table parser — extracts revenue+NI rows from any <table>
+function parseGenericFinancialTable(html, period) {
+  if (!html) return { is: null, bs: null, cf: null };
+  const revenueRx = /revenue|إيرادات|مجموع الإيرادات/i;
+  const niRx = /net.?(?:income|profit)|صافي.?(?:الربح|الدخل)/i;
+  const tableRows = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
+  if (!tableRows.length) return { is: null, bs: null, cf: null };
+  let headers = [], revenueRow = null, niRow = null;
+  for (const [, rowContent] of tableRows) {
+    const cells = [...rowContent.matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/gi)]
+      .map(m => m[1].replace(/<[^>]+>/g, '').replace(/,/g, '').trim());
+    if (!cells.length) continue;
+    const label = cells[0] || '';
+    if (!headers.length && /20\d\d/.test(cells[1] || '')) headers = cells.slice(1).filter(c => /20\d\d/.test(c));
+    if (revenueRx.test(label) && !revenueRow) revenueRow = cells.slice(1);
+    if (niRx.test(label) && !niRow) niRow = cells.slice(1);
+  }
+  if (!headers.length || (!revenueRow && !niRow)) return { is: null, bs: null, cf: null };
+  const toNum = s => { const n = parseFloat(String(s).replace(/[^0-9.-]/g, '')); return isNaN(n) ? null : n; };
+  const firstRev = toNum(revenueRow?.[0]);
+  const scale = firstRev && firstRev < 1e4 ? 1e9 : firstRev && firstRev < 1e7 ? 1e6 : firstRev && firstRev < 1e10 ? 1e3 : 1;
+  const is = headers.slice(0, 6).map((h, i) => ({
+    fiscal_date: h.slice(0, 4) || h,
+    revenue: revenueRow?.[i] != null ? (toNum(revenueRow[i]) || 0) * scale : null,
+    net_income: niRow?.[i] != null ? (toNum(niRow[i]) || 0) * scale : null,
+    gross_profit: null, ebitda: null, operating_income: null, eps: null,
+  })).filter(r => r.revenue != null || r.net_income != null);
+  return is.length ? { is, bs: null, cf: null } : { is: null, bs: null, cf: null };
+}
+
 function mapSARows(nextData, period, fieldMap) {
   if (!nextData) return null;
   const pp = nextData?.props?.pageProps;
@@ -1440,90 +1502,161 @@ async function scrapeFinancials(ticker, period) {
 // ── ARGAAM FINANCIAL DATA FETCHER ──
 async function fetchArgaamFinancials(code, period) {
   const isQ = period === 'quarterly';
-  // Argaam financial pages: annual = default, quarterly = ?type=quarterly
-  const urls = [
+  const periodType = isQ ? 2 : 1;
+
+  // Strategy A: Try multiple Argaam JSON API endpoints (most direct — no scraping)
+  const apiCandidates = [
+    `https://argaam.com/api/v1/json/Financial/GetFinancials?CompanyID=${code}&PeriodType=${periodType}&Lang=en`,
+    `https://argaam.com/api/v1/json/Financial/GetFinancials?CompanyID=${code}&PeriodType=${periodType}&Lang=ar`,
+    `https://argaam.com/api/v1/json/Financial/GetFinancials?Symbol=${code}&PeriodType=${periodType}&Lang=en`,
+    `https://argaam.com/api/v1/json/company/GetCompanyFinancials?companyId=${code}&periodType=${periodType}`,
+    `https://argaam.com/api/v2/json/Financial/GetFinancials?CompanyID=${code}&PeriodType=${periodType}`,
+  ];
+  for (const apiUrl of apiCandidates) {
+    try {
+      const data = await fetchWithProxy(apiUrl);
+      if (data && typeof data === 'object' && !data.error && Object.keys(data).length > 1) {
+        const rows = data.Data || data.data || data.Result || data.result || data.financials;
+        if (Array.isArray(rows) && rows.length) {
+          const result = parseArgaamAPIData(data, period);
+          if (result.is?.length) return result;
+        }
+      }
+    } catch(e) {}
+  }
+
+  // Strategy B: HTML pages — try __NEXT_DATA__ and inline JSON extraction
+  const htmlUrls = [
     `https://argaam.com/en/company/financials/${code}${isQ ? '?type=quarterly' : ''}`,
     `https://argaam.com/ar/company/financials/${code}${isQ ? '?type=quarterly' : ''}`,
   ];
-  for (const url of urls) {
+  for (const url of htmlUrls) {
     try {
       const html = await fetchHTMLViaProxy(url);
       if (!html || html.length < 2000) continue;
-      // Try __NEXT_DATA__ first (Next.js app)
       const nd = extractNextData(html);
       if (nd) {
         const result = parseArgaamNextData(nd, period);
         if (result.is || result.bs || result.cf) return result;
       }
+      const inlineResult = extractArgaamInlineJSON(html, period);
+      if (inlineResult.is?.length) return inlineResult;
     } catch(e) { continue; }
   }
-  // Try Argaam API endpoints (mobile app API, sometimes accessible)
-  try {
-    const apiUrl = `https://argaam.com/api/v1/json/Financial/GetFinancials?CompanyID=${code}&PeriodType=${isQ ? 2 : 1}&Lang=en`;
-    const data = await fetchWithProxy(apiUrl);
-    if (data && (data.Data || data.data || data.financials)) {
-      return parseArgaamAPIData(data, period);
-    }
-  } catch(e) {}
+
   return { is: null, bs: null, cf: null };
 }
 
 function parseArgaamNextData(nd, period) {
   const empty = { is: null, bs: null, cf: null };
-  if (!nd?.props?.pageProps) return empty;
-  const pp = nd.props.pageProps;
-  // Argaam stores financials under various keys
-  const fin = pp.financials || pp.financial || pp.data?.financials || pp.companyFinancials;
-  if (!fin) return empty;
+  if (!nd) return empty;
+  const pp = nd?.props?.pageProps || nd?.props || nd || {};
   const isQ = period === 'quarterly';
-  const isData = isQ ? (fin.quarterly?.incomeStatement || fin.quarterlyIS) : (fin.annual?.incomeStatement || fin.annualIS || fin.incomeStatement);
-  const bsData = isQ ? (fin.quarterly?.balanceSheet || fin.quarterlyBS) : (fin.annual?.balanceSheet || fin.annualBS || fin.balanceSheet);
-  const cfData = isQ ? (fin.quarterly?.cashFlow || fin.quarterlyCF) : (fin.annual?.cashFlow || fin.annualCF || fin.cashFlow);
-  const pick = (r, ...keys) => { for (const k of keys) if (r[k] != null) return r[k]; return null; };
-  const mapArgaamIS = rows => rows?.map(r => ({
-    fiscal_date: pick(r, 'date', 'period', 'fiscalDate', 'Year') ?? '—',
-    revenue: pick(r, 'revenue', 'Revenue', 'totalRevenue'),
-    gross_profit: pick(r, 'grossProfit', 'GrossProfit'),
-    ebitda: pick(r, 'ebitda', 'EBITDA'),
-    operating_income: pick(r, 'operatingIncome', 'OperatingIncome'),
-    net_income: pick(r, 'netIncome', 'NetIncome', 'netProfit'),
-    eps: pick(r, 'eps', 'EPS', 'earningsPerShare'),
-  })) ?? null;
-  const mapArgaamBS = rows => rows?.map(r => ({
-    fiscal_date: pick(r, 'date', 'period', 'fiscalDate') ?? '—',
-    total_assets: pick(r, 'totalAssets', 'TotalAssets'),
-    total_liabilities: pick(r, 'totalLiabilities', 'TotalLiabilities'),
-    total_equity: pick(r, 'totalEquity', 'TotalEquity', 'shareholdersEquity'),
-    cash_and_equivalents: pick(r, 'cash', 'Cash', 'cashAndEquivalents'),
-    long_term_debt: pick(r, 'longTermDebt', 'LongTermDebt'),
-  })) ?? null;
-  const mapArgaamCF = rows => rows?.map(r => ({
-    fiscal_date: pick(r, 'date', 'period', 'fiscalDate') ?? '—',
-    operating_activities: pick(r, 'operatingCashFlow', 'OperatingCashFlow', 'netCashFromOperations'),
-    investing_activities: pick(r, 'investingCashFlow', 'InvestingCashFlow'),
-    financing_activities: pick(r, 'financingCashFlow', 'FinancingCashFlow'),
-    capital_expenditure: pick(r, 'capex', 'CapEx', 'capitalExpenditures'),
-    free_cash_flow: pick(r, 'freeCashFlow', 'FreeCashFlow'),
-    dividends_paid: pick(r, 'dividendsPaid', 'DividendsPaid'),
-  })) ?? null;
-  return { is: mapArgaamIS(isData), bs: mapArgaamBS(bsData), cf: mapArgaamCF(cfData) };
+  const pick = (r, ...keys) => { for (const k of keys) if (r != null && r[k] != null) return r[k]; return null; };
+
+  // Try many possible paths where Argaam/Mubasher stores financials
+  const fin = pp?.financials || pp?.financial || pp?.data?.financials
+    || pp?.companyFinancials || pp?.companyData?.financials
+    || pp?.company?.financials || pp?.stockData?.financials
+    || pp?.pageData?.financials || pp?.initialData?.financials
+    || pp?.financialStatements || pp?.statements
+    || pp?.data?.company?.financials || pp?.data?.financialStatements
+    || pp?.pageProps?.financials;
+
+  const mapIS = rows => !Array.isArray(rows) ? null : rows.map(r => ({
+    fiscal_date: pick(r, 'date','period','fiscalDate','Year','PeriodDate','periodDate','year','FiscalYear') ?? '—',
+    revenue: pick(r,'revenue','Revenue','totalRevenue','TotalRevenue','NetRevenue','netRevenue','Revenues'),
+    gross_profit: pick(r,'grossProfit','GrossProfit','gross_profit','GrossIncome'),
+    ebitda: pick(r,'ebitda','EBITDA','Ebitda'),
+    operating_income: pick(r,'operatingIncome','OperatingIncome','operating_income','OperatingProfit','operatingProfit'),
+    net_income: pick(r,'netIncome','NetIncome','netProfit','NetProfit','net_income','NetProfitAttributable','netProfitAttributable'),
+    eps: (() => { const v = pick(r,'eps','EPS','earningsPerShare','EarningsPerShare','BasicEPS','basicEPS'); return v != null ? parseFloat(v)||null : null; })(),
+  })).filter(r => r.revenue != null || r.net_income != null) ?? null;
+
+  const mapBS = rows => !Array.isArray(rows) ? null : rows.map(r => ({
+    fiscal_date: pick(r,'date','period','fiscalDate','Year','PeriodDate') ?? '—',
+    total_assets: pick(r,'totalAssets','TotalAssets','Assets','assets'),
+    total_liabilities: pick(r,'totalLiabilities','TotalLiabilities','Liabilities'),
+    total_equity: pick(r,'totalEquity','TotalEquity','shareholdersEquity','ShareholdersEquity','equity'),
+    cash_and_equivalents: pick(r,'cash','Cash','cashAndEquivalents','CashAndEquivalents'),
+    long_term_debt: pick(r,'longTermDebt','LongTermDebt'),
+  })).filter(r => r.total_assets != null) ?? null;
+
+  const mapCF = rows => !Array.isArray(rows) ? null : rows.map(r => ({
+    fiscal_date: pick(r,'date','period','fiscalDate','Year','PeriodDate') ?? '—',
+    operating_activities: pick(r,'operatingCashFlow','OperatingCashFlow','netCashFromOperations','operatingActivities'),
+    investing_activities: pick(r,'investingCashFlow','InvestingCashFlow','investingActivities'),
+    financing_activities: pick(r,'financingCashFlow','FinancingCashFlow','financingActivities'),
+    capital_expenditure: pick(r,'capex','CapEx','capitalExpenditures','CapitalExpenditures','capitalExpenditure'),
+    free_cash_flow: pick(r,'freeCashFlow','FreeCashFlow','free_cash_flow'),
+    dividends_paid: pick(r,'dividendsPaid','DividendsPaid','dividends'),
+  })).filter(r => r.operating_activities != null) ?? null;
+
+  if (fin) {
+    const isData = isQ
+      ? (fin.quarterly?.incomeStatement || fin.quarterlyIS || fin.quarterly?.IS || fin.quarterly)
+      : (fin.annual?.incomeStatement || fin.annualIS || fin.incomeStatement || fin.IS || fin.annual?.IS || fin.annual);
+    const bsData = isQ
+      ? (fin.quarterly?.balanceSheet || fin.quarterlyBS || fin.quarterly?.BS)
+      : (fin.annual?.balanceSheet || fin.annualBS || fin.balanceSheet || fin.BS || fin.annual?.BS);
+    const cfData = isQ
+      ? (fin.quarterly?.cashFlow || fin.quarterlyCF || fin.quarterly?.CF)
+      : (fin.annual?.cashFlow || fin.annualCF || fin.cashFlow || fin.CF || fin.annual?.CF);
+    const is = mapIS(Array.isArray(isData) ? isData : null);
+    const bs = mapBS(Array.isArray(bsData) ? bsData : null);
+    const cf = mapCF(Array.isArray(cfData) ? cfData : null);
+    if (is || bs || cf) return { is, bs, cf };
+  }
+
+  // Try direct arrays at pageProps level
+  const is2 = mapIS(Array.isArray(pp?.incomeStatement || pp?.IS || pp?.annualIS) ? (pp.incomeStatement || pp.IS || pp.annualIS) : null);
+  const bs2 = mapBS(Array.isArray(pp?.balanceSheet || pp?.BS) ? (pp.balanceSheet || pp.BS) : null);
+  const cf2 = mapCF(Array.isArray(pp?.cashFlow || pp?.CF) ? (pp.cashFlow || pp.CF) : null);
+  if (is2 || bs2 || cf2) return { is: is2, bs: bs2, cf: cf2 };
+
+  return empty;
 }
 
 function parseArgaamAPIData(data, period) {
   const empty = { is: null, bs: null, cf: null };
-  const rows = data.Data || data.data || [];
-  if (!rows.length) return empty;
-  const toSar = v => v != null ? parseFloat(v) * 1000 : null; // Argaam often in thousands
+  const rows = data.Data || data.data || data.Result || data.result || data.financials || data.items || [];
+  if (!Array.isArray(rows) || !rows.length) return empty;
+
+  const pick = (r, ...keys) => { for (const k of keys) if (r[k] != null) return r[k]; return null; };
+  // Try each multiplier candidate and pick the one that gives a plausible revenue
+  // Saudi listed companies range from ~50M SAR (small) to ~1.6T SAR (Aramco)
+  const PLAUSIBLE = [1e6, 5e12]; // valid range in SAR
+  let multiplier = 1000; // Argaam default: values in thousands of SAR
+  const firstRevRaw = parseFloat(pick(rows[0], 'Revenue','revenue','TotalRevenue','Revenues','NetRevenue') || 0);
+  if (firstRevRaw > 0) {
+    for (const m of [1, 1e3, 1e6, 1e9]) {
+      const sarVal = firstRevRaw * m;
+      if (sarVal >= PLAUSIBLE[0] && sarVal <= PLAUSIBLE[1]) { multiplier = m; break; }
+    }
+  }
+  const toSar = v => { const n = parseFloat(v); return isNaN(n) ? null : n * multiplier; };
+
   const is = rows.map(r => ({
-    fiscal_date: r.PeriodDate || r.Year || '—',
-    revenue: toSar(r.Revenue || r.revenue),
-    gross_profit: toSar(r.GrossProfit || r.grossProfit),
-    ebitda: toSar(r.EBITDA || r.ebitda),
-    operating_income: toSar(r.OperatingIncome || r.operatingIncome),
-    net_income: toSar(r.NetProfit || r.netProfit || r.NetIncome),
-    eps: r.EPS != null ? parseFloat(r.EPS) : r.eps != null ? parseFloat(r.eps) : null,
+    fiscal_date: pick(r,'PeriodDate','periodDate','Year','year','date','period','fiscalDate','FiscalYear') || '—',
+    revenue: toSar(pick(r,'Revenue','revenue','TotalRevenue','Revenues','NetRevenue')),
+    gross_profit: toSar(pick(r,'GrossProfit','grossProfit','GrossIncome')),
+    ebitda: toSar(pick(r,'EBITDA','ebitda','Ebitda')),
+    operating_income: toSar(pick(r,'OperatingIncome','operatingIncome','OperatingProfit','operatingProfit')),
+    net_income: toSar(pick(r,'NetProfit','netProfit','NetIncome','netIncome','NetProfitAttributable','netProfitAttributable')),
+    eps: (() => { const v = pick(r,'EPS','eps','EarningsPerShare','earningsPerShare'); return v != null ? parseFloat(v)||null : null; })(),
   })).filter(r => r.revenue != null || r.net_income != null);
-  return is.length ? { is, bs: null, cf: null } : empty;
+
+  const bsRows = data.BalanceSheet || data.balanceSheet || data.BS || (rows.some(r => r.TotalAssets || r.totalAssets) ? rows : []);
+  const bs = bsRows.length ? bsRows.map(r => ({
+    fiscal_date: pick(r,'PeriodDate','periodDate','Year','date','fiscalDate') || '—',
+    total_assets: toSar(pick(r,'TotalAssets','totalAssets','Assets')),
+    total_liabilities: toSar(pick(r,'TotalLiabilities','totalLiabilities','Liabilities')),
+    total_equity: toSar(pick(r,'TotalEquity','totalEquity','ShareholdersEquity','shareholdersEquity','Equity')),
+    cash_and_equivalents: toSar(pick(r,'Cash','cash','CashAndEquivalents','cashAndEquivalents')),
+    long_term_debt: toSar(pick(r,'LongTermDebt','longTermDebt')),
+  })).filter(r => r.total_assets != null) : null;
+
+  return is.length ? { is, bs: bs?.length ? bs : null, cf: null } : empty;
 }
 
 
@@ -1531,60 +1664,89 @@ function parseArgaamAPIData(data, period) {
 async function fetchSaudiExchangeFinancials(code, period) {
   const empty = { is: null, bs: null, cf: null };
   const isQ = period === 'quarterly';
-  // Saudi Exchange Next.js pages embed __NEXT_DATA__ with financial tables
-  const url = `https://www.saudiexchange.sa/wps/portal/saudiexchange/innerpage/sector-securities/financial-information?companySymbol=${code}&lang=en`;
+
+  // Try multiple URL patterns — Saudi Exchange has changed their API structure over time
+  const jsonUrls = [
+    `https://www.saudiexchange.sa/tadawul-cms/1.0.0/saudiexchange/companies/${code}/financial-results?lang=en&type=${isQ ? 'QUARTERLY' : 'ANNUAL'}`,
+    `https://www.saudiexchange.sa/tadawul-cms/1.0.0/saudiexchange/companies/${code}/financial-statements?lang=en`,
+    `https://www.saudiexchange.sa/tadawul/api/saudiexchange/company/${code}/financials?lang=en`,
+  ];
+  for (const url of jsonUrls) {
+    try {
+      const data = await fetchWithProxy(url);
+      if (data && typeof data === 'object' && !data.error && Object.keys(data).length > 1) {
+        const result = parseArgaamAPIData(data, period);
+        if (result.is?.length) return result;
+        const result2 = parseArgaamNextData({ props: { pageProps: data } }, period);
+        if (result2.is?.length || result2.bs?.length) return result2;
+      }
+    } catch(e) {}
+  }
+
+  // HTML page fallback
+  const htmlUrl = `https://www.saudiexchange.sa/wps/portal/saudiexchange/innerpage/sector-securities/financial-information?companySymbol=${code}&lang=en`;
   try {
-    const html = await fetchHTMLViaProxy(url);
-    if (!html || html.length < 2000) return empty;
-    const nd = extractNextData(html);
-    if (nd) {
-      const pp = nd?.props?.pageProps;
-      const fin = pp?.financialData || pp?.financials || pp?.data?.financials;
-      if (fin) {
-        const src = isQ ? (fin.quarterly || fin.Q) : (fin.annual || fin.A || fin);
-        if (src) {
-          const pick = (r, ...keys) => { for (const k of keys) if (r[k] != null) return parseFloat(r[k]) || null; return null; };
-          const toSar = v => v != null ? parseFloat(v) * 1000 : null;
-          const is = Array.isArray(src.incomeStatement || src.IS) ? (src.incomeStatement || src.IS).map(r => ({
-            fiscal_date: r.period || r.date || r.fiscalDate || '—',
-            revenue: toSar(pick(r,'revenue','totalRevenue','Revenue')),
-            gross_profit: toSar(pick(r,'grossProfit','GrossProfit')),
-            operating_income: toSar(pick(r,'operatingIncome','OperatingIncome','operatingProfit')),
-            net_income: toSar(pick(r,'netIncome','netProfit','NetIncome','NetProfit')),
-            eps: pick(r,'eps','EPS','earningsPerShare'),
-          })).filter(r => r.revenue != null || r.net_income != null) : null;
-          if (is?.length) return { is, bs: null, cf: null };
-        }
+    const html = await fetchHTMLViaProxy(htmlUrl);
+    if (html && html.length > 2000) {
+      const nd = extractNextData(html);
+      if (nd) {
+        const result = parseArgaamNextData(nd, period);
+        if (result.is || result.bs || result.cf) return result;
       }
-    }
-    // Fallback: try to parse HTML financial tables directly
-    const tableMatch = html.match(/<table[^>]*financial[^>]*>([\s\S]*?)<\/table>/i);
-    if (tableMatch) {
-      // Simple table parser for Saudi Exchange HTML structure
-      const rows = [...tableMatch[1].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
-      if (rows.length > 2) {
-        const headers = [...(rows[0]?.[1] || '').matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/gi)]
-          .map(m => m[1].replace(/<[^>]+>/g, '').trim());
-        const dataRows = rows.slice(1).map(row => {
-          const cells = [...row[1].matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/gi)]
-            .map(m => m[1].replace(/<[^>]+>/g, '').replace(/,/g,'').trim());
-          return cells;
-        });
-        if (headers.length > 1 && dataRows.length) {
-          const labelRow = dataRows.find(r => /revenue|إيرادات/i.test(r[0]));
-          const niRow = dataRows.find(r => /net.*(income|profit)|صافي/i.test(r[0]));
-          if (labelRow || niRow) {
-            const is = headers.slice(1).map((h, i) => ({
-              fiscal_date: h,
-              revenue: labelRow ? parseFloat(labelRow[i+1]) * 1000 || null : null,
-              net_income: niRow ? parseFloat(niRow[i+1]) * 1000 || null : null,
-            })).filter(r => r.revenue != null || r.net_income != null);
-            if (is.length) return { is, bs: null, cf: null };
-          }
-        }
-      }
+      const tableResult = parseGenericFinancialTable(html, period);
+      if (tableResult.is?.length) return tableResult;
     }
   } catch(e) {}
+
+  return empty;
+}
+
+// ── MUBASHER FINANCIAL DATA (GCC/Saudi financial data platform) ──
+async function fetchMubasherFinancials(code, period) {
+  const empty = { is: null, bs: null, cf: null };
+  const isQ = period === 'quarterly';
+  const urls = [
+    `https://www.mubasher.info/countries/sa/companies/${code}/financials/income-statement${isQ ? '/quarterly' : ''}`,
+    `https://api.mubasher.info/financials/sa/${code}?period=${isQ ? 'Q' : 'A'}`,
+  ];
+  for (const url of urls) {
+    try {
+      if (url.includes('/api.')) {
+        const data = await fetchWithProxy(url);
+        if (data && typeof data === 'object' && Object.keys(data).length > 1) {
+          const result = parseArgaamAPIData(data, period);
+          if (result.is?.length) return result;
+        }
+      } else {
+        const html = await fetchHTMLViaProxy(url);
+        if (!html || html.length < 1000) continue;
+        const nd = extractNextData(html);
+        if (nd) {
+          const result = parseArgaamNextData(nd, period);
+          if (result.is?.length || result.bs?.length) return result;
+        }
+        // Try window state patterns
+        const stateMatch = html.match(/window\.__(?:INITIAL_STATE|STATE|DATA|REDUX_STATE|NUXT)__\s*=\s*({[\s\S]{50,100000}?})(?=;\s*(?:<\/script>|window\.|var ))/);
+        if (stateMatch) {
+          try {
+            const state = JSON.parse(stateMatch[1]);
+            const search = (obj, depth) => {
+              if (depth > 6 || !obj || typeof obj !== 'object') return null;
+              if (Array.isArray(obj) && obj.length > 1 && (obj[0]?.revenue != null || obj[0]?.Revenue != null || obj[0]?.NetProfit != null)) {
+                return parseArgaamAPIData({ Data: obj }, period);
+              }
+              for (const v of Object.values(obj)) { const r = search(v, depth + 1); if (r?.is?.length) return r; }
+              return null;
+            };
+            const found = search(state, 0);
+            if (found?.is?.length) return found;
+          } catch(e) {}
+        }
+        const tableResult = parseGenericFinancialTable(html, period);
+        if (tableResult.is?.length) return tableResult;
+      }
+    } catch(e) { continue; }
+  }
   return empty;
 }
 
@@ -3877,7 +4039,8 @@ async function openModal(idx){
     for (const period of ['annual', 'quarterly']) {
       const snap = driveSnap?.[period];
       const snapAge = driveSnap?.[`${period}Updated`] || 0;
-      if (snap && (snap.is || snap.bs || snap.cf) && now - snapAge < GD_STMT_TTL) {
+      if (snap && (snap.is || snap.bs || snap.cf) && now - snapAge < GD_STMT_TTL
+          && !(period === 'annual' && isAnnualDataStale(snap))) {
         if (!_prefetchD.rawTwelveData[period]) {
           _prefetchD.rawTwelveData[period] = snap;
           tdCacheSet(_prefetchD.ticker, _prefetchD.rawTwelveData.quarterly || null, _prefetchD.rawTwelveData.annual || null);
@@ -4427,7 +4590,7 @@ async function buildFinancials(d, period) {
   // 0. In-memory rawTwelveData — fastest path, no network needed
   // Pre-populated from Drive during openModal or from a previous tab visit
   const memData = d.rawTwelveData?.[cacheKey];
-  if (memData && (memData.is || memData.bs || memData.cf)) {
+  if (memData && (memData.is || memData.bs || memData.cf) && !(cacheKey === 'annual' && isAnnualDataStale(memData))) {
     try { return enrichAndRender(memData, 'cache'); } catch(e) { console.warn('cache render failed, re-fetching', e); delete d.rawTwelveData[cacheKey]; }
   }
 
@@ -4437,7 +4600,7 @@ async function buildFinancials(d, period) {
   const driveUpdated = driveStock?.[`${cacheKey}Updated`] || 0;
   const now = Date.now();
   const driveData = driveStmt && (driveStmt.is || driveStmt.bs || driveStmt.cf);
-  if (driveData && now - driveUpdated < GD_STMT_TTL) {
+  if (driveData && now - driveUpdated < GD_STMT_TTL && !(cacheKey === 'annual' && isAnnualDataStale(driveStmt))) {
     try {
       tdLog('Loaded from Google Drive ✓', true);
       return enrichAndRender(driveStmt, 'Google Drive cache');
@@ -4449,28 +4612,29 @@ async function buildFinancials(d, period) {
   const code = d.ticker.replace(/\.SR$/i, '');
   tdLog(`Fetching ${period} statements from Yahoo, Argaam & Saudi Exchange in parallel…`, true);
   const _t = ms => new Promise(r => setTimeout(() => r({is:null,bs:null,cf:null}), ms));
-  const [yt, qs, argaamRes, saudiExRes] = await Promise.all([
+  const [yt, qs, argaamRes, saudiExRes, mubasherRes] = await Promise.all([
     fetchYahooTimeseries(d.ticker, period),
     d.rawYahoo
       ? Promise.resolve(parseYahooFinancials(d.rawYahoo, period))
       : fetchYahooFinancials(d.ticker).then(r => parseYahooFinancials(r, period)),
-    Promise.race([fetchArgaamFinancials(code, period), _t(5000)]),
-    Promise.race([fetchSaudiExchangeFinancials(code, period), _t(5000)]),
+    Promise.race([fetchArgaamFinancials(code, period), _t(10000)]),
+    Promise.race([fetchSaudiExchangeFinancials(code, period), _t(8000)]),
+    Promise.race([fetchMubasherFinancials(code, period), _t(8000)]),
   ]);
 
   // Merge Yahoo sources (timeseries = primary for depth, quoteSummary fills gaps)
   const yMerged = mergeStatements(yt, qs);
 
-  // Cross-validate Yahoo with Argaam: fill nulls, flag >15% discrepancies
+  // Cross-validate Yahoo with Argaam, Saudi Exchange and Mubasher: fill nulls, flag >15% discrepancies
   const withArgaam = validateAndMerge(yMerged, argaamRes);
-
-  // Cross-validate with Saudi Exchange as additional signal
-  const validated = validateAndMerge(withArgaam, saudiExRes);
+  const withSaudiEx = validateAndMerge(withArgaam, saudiExRes);
+  const validated = validateAndMerge(withSaudiEx, mubasherRes);
 
   const sources = [
     yMerged.is || yMerged.bs || yMerged.cf ? 'Yahoo' : null,
     argaamRes.is || argaamRes.bs || argaamRes.cf ? 'Argaam' : null,
     saudiExRes.is || saudiExRes.bs || saudiExRes.cf ? 'Saudi Exchange' : null,
+    mubasherRes.is || mubasherRes.bs || mubasherRes.cf ? 'Mubasher' : null,
   ].filter(Boolean);
 
   if (validated.is || validated.bs || validated.cf) {
