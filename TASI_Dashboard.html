@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260524j'; // bump this string on every deploy that matters
+  var V='20260524k'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -3305,14 +3305,17 @@ function bar(s){return`<div class="bw"><div class="bt"><div class="bfill" style=
 // YAHOO FINANCE DATA FETCH — with multi-proxy rotation
 // ═══════════════════════════════════════════════════
 
-// Multiple CORS proxies — 4-proxy fallback for Yahoo chart endpoint
+// Multiple CORS proxies — direct fetch first, then 4 proxy fallbacks
+// Direct fetch (no proxy): Yahoo Finance often allows cross-origin GET
+// requests — try it first so we don't depend on third-party proxies at all.
 const PROXIES = [
+  { fn: url => url,                                                                  raw: true, direct: true },
   { fn: url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,             raw: true  },
   { fn: url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,    raw: true  },
   { fn: url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`, raw: true },
   { fn: url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,    raw: false },
 ];
-let proxyIdx = 0;
+let proxyIdx = 1; // start at index 1 (first proxy) — direct fetch is always attempt 0
 
 // Guard against Android Chrome bug: AbortSignal.timeout aborts the request headers
 // but NOT the response body stream — so resp.text()/resp.json() hang indefinitely.
@@ -3331,9 +3334,19 @@ function _bodyJson(resp, ms) {
 }
 
 async function fetchWithProxy(url){
+  // Always try direct fetch first — no proxy needed when Yahoo allows CORS
+  try{
+    const resp = await fetch(url, {signal: AbortSignal.timeout(8000)});
+    if(resp.ok){
+      const text = await _bodyText(resp, 7000);
+      try{ const data = JSON.parse(text); if(data && Object.keys(data).length > 0) return data; }catch(e){}
+    }
+  }catch(e){}
+  // Fall back to rotating CORS proxies
   for(let attempt=0; attempt<PROXIES.length; attempt++){
     const pi = (proxyIdx + attempt) % PROXIES.length;
     const proxy = PROXIES[pi];
+    if(proxy.direct) continue; // skip direct-fetch entry in rotation
     try{
       const resp = await fetch(proxy.fn(url), {signal: AbortSignal.timeout(12000)});
       if(!resp.ok) continue;
