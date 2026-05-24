@@ -242,8 +242,27 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 }
 #tt{position:fixed;z-index:99999;max-width:270px;background:#05050f;border:1px solid #2d3748;border-radius:6px;padding:7px 11px;font-family:var(--mono);font-size:9px;line-height:1.65;color:#94a3b8;pointer-events:none;display:none;box-shadow:0 6px 24px rgba(0,0,0,.8);word-break:break-word}
 [data-tip]{cursor:help}
+/* ── PASSWORD LOCK SCREEN ── */
+#pw-lock{position:fixed;inset:0;background:#0a0a0f;z-index:99999;display:flex;align-items:center;justify-content:center}
+#pw-lock .pw-box{background:var(--bg2);border:1px solid var(--b2);border-radius:12px;padding:32px 36px;width:320px;text-align:center}
+#pw-lock .pw-title{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--acc);margin-bottom:4px}
+#pw-lock .pw-sub{font-size:11px;color:var(--tx3);margin-bottom:20px}
+#pw-lock input{width:100%;box-sizing:border-box;padding:10px 12px;background:var(--bg3);border:1px solid var(--b2);border-radius:6px;color:var(--tx1);font-family:var(--mono);font-size:14px;margin-bottom:12px;outline:none}
+#pw-lock input:focus{border-color:var(--acc)}
+#pw-lock button{width:100%;padding:10px;background:var(--acc);color:#000;border:none;border-radius:6px;font-family:var(--mono);font-size:13px;font-weight:700;cursor:pointer}
+#pw-lock .pw-err{font-size:11px;color:var(--red);min-height:16px;margin-top:-8px}
 </style>
 </head>
+<body>
+<div id="pw-lock" style="display:none">
+  <div class="pw-box">
+    <div class="pw-title">TA TASI Dashboard</div>
+    <div class="pw-sub">Enter password to continue</div>
+    <input type="password" id="pw-input" placeholder="Password" onkeydown="if(event.key==='Enter')checkPassword()">
+    <div class="pw-err" id="pw-err"></div>
+    <button onclick="checkPassword()">Unlock →</button>
+  </div>
+</div>
 <body>
 <header class="topbar">
   <div class="logo">
@@ -395,6 +414,12 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 </div>
 
 <script>
+// ── PASSWORD PROTECTION ──────────────────────────────────────────────────
+async function _sha256(s){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('');}
+(async()=>{const h=localStorage.getItem('TASI_pw_hash');if(!h)return;if(sessionStorage.getItem('TASI_authed')===h)return;document.getElementById('pw-lock').style.display='flex';setTimeout(()=>document.getElementById('pw-input').focus(),50);})();
+async function checkPassword(){const v=document.getElementById('pw-input').value;if(!v)return;const h=await _sha256(v);if(h===localStorage.getItem('TASI_pw_hash')){sessionStorage.setItem('TASI_authed',h);document.getElementById('pw-lock').style.display='none';document.getElementById('pw-input').value='';}else{document.getElementById('pw-err').textContent='✗ Wrong password';document.getElementById('pw-input').value='';document.getElementById('pw-input').focus();setTimeout(()=>document.getElementById('pw-err').textContent='',2000);}}
+async function setDashboardPassword(){const logEl=document.getElementById('td-log');const pw=prompt('New password (blank = remove):');if(pw===null)return;if(!pw){localStorage.removeItem('TASI_pw_hash');sessionStorage.removeItem('TASI_authed');if(logEl)logEl.innerHTML='<span style="color:var(--grn)">✓ Password removed</span>';return;}const c=prompt('Confirm password:');if(pw!==c){if(logEl)logEl.innerHTML='<span style="color:var(--red)">✗ Passwords do not match</span>';return;}const h=await _sha256(pw);localStorage.setItem('TASI_pw_hash',h);sessionStorage.setItem('TASI_authed',h);if(logEl)logEl.innerHTML='<span style="color:var(--grn)">✓ Password set</span>';}
+
 // Data source: Yahoo Finance (primary) via CORS proxy rotation
 // Financial statements fetched lazily when you click a stock
 
@@ -6718,6 +6743,7 @@ function buildSectorPerf() {
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
       <button class="sp-btn sp-btn-red" onclick="clearTwelveCache()">🗑 Clear Cache</button>
       <button class="sp-btn sp-btn-sec" onclick="validateTickers()" title="Check ALL tickers against Yahoo Finance — batches of 6, ~2-3 min total">⚡ Validate All Tickers</button>
+      <button class="sp-btn" onclick="setDashboardPassword()">🔒 Set Password</button>
     </div>
     <div class="sp-log" id="td-log">Status will appear here after actions.</div>
 
