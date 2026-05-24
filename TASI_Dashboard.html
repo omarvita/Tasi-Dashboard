@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260524k'; // bump this string on every deploy that matters
+  var V='20260524l'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -6518,58 +6518,112 @@ async function refreshAll(forceRefresh=false){
   }
 
   // ── Phase 1: Bulk Drive price cache (2 API calls for all 238 stocks) ────
-  // gdLoadBulkPrices reads a single file and populates _gdCache for every
-  // ticker that has a fresh entry. fetchStockPrice(skipDriveNetwork=true)
-  // then reads _gdCache without any network call, skipping Yahoo entirely.
   if (GD_TOKEN && !forceRefresh) {
     document.getElementById("pl").textContent = "Loading prices from Google Drive...";
     const driveHits = await gdLoadBulkPrices();
     if (driveHits > 0) {
-      document.getElementById("pl").textContent = `Drive cache: ${driveHits} stocks ready — fetching rest from Yahoo...`;
+      document.getElementById("pl").textContent = `Drive: ${driveHits} stocks ready`;
     }
   }
 
-  const B=6;
-  // Per-stock timeout guard — prevents a hung fetch from stalling the entire batch
+  // ── Phase 2: Bulk Yahoo v7/quote — 50 stocks per request (5 req total) ──
+  // This is the fast path: one round-trip gets price+change for all stocks.
+  // Only runs for stocks not already covered by Drive cache.
+  const _needsPrice = allData.filter(d => {
+    const c = _gdCache[d.ticker];
+    return !(c?.priceData?.price && c.priceUpdated);
+  });
+  if (_needsPrice.length > 0) {
+    document.getElementById("pl").textContent = `Fetching prices (${_needsPrice.length} stocks)...`;
+    const _QBATCH = 50;
+    for (let qi = 0; qi < _needsPrice.length; qi += _QBATCH) {
+      const batch = _needsPrice.slice(qi, qi + _QBATCH);
+      const syms  = batch.map(d => d.ticker).join(',');
+      const qurl  = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(syms)}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketPreviousClose,regularMarketVolume,averageDailyVolume3Month,fiftyTwoWeekHigh,fiftyTwoWeekLow,marketCap`;
+      try {
+        const qdata = await Promise.race([
+          fetchWithProxy(qurl),
+          new Promise(r => setTimeout(() => r({}), 15000))
+        ]);
+        const quotes = qdata?.quoteResponse?.result || [];
+        for (const q of quotes) {
+          if (!q.symbol || q.regularMarketPrice == null) continue;
+          const idx = allData.findIndex(d => d.ticker === q.symbol);
+          if (idx < 0) continue;
+          const price  = q.regularMarketPrice;
+          const change = q.regularMarketChangePercent ?? null;
+          // Preserve existing closes from Drive/memory; v7/quote has no closes
+          const existingCloses     = allData[idx].closes || [];
+          const existingTimestamps = allData[idx].timestamps || [];
+          const tRes = scoreTechnicalWithSteps(existingCloses.length > 5 ? existingCloses : []);
+          allData[idx] = {
+            ...allData[idx],
+            price, change,
+            priceLoaded: true,
+            dataSource: 'yahoo-quote',
+            dataDate: new Date().toISOString().slice(0,10),
+            volume:      q.regularMarketVolume     ?? allData[idx].volume,
+            avgVolume3M: q.averageDailyVolume3Month ?? allData[idx].avgVolume3M,
+            w52high:     q.fiftyTwoWeekHigh         ?? allData[idx].w52high,
+            w52low:      q.fiftyTwoWeekLow          ?? allData[idx].w52low,
+            mktCap:      q.marketCap               ?? allData[idx].mktCap,
+            technical: tRes.score, techSteps: tRes.steps,
+            rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
+            combined: calcCombined({...allData[idx], price, technical: tRes.score}),
+          };
+          // Update _gdCache so Drive save picks it up
+          _gdCache[q.symbol] = Object.assign(_gdCache[q.symbol] || {}, {
+            priceData: { price, change,
+              closes: existingCloses.slice(-252), timestamps: existingTimestamps.slice(-252),
+              volume: allData[idx].volume, avgVolume3M: allData[idx].avgVolume3M },
+            priceUpdated: Date.now(),
+          });
+        }
+      } catch(e) { console.warn('bulk quote batch failed', e); }
+      document.getElementById("pf").style.width = Math.round(((qi + _QBATCH) / _needsPrice.length) * 60) + '%';
+      doFilter(); updateMetrics();
+    }
+  }
+
+  // ── Phase 3: Per-stock chart fetch for historical closes (technical scores) ──
+  // Only fetch stocks missing closes — prices already loaded above.
+  const B = 6;
   const _priceTimeout = () => new Promise(r => setTimeout(() => r({
     price:null,change:null,closes:[],timestamps:[],dataSource:'timeout',
     dataDate:'—',volume:null,avgVolume3M:null,volatility:null
   }), 10000));
-  for(let i=0;i<allData.length;i+=B){
-    const pct=Math.round((i/allData.length)*100);
-    document.getElementById("pf").style.width=pct+"%";
-    document.getElementById("pl").textContent=`Fetching prices: ${i+1}–${Math.min(i+B,allData.length)} of ${allData.length}`;
-    const slice=allData.slice(i,i+B);
-    await Promise.all(slice.map(async(d,j)=>{
-      const idx=i+j;
-      try{
-        // skipDriveNetwork=true: Drive was already pre-fetched above into _gdCache.
-        // fetchStockPrice reads _gdCache without a network call, then falls through
-        // to Yahoo only for stocks that had no valid Drive entry.
+  const _needsCloses = allData.filter(d => (d.closes||[]).length < 6);
+  for(let i = 0; i < _needsCloses.length; i += B){
+    const pct = 60 + Math.round((i / Math.max(_needsCloses.length,1)) * 40);
+    document.getElementById("pf").style.width = pct + "%";
+    document.getElementById("pl").textContent = `Loading chart data: ${i+1}–${Math.min(i+B,_needsCloses.length)} of ${_needsCloses.length}`;
+    await Promise.all(_needsCloses.slice(i, i+B).map(async d => {
+      const idx = allData.findIndex(x => x.ticker === d.ticker);
+      if (idx < 0) return;
+      try {
         const fetched = await Promise.race([fetchStockPrice(allData[idx], true), _priceTimeout()]);
-        const tRes = scoreTechnicalWithSteps(fetched.closes.length>5 ? fetched.closes : allData[idx].closes);
-        const price = fetched.price;
-        const change = fetched.change!=null ? parseFloat(fetched.change.toFixed(2)) : null;
-        allData[idx] = {
-          ...allData[idx],
-          price, change,
-          closes: fetched.closes.length>5 ? fetched.closes : allData[idx].closes,
-          timestamps: fetched.timestamps.length>5 ? fetched.timestamps : allData[idx].timestamps,
-          priceLoaded: price!=null,
-          dataSource: fetched.dataSource,
-          dataDate: fetched.dataDate || allData[idx].dataDate,
-          technical:tRes.score, techSteps:tRes.steps,
-          rsi:tRes.rsi, sma20:tRes.sma20, sma50:tRes.sma50, momentum:tRes.momentum,
-          combined: calcCombined({...allData[idx], technical:tRes.score}),
-          // Change 6: volatility and volume
-          volatility: fetched.volatility ?? allData[idx].volatility ?? null,
-          volume: fetched.volume ?? allData[idx].volume ?? null,
-          avgVolume3M: fetched.avgVolume3M ?? allData[idx].avgVolume3M ?? null,
-        };
-      }catch(e){allData[idx].priceLoaded=false;}
+        if ((fetched.closes||[]).length > 5) {
+          const tRes = scoreTechnicalWithSteps(fetched.closes);
+          allData[idx] = {
+            ...allData[idx],
+            // Only overwrite price if we didn't already get it from v7/quote
+            price:  allData[idx].priceLoaded ? allData[idx].price  : (fetched.price  ?? allData[idx].price),
+            change: allData[idx].priceLoaded ? allData[idx].change : (fetched.change ?? allData[idx].change),
+            priceLoaded: allData[idx].priceLoaded || fetched.price != null,
+            closes: fetched.closes, timestamps: fetched.timestamps,
+            dataSource: allData[idx].dataSource || fetched.dataSource,
+            technical: tRes.score, techSteps: tRes.steps,
+            rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
+            volatility: fetched.volatility ?? allData[idx].volatility,
+            volume: fetched.volume ?? allData[idx].volume,
+            avgVolume3M: fetched.avgVolume3M ?? allData[idx].avgVolume3M,
+            combined: calcCombined({...allData[idx], technical: tRes.score}),
+          };
+        }
+      } catch(e) {}
     }));
     if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
-    doFilter();updateMetrics();
+    doFilter(); updateMetrics();
   }
 
   clearTimeout(_hardStop); // normal completion — cancel the 4-min failsafe
