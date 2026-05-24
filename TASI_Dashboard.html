@@ -3,7 +3,24 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>TASI Stock Screener — Tadawul Full Market Dashboard</title>
+<script>
+// Auto-version check: forces a fresh load when a new version is deployed,
+// bypassing aggressive mobile browser caching.
+(function(){
+  var V='20260524c'; // bump this string on every deploy that matters
+  try{
+    var u=new URL(location.href);
+    if(u.searchParams.get('_v')!==V){
+      u.searchParams.set('_v',V);
+      location.replace(u.toString()); // hard redirect, clears old cached page
+    }
+  }catch(e){}
+})();
+</script>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://accounts.google.com/gsi/client" async></script>
@@ -6370,10 +6387,18 @@ function init(){
 }
 
 async function refreshAll(forceRefresh=false){
-  // Yahoo Finance primary data source
   const btn=document.getElementById("rbtn");
   if(btn){btn.disabled=true;btn.textContent="Loading...";}
   const pw=document.getElementById("pw");if(pw)pw.style.display="block";
+  // Hard timeout: if refresh takes >4 minutes, stop and show whatever we have
+  const _hardStop = setTimeout(()=>{
+    console.warn('[refreshAll] 4-minute hard timeout — stopping fetch loop');
+    if(pw)pw.style.display="none";
+    if(btn){btn.disabled=false;btn.textContent="↻ Reload Data";}
+    const loaded=allData.filter(d=>d.priceLoaded).length;
+    document.getElementById("pl").textContent=`⚠ Timed out — ${loaded} stocks loaded`;
+    setTimeout(()=>{ if(pw)pw.style.display="none"; },2000);
+  }, 4*60*1000);
 
   // Try cache first unless forced
   if(!forceRefresh){
@@ -6398,6 +6423,7 @@ async function refreshAll(forceRefresh=false){
         }
       });
       if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
+      clearTimeout(_hardStop); // cache hit — no need for failsafe
       fetchTASIIndex();
       doFilter();updateMetrics();
       return;
@@ -6450,6 +6476,7 @@ async function refreshAll(forceRefresh=false){
     doFilter();updateMetrics();
   }
 
+  clearTimeout(_hardStop); // normal completion — cancel the 4-min failsafe
   document.getElementById("pf").style.width="100%";
   const loaded=allData.filter(d=>d.priceLoaded).length;
   document.getElementById("pl").textContent=`✓ Done: ${loaded}/${allData.length} stocks loaded. Saving to cache...`;
