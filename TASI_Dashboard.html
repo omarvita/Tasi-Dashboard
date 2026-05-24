@@ -3501,11 +3501,15 @@ async function fetchYahooPrice(ticker){
 
 // ── PRICE-ONLY FETCH: used during main refresh (fast, 1 req per stock) ──
 const GD_PRICE_TTL = 30 * 60 * 1000; // 30-minute price cache in Drive
-async function fetchStockPrice(stock) {
+// skipDriveNetwork=true during bulk refreshAll: use only in-memory cache, no Drive API calls
+// (prevents 238× Drive API calls which get throttled and cause hangs)
+async function fetchStockPrice(stock, skipDriveNetwork=false) {
   const ticker = stock.ticker;
-  // Check Drive price cache first — avoids a Yahoo round-trip on page reload
+  // Check Drive price cache — memory-only during bulk refresh, full Drive during modal open
   if (GD_TOKEN) {
-    const driveData = _gdCache[ticker] || await gdReadStock(ticker);
+    const driveData = skipDriveNetwork
+      ? (_gdCache[ticker] ?? null)                           // in-memory only, no network
+      : (_gdCache[ticker] || await gdReadStock(ticker));     // full Drive read (single modal)
     if (driveData?.priceData && Date.now() - (driveData.priceUpdated || 0) < GD_PRICE_TTL) {
       const p = driveData.priceData;
       return {
@@ -6405,6 +6409,11 @@ async function refreshAll(forceRefresh=false){
   }
 
   const B=6;
+  // Per-stock timeout guard — prevents a hung fetch from stalling the entire batch
+  const _priceTimeout = () => new Promise(r => setTimeout(() => r({
+    price:null,change:null,closes:[],timestamps:[],dataSource:'timeout',
+    dataDate:'—',volume:null,avgVolume3M:null,volatility:null
+  }), 30000));
   for(let i=0;i<allData.length;i+=B){
     const pct=Math.round((i/allData.length)*100);
     document.getElementById("pf").style.width=pct+"%";
@@ -6413,8 +6422,9 @@ async function refreshAll(forceRefresh=false){
     await Promise.all(slice.map(async(d,j)=>{
       const idx=i+j;
       try{
-        // ── Price-only fetch (1 request per stock, fast) ──
-        const fetched = await fetchStockPrice(allData[idx]);
+        // Skip Drive network calls during bulk refresh — prevents 238× Drive API requests
+        // that trigger throttling/hangs. Only use in-memory cache here.
+        const fetched = await Promise.race([fetchStockPrice(allData[idx], true), _priceTimeout()]);
         const tRes = scoreTechnicalWithSteps(fetched.closes.length>5 ? fetched.closes : allData[idx].closes);
         const price = fetched.price;
         const change = fetched.change!=null ? parseFloat(fetched.change.toFixed(2)) : null;
