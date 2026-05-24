@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260524l'; // bump this string on every deploy that matters
+  var V='20260524m'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -1178,34 +1178,49 @@ const _gdInFlight = {};                           // in-flight promise map for c
 // Replaces the per-stock Drive prefetch loop (238 API calls → 2 API calls).
 let _gdBulkPriceFileId = null; // cached file ID for TASI_prices_bulk.json
 
-async function gdLoadBulkPrices() {
+async function gdLoadBulkPrices(onProgress) {
   if (!GD_TOKEN) return 0;
   try {
-    // Find the bulk file (one API call)
+    // First: try the bulk file (2 API calls, instant)
     const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name%3D%27TASI_prices_bulk.json%27+and+trashed%3Dfalse&fields=files(id)`;
     const sr = await fetch(searchUrl, { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(8000) });
     const sd = await _bodyJson(sr, 7000);
-    const file = sd?.files?.[0];
-    if (!file) return 0;
-    _gdBulkPriceFileId = file.id;
-    // Read file content (one API call)
-    const fr = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
-      { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(15000) });
-    const bulk = await _bodyJson(fr, 14000);
-    if (!bulk?.prices) return 0;
-    let hits = 0;
-    for (const [ticker, entry] of Object.entries(bulk.prices)) {
-      if (entry?.priceData && Date.now() - (entry.priceUpdated || 0) < GD_PRICE_TTL) {
-        // Merge into _gdCache without overwriting existing fundamentals
-        _gdCache[ticker] = Object.assign(_gdCache[ticker] || {}, {
-          priceData: entry.priceData,
-          priceUpdated: entry.priceUpdated,
-        });
-        hits++;
+    const bulkFile = sd?.files?.[0];
+    if (bulkFile) {
+      _gdBulkPriceFileId = bulkFile.id;
+      const fr = await fetch(`https://www.googleapis.com/drive/v3/files/${bulkFile.id}?alt=media`,
+        { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(15000) });
+      const bulk = await _bodyJson(fr, 14000);
+      if (bulk?.prices) {
+        let hits = 0;
+        for (const [ticker, entry] of Object.entries(bulk.prices)) {
+          if (entry?.priceData) {
+            _gdCache[ticker] = Object.assign(_gdCache[ticker] || {}, {
+              priceData: entry.priceData, priceUpdated: entry.priceUpdated,
+            });
+            hits++;
+          }
+        }
+        if (hits > 0) return hits;
       }
     }
-    return hits;
-  } catch(e) { console.warn('gdLoadBulkPrices:', e); return 0; }
+  } catch(e) { console.warn('gdLoadBulkPrices bulk file:', e); }
+
+  // Fallback: bulk file doesn't exist yet — read per-stock Drive files.
+  // Data IS there from previous individual fetches. Reads in batches of 12
+  // with body-read timeouts so this completes in ~30-40s max.
+  // After loading, gdSaveBulkPrices() will consolidate into bulk file for next time.
+  const DB = 12;
+  let hits = 0;
+  for (let i = 0; i < allData.length; i += DB) {
+    if (onProgress) onProgress(i, allData.length);
+    await Promise.all(allData.slice(i, i + DB).map(async d => {
+      const data = await gdReadStock(d.ticker).catch(() => null);
+      // gdReadStock already populates _gdCache[d.ticker]
+      if (data?.priceData?.price) hits++;
+    }));
+  }
+  return hits;
 }
 
 async function gdSaveBulkPrices() {
@@ -6520,9 +6535,12 @@ async function refreshAll(forceRefresh=false){
   // ── Phase 1: Bulk Drive price cache (2 API calls for all 238 stocks) ────
   if (GD_TOKEN && !forceRefresh) {
     document.getElementById("pl").textContent = "Loading prices from Google Drive...";
-    const driveHits = await gdLoadBulkPrices();
+    const driveHits = await gdLoadBulkPrices((done, total) => {
+      document.getElementById("pl").textContent = `Drive: loading ${done}–${Math.min(done+12,total)} of ${total}...`;
+      document.getElementById("pf").style.width = Math.round(done/total*50)+'%';
+    });
     if (driveHits > 0) {
-      document.getElementById("pl").textContent = `Drive: ${driveHits} stocks ready`;
+      document.getElementById("pl").textContent = `Drive: ${driveHits} stocks loaded`;
     }
   }
 
@@ -6535,17 +6553,24 @@ async function refreshAll(forceRefresh=false){
   });
   if (_needsPrice.length > 0) {
     document.getElementById("pl").textContent = `Fetching prices (${_needsPrice.length} stocks)...`;
-    const _QBATCH = 50;
+    const _QBATCH = 20; // smaller batch — more reliable across proxies
     for (let qi = 0; qi < _needsPrice.length; qi += _QBATCH) {
       const batch = _needsPrice.slice(qi, qi + _QBATCH);
+      // Do NOT encodeURIComponent the symbols — commas must stay as commas
       const syms  = batch.map(d => d.ticker).join(',');
-      const qurl  = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(syms)}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketPreviousClose,regularMarketVolume,averageDailyVolume3Month,fiftyTwoWeekHigh,fiftyTwoWeekLow,marketCap`;
+      // Try Yahoo v7/quote first (batch endpoint), then v8/chart per-stock as fallback
+      const qurl  = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketPreviousClose,regularMarketVolume,averageDailyVolume3Month,fiftyTwoWeekHigh,fiftyTwoWeekLow,marketCap`;
+      // Also try Yahoo v6 as alternate batch endpoint
+      const qurl6 = `https://query2.finance.yahoo.com/v6/finance/quote?symbols=${syms}`;
+      let qdata = {};
       try {
-        const qdata = await Promise.race([
-          fetchWithProxy(qurl),
-          new Promise(r => setTimeout(() => r({}), 15000))
-        ]);
-        const quotes = qdata?.quoteResponse?.result || [];
+        qdata = await Promise.race([fetchWithProxy(qurl), new Promise(r => setTimeout(() => r({}), 12000))]);
+        // If v7 returned no results, try v6
+        if (!(qdata?.quoteResponse?.result?.length)) {
+          qdata = await Promise.race([fetchWithProxy(qurl6), new Promise(r => setTimeout(() => r({}), 12000))]);
+        }
+      } catch(e) {}
+      const quotes = qdata?.quoteResponse?.result || qdata?.quote || [];
         for (const q of quotes) {
           if (!q.symbol || q.regularMarketPrice == null) continue;
           const idx = allData.findIndex(d => d.ticker === q.symbol);
