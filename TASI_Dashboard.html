@@ -1155,6 +1155,7 @@ function mergeStatements(primary, secondary) {
 // ── GOOGLE DRIVE STORAGE ──
 let GD_TOKEN = null;
 const GD_FUND_TTL  = 24 * 60 * 60 * 1000;       // 1 day TTL for fundamentals
+const GD_FUND_VER  = 3;                          // bump to invalidate old Drive caches (forces fresh PE/EPS fetch)
 const GD_STMT_TTL  = 30 * 24 * 60 * 60 * 1000;  // 30 days TTL for financial statements
 const GD_DCF_TTL   = 24 * 60 * 60 * 1000;       // 1 day TTL for DCF result
 const GD_TREND_TTL =  7 * 24 * 60 * 60 * 1000;  // 7 day TTL for earnings trend
@@ -3590,18 +3591,32 @@ async function fetchStockFull(stock) {
       if(sd?.fiftyTwoWeekHigh?.raw) result.w52high=sd.fiftyTwoWeekHigh.raw;
       if(sd?.fiftyTwoWeekLow?.raw) result.w52low=sd.fiftyTwoWeekLow.raw;
       if(sd?.marketCap?.raw) result.mktCap=sd.marketCap.raw;
-      // EPS
-      if(dk?.trailingEps?.raw) result.eps=dk.trailingEps.raw;
-      if(dk?.forwardEps?.raw) result.fwdEps=dk.forwardEps.raw;
+      // EPS — primary: Yahoo trailingEps; fallback: TTM from last 4 quarterly reports
+      if(dk?.trailingEps?.raw) result.eps = dk.trailingEps.raw;
+      if(dk?.forwardEps?.raw) result.fwdEps = dk.forwardEps.raw;
+      // TTM EPS fallback from quarterly income statements (works even when trailingEps is absent for .SR stocks)
+      if(!(result.eps > 0)) {
+        const qStmts = qs.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
+        const last4 = qStmts.slice(0, 4);
+        const shares = result.sharesOutstanding || dk?.sharesOutstanding?.raw;
+        if(last4.length >= 2 && shares > 0) {
+          // Try summing basicEps directly; fall back to NI/shares per quarter
+          const ttmEPS = last4.reduce((s, q) => {
+            const e = q.basicEps?.raw ?? (q.netIncome?.raw != null ? q.netIncome.raw / shares : null);
+            return e != null ? s + e : s;
+          }, 0);
+          if(ttmEPS > 0) result.eps = +ttmEPS.toFixed(4);
+        }
+      }
       // Compute P/E from live price / trailing EPS — matches Yahoo Finance app exactly.
       // Overrides API trailingPE which can be stale or absent for Saudi (.SR) stocks.
       if(result.eps > 0 && stock.price > 0) result.pe = +(stock.price / result.eps).toFixed(2);
       // Total assets from most recent balance sheet
       const latestBS = qs.balanceSheetHistory?.balanceSheetStatements?.[0];
       if(latestBS?.totalAssets?.raw) result.assets = latestBS.totalAssets.raw / 1e9;
-      // Earnings date from latest income statement
+      // Earnings date from latest income statement — stored separately from dataDate (which is overwritten by price refresh)
       const latestIS = qs.incomeStatementHistory?.incomeStatementHistory?.[0];
-      if(latestIS?.endDate?.fmt) result.dataDate = latestIS.endDate.fmt;
+      if(latestIS?.endDate?.fmt) { result.dataDate = latestIS.endDate.fmt; result.finPeriod = latestIS.endDate.fmt; }
       // Financial statements
       result.rawYahoo = {
         incomeStatementHistory:qs.incomeStatementHistory,
@@ -3634,11 +3649,13 @@ async function fetchStockFull(stock) {
           de: result.de, dy: result.dy, fcf: result.fcf, cr: result.cr,
           rg: result.rg, eg: result.eg, beta: result.beta,
           w52high: result.w52high, w52low: result.w52low, w52change: result.w52change,
-          mktCap: result.mktCap, eps: result.eps, fwdEps: result.fwdEps, dataDate: result.dataDate,
+          mktCap: result.mktCap, eps: result.eps, fwdEps: result.fwdEps,
+          dataDate: result.dataDate, finPeriod: result.finPeriod,
           ttmRev: result.ttmRev, ttmNI: result.ttmNI, sharesOutstanding: result.sharesOutstanding,
           assets: result.assets,
         },
         fundUpdated: Date.now(),
+        fundVersion: GD_FUND_VER,
         ...(result.earningsTrend?.length ? { earningsTrend: result.earningsTrend, trendUpdated: Date.now() } : {}),
       });
     }
@@ -3982,11 +3999,11 @@ async function openModal(idx){
     let usedDriveCache = false;
     if (GD_TOKEN) {
       const driveStock = await gdReadStock(d.ticker);
-      if (driveStock?.fundamentals && driveStock.fundUpdated && (Date.now() - driveStock.fundUpdated < GD_FUND_TTL)) {
+      if (driveStock?.fundamentals && driveStock.fundUpdated && (Date.now() - driveStock.fundUpdated < GD_FUND_TTL) && (driveStock.fundVersion >= GD_FUND_VER)) {
         const f = driveStock.fundamentals;
         const realD = allData.find(a => a.ticker === d.ticker);
         if (realD && f) {
-          const keys = ['pe','pb','roe','npm','de','dy','fcf','cr','rg','eg','beta','w52high','w52low','w52change','mktCap','eps','fwdEps','dataDate','ttmRev','ttmNI','sharesOutstanding','assets'];
+          const keys = ['pe','pb','roe','npm','de','dy','fcf','cr','rg','eg','beta','w52high','w52low','w52change','mktCap','eps','fwdEps','dataDate','finPeriod','ttmRev','ttmNI','sharesOutstanding','assets'];
           keys.forEach(k => { if (f[k] != null) realD[k] = f[k]; });
           // Update rev/ni from Yahoo TTM values (more accurate than hardcoded STOCKS data)
           if (f.ttmRev) realD.rev = f.ttmRev / 1e9;
@@ -4040,6 +4057,7 @@ async function openModal(idx){
         if(full.eg!=null) realD.eg=full.eg;
         if(full.fcf!=null) realD.fcf=full.fcf;
         if(full.assets!=null) realD.assets=full.assets;
+        if(full.finPeriod) realD.finPeriod=full.finPeriod;
         if(full.w52high) realD.w52high=full.w52high;
         if(full.w52low) realD.w52low=full.w52low;
         if(full.mktCap) realD.mktCap=full.mktCap;
@@ -4259,7 +4277,7 @@ function buildOverview(d){
       return `<div class="mi"><div class="mil">vs TASI (1Y)</div><div class="miv" style="color:${col}">${vsIdx>=0?'+':''}${(vsIdx*100).toFixed(1)}% <span style="font-size:8px;color:var(--tx3)">(stk ${stockReturn>=0?'+':''}${(stockReturn*100).toFixed(1)}%)</span></div></div>`;
     })()}
   </div>
-  <div class="secl">Key Financials (SAR B${d.dataDate?`, ${d.dataDate.slice(0,4)} latest`:', est.'})</div>
+  <div class="secl">Key Financials (SAR B, ${d.finPeriod?d.finPeriod.slice(0,4)+' latest':d.fullLoaded?'TTM':'est.'})</div>
   <div class="mgrid">
     <div class="mi"><div class="mil" ${T('revenue')}>Revenue</div><div class="miv">${d.rev!=null?d.rev.toFixed(2)+"B":"—"}</div></div>
     <div class="mi"><div class="mil" ${T('net_income')}>Net Income</div><div class="miv ${d.ni!=null?(d.ni>=0?'pos':'neg'):''}">${d.ni!=null?d.ni.toFixed(2)+"B":"—"}</div></div>
