@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260524f'; // bump this string on every deploy that matters
+  var V='20260524g'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -1180,6 +1180,67 @@ const GD_OHLCV_TTL =  8 * 60 * 60 * 1000;       // 8 hours TTL for OHLCV chart d
 const _gdCache = {};                              // in-memory per-ticker Drive cache
 const _gdFileIdCache = {};                        // ticker → Drive file ID (avoids double list+fetch)
 const _gdInFlight = {};                           // in-flight promise map for coalescing concurrent reads
+
+// ── BULK PRICE CACHE (single Drive file for all 238 prices) ──────────────
+// Replaces the per-stock Drive prefetch loop (238 API calls → 2 API calls).
+let _gdBulkPriceFileId = null; // cached file ID for TASI_prices_bulk.json
+
+async function gdLoadBulkPrices() {
+  if (!GD_TOKEN) return 0;
+  try {
+    // Find the bulk file (one API call)
+    const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name%3D%27TASI_prices_bulk.json%27+and+trashed%3Dfalse&fields=files(id)`;
+    const sr = await fetch(searchUrl, { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(8000) });
+    const sd = await _bodyJson(sr, 7000);
+    const file = sd?.files?.[0];
+    if (!file) return 0;
+    _gdBulkPriceFileId = file.id;
+    // Read file content (one API call)
+    const fr = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
+      { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(15000) });
+    const bulk = await _bodyJson(fr, 14000);
+    if (!bulk?.prices) return 0;
+    let hits = 0;
+    for (const [ticker, entry] of Object.entries(bulk.prices)) {
+      if (entry?.priceData && Date.now() - (entry.priceUpdated || 0) < GD_PRICE_TTL) {
+        // Merge into _gdCache without overwriting existing fundamentals
+        _gdCache[ticker] = Object.assign(_gdCache[ticker] || {}, {
+          priceData: entry.priceData,
+          priceUpdated: entry.priceUpdated,
+        });
+        hits++;
+      }
+    }
+    return hits;
+  } catch(e) { console.warn('gdLoadBulkPrices:', e); return 0; }
+}
+
+async function gdSaveBulkPrices() {
+  if (!GD_TOKEN) return;
+  try {
+    const prices = {};
+    for (const d of allData) {
+      const c = _gdCache[d.ticker];
+      if (c?.priceData && c.priceUpdated) {
+        prices[d.ticker] = { priceData: c.priceData, priceUpdated: c.priceUpdated };
+      }
+    }
+    if (!Object.keys(prices).length) return;
+    const body = JSON.stringify({ savedAt: Date.now(), prices });
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify({ name: 'TASI_prices_bulk.json' })], { type: 'application/json' }));
+    form.append('file', new Blob([body], { type: 'application/json' }));
+    const method = _gdBulkPriceFileId ? 'PATCH' : 'POST';
+    const uploadUrl = _gdBulkPriceFileId
+      ? `https://www.googleapis.com/upload/drive/v3/files/${_gdBulkPriceFileId}?uploadType=multipart`
+      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+    const res = await fetch(uploadUrl, { method, headers: { Authorization: `Bearer ${GD_TOKEN}` }, body: form, signal: AbortSignal.timeout(20000) });
+    if (res.ok && !_gdBulkPriceFileId) {
+      const meta = await _bodyJson(res, 5000);
+      if (meta?.id) _gdBulkPriceFileId = meta.id;
+    }
+  } catch(e) { console.warn('gdSaveBulkPrices:', e); }
+}
 
 function getGDClientId() { return localStorage.getItem('TASI_gd_clientid') || ''; }
 function initGDToken() { const t = sessionStorage.getItem('TASI_gd_token'); if (t) GD_TOKEN = t; }
@@ -6450,24 +6511,13 @@ async function refreshAll(forceRefresh=false){
     document.getElementById("pl").textContent="Cache cleared — fetching fresh data...";
   }
 
-  // ── Phase 1: Drive prefetch ──────────────────────────────────────────────
-  // Populate _gdCache in controlled batches before the Yahoo loop.
-  // Stocks with a fresh Drive entry (within GD_PRICE_TTL) will skip Yahoo.
+  // ── Phase 1: Bulk Drive price cache (2 API calls for all 238 stocks) ────
+  // gdLoadBulkPrices reads a single file and populates _gdCache for every
+  // ticker that has a fresh entry. fetchStockPrice(skipDriveNetwork=true)
+  // then reads _gdCache without any network call, skipping Yahoo entirely.
   if (GD_TOKEN && !forceRefresh) {
-    const DB = 12; // Drive batch size — small enough to avoid throttling
     document.getElementById("pl").textContent = "Loading prices from Google Drive...";
-    for (let i = 0; i < allData.length; i += DB) {
-      // Hard-stop may have already fired — abort Drive phase too
-      if (document.getElementById("pw")?.style.display === "none") break;
-      const batch = allData.slice(i, i + DB);
-      await Promise.all(batch.map(d =>
-        gdReadStock(d.ticker).catch(() => null)
-      ));
-    }
-    const driveHits = allData.filter(d => {
-      const c = _gdCache[d.ticker];
-      return c?.priceData && Date.now() - (c.priceUpdated || 0) < GD_PRICE_TTL;
-    }).length;
+    const driveHits = await gdLoadBulkPrices();
     if (driveHits > 0) {
       document.getElementById("pl").textContent = `Drive cache: ${driveHits} stocks ready — fetching rest from Yahoo...`;
     }
@@ -6520,7 +6570,8 @@ async function refreshAll(forceRefresh=false){
   document.getElementById("pf").style.width="100%";
   const loaded=allData.filter(d=>d.priceLoaded).length;
   document.getElementById("pl").textContent=`✓ Done: ${loaded}/${allData.length} stocks loaded. Saving to cache...`;
-  await saveCache();
+  // Save to IndexedDB and Drive bulk file in parallel
+  await Promise.all([saveCache(), gdSaveBulkPrices()]);
   document.getElementById("pl").textContent=`✓ ${loaded}/${allData.length} stocks saved to cache`;
   setTimeout(()=>{pw.style.display="none";},3000);
   btn.disabled=false;btn.textContent="↻ Reload Data";
