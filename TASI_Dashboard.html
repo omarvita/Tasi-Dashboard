@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260524c'; // bump this string on every deploy that matters
+  var V='20260524d'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -1238,7 +1238,7 @@ async function gdFindFile(ticker) {
       `https://www.googleapis.com/drive/v3/files?q=name%3D%27${encodeURIComponent(name)}%27+and+trashed%3Dfalse&fields=files(id,modifiedTime)`,
       { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(8000) }
     );
-    const d = await r.json();
+    const d = await _bodyJson(r, 7000);
     const file = d.files?.[0] || null;
     if (file) _gdFileIdCache[ticker] = file.id;
     return file;
@@ -1257,7 +1257,7 @@ async function gdReadStock(ticker) {
         `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
         { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(10000) }
       );
-      const data = await r.json();
+      const data = await _bodyJson(r, 9000);
       _gdCache[ticker] = data;
       return data;
     } catch(e) { return null; }
@@ -3260,6 +3260,22 @@ const PROXIES = [
 ];
 let proxyIdx = 0;
 
+// Guard against Android Chrome bug: AbortSignal.timeout aborts the request headers
+// but NOT the response body stream — so resp.text()/resp.json() hang indefinitely.
+// This helper races the body-read against an explicit setTimeout.
+function _bodyText(resp, ms) {
+  return Promise.race([
+    resp.text(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('body-timeout')), ms))
+  ]);
+}
+function _bodyJson(resp, ms) {
+  return Promise.race([
+    resp.json(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('body-timeout')), ms))
+  ]);
+}
+
 async function fetchWithProxy(url){
   for(let attempt=0; attempt<PROXIES.length; attempt++){
     const pi = (proxyIdx + attempt) % PROXIES.length;
@@ -3267,7 +3283,7 @@ async function fetchWithProxy(url){
     try{
       const resp = await fetch(proxy.fn(url), {signal: AbortSignal.timeout(12000)});
       if(!resp.ok) continue;
-      const text = await resp.text();
+      const text = await _bodyText(resp, 10000);
       let data;
       try{
         if(proxy.raw){ data = JSON.parse(text); }
@@ -3295,7 +3311,7 @@ async function fetchWithProxyPost(url, body) {
         signal: AbortSignal.timeout(12000)
       });
       if (!resp.ok) continue;
-      const text = await resp.text();
+      const text = await _bodyText(resp, 10000);
       try { const d = JSON.parse(text); if (d && Object.keys(d).length) return d; } catch(e) {}
     } catch(e) { continue; }
   }
