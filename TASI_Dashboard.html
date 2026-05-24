@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260524d'; // bump this string on every deploy that matters
+  var V='20260524e'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -6406,15 +6406,15 @@ async function refreshAll(forceRefresh=false){
   const btn=document.getElementById("rbtn");
   if(btn){btn.disabled=true;btn.textContent="Loading...";}
   const pw=document.getElementById("pw");if(pw)pw.style.display="block";
-  // Hard timeout: if refresh takes >4 minutes, stop and show whatever we have
+  // Hard timeout: if refresh takes >60 seconds, stop and show whatever we have
   const _hardStop = setTimeout(()=>{
-    console.warn('[refreshAll] 4-minute hard timeout — stopping fetch loop');
+    console.warn('[refreshAll] 60-second hard timeout — stopping fetch loop');
     if(pw)pw.style.display="none";
     if(btn){btn.disabled=false;btn.textContent="↻ Reload Data";}
     const loaded=allData.filter(d=>d.priceLoaded).length;
-    document.getElementById("pl").textContent=`⚠ Timed out — ${loaded} stocks loaded`;
-    setTimeout(()=>{ if(pw)pw.style.display="none"; },2000);
-  }, 4*60*1000);
+    document.getElementById("pl").textContent=`⚠ Timed out — ${loaded} stocks loaded. Click ↻ to retry.`;
+    setTimeout(()=>{ if(pw)pw.style.display="none"; },3000);
+  }, 60*1000);
 
   // Try cache first unless forced
   if(!forceRefresh){
@@ -6455,7 +6455,7 @@ async function refreshAll(forceRefresh=false){
   const _priceTimeout = () => new Promise(r => setTimeout(() => r({
     price:null,change:null,closes:[],timestamps:[],dataSource:'timeout',
     dataDate:'—',volume:null,avgVolume3M:null,volatility:null
-  }), 30000));
+  }), 10000));
   for(let i=0;i<allData.length;i+=B){
     const pct=Math.round((i/allData.length)*100);
     document.getElementById("pf").style.width=pct+"%";
