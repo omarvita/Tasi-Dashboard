@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260524h'; // bump this string on every deploy that matters
+  var V='20260524i'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -360,9 +360,8 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
     <select onchange="setCacheTTL(+this.value)">
       <option value="4">Cache: 4h</option>
       <option value="8">Cache: 8h</option>
-      <option value="14" selected>Cache: 14h</option>
       <option value="24">Cache: 24h</option>
-      <option value="72">Cache: 3 days</option>
+      <option value="72" selected>Cache: 3 days</option>
       <option value="168">Cache: 1 week</option>
     </select>
     <button class="rbtn" id="wl-btn" style="font-size:10px;padding:5px 10px;background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="toggleWatchlistFilter()" title="Show only watchlisted stocks">☆ Watchlist</button>
@@ -3595,7 +3594,7 @@ async function fetchYahooPrice(ticker){
 }
 
 // ── PRICE-ONLY FETCH: used during main refresh (fast, 1 req per stock) ──
-const GD_PRICE_TTL = 14 * 60 * 60 * 1000; // 14-hour price cache in Drive (covers weekends + overnight)
+const GD_PRICE_TTL = 72 * 60 * 60 * 1000; // 72-hour price cache in Drive (covers Thu close → Sun open = ~67h)
 // skipDriveNetwork=true during bulk refreshAll: use only in-memory cache, no Drive API calls
 // (prevents 238× Drive API calls which get throttled and cause hangs)
 async function fetchStockPrice(stock, skipDriveNetwork=false) {
@@ -3896,7 +3895,7 @@ function buildSectors(){} // sector filtering handled by buildSectorPerf pills
 // INDEXEDDB CACHE (with localStorage fallback)
 // ═══════════════════════════════════════════════════
 const DB_NAME="TASIDash",DB_VER=3,STORE="cache",CACHE_KEY="stocks",META_KEY="meta";
-let CACHE_TTL=14*60*60*1000,db=null,dbReady=false; // 14h default — survives overnight and weekends
+let CACHE_TTL=72*60*60*1000,db=null,dbReady=false; // 72h default — covers Thu close → Sun open (~67h weekend gap)
 
 function openDB(){
   return new Promise(res=>{
