@@ -3485,9 +3485,12 @@ async function fetchYahooPrice(ticker){
     const meta = data?.chart?.result?.[0]?.meta;
     const closes = (data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
     const timestamps = data?.chart?.result?.[0]?.timestamp||[];
+    // regularMarketPreviousClose = yesterday's official close (correct for 1-day % change)
+    // chartPreviousClose = close before chart period starts (6 months ago for range=6mo → wrong for daily change)
+    const prev = meta?.regularMarketPreviousClose ?? null;
     return {
       price: meta?.regularMarketPrice??null,
-      prev:  meta?.chartPreviousClose??null,
+      prev,
       closes, timestamps,
       volume: meta?.regularMarketVolume??null,
       avgVolume3M: meta?.averageDailyVolume3Month??null,
@@ -3554,7 +3557,7 @@ async function fetchStockFull(stock) {
   const result = {
     pe:stock.pe, pb:stock.pb, roe:stock.roe, npm:stock.npm,
     de:stock.de, dy:stock.dy, fcf:stock.fcf, cr:stock.cr,
-    rg:stock.rg, eg:stock.eg,
+    rg:stock.rg, eg:stock.eg, assets:stock.assets,
     rawYahoo:null, dataDate:null, fullLoaded:true
   };
   try {
@@ -3577,6 +3580,8 @@ async function fetchStockFull(stock) {
       if(fd?.totalRevenue?.raw)  { result.ttmRev=fd.totalRevenue.raw; result.rev=fd.totalRevenue.raw/1e9; }
       if(fd?.netIncome?.raw)     { result.ttmNI=fd.netIncome.raw;     result.ni=fd.netIncome.raw/1e9; }
       if(fd?.totalCash?.raw)     result.ttmCash=fd.totalCash.raw;
+      // Recompute net margin from live TTM revenue/NI — stays consistent with live financials
+      if(result.ttmRev > 0 && result.ttmNI != null) result.npm = result.ttmNI / result.ttmRev;
       // Shares outstanding → needed for EPS fallback and DCF per-share
       if(dk?.sharesOutstanding?.raw) result.sharesOutstanding=dk.sharesOutstanding.raw;
       // Beta, 52W, market cap from Yahoo
@@ -3588,6 +3593,12 @@ async function fetchStockFull(stock) {
       // EPS
       if(dk?.trailingEps?.raw) result.eps=dk.trailingEps.raw;
       if(dk?.forwardEps?.raw) result.fwdEps=dk.forwardEps.raw;
+      // Compute P/E from live price / trailing EPS — matches Yahoo Finance app exactly.
+      // Overrides API trailingPE which can be stale or absent for Saudi (.SR) stocks.
+      if(result.eps > 0 && stock.price > 0) result.pe = +(stock.price / result.eps).toFixed(2);
+      // Total assets from most recent balance sheet
+      const latestBS = qs.balanceSheetHistory?.balanceSheetStatements?.[0];
+      if(latestBS?.totalAssets?.raw) result.assets = latestBS.totalAssets.raw / 1e9;
       // Earnings date from latest income statement
       const latestIS = qs.incomeStatementHistory?.incomeStatementHistory?.[0];
       if(latestIS?.endDate?.fmt) result.dataDate = latestIS.endDate.fmt;
@@ -3625,6 +3636,7 @@ async function fetchStockFull(stock) {
           w52high: result.w52high, w52low: result.w52low, w52change: result.w52change,
           mktCap: result.mktCap, eps: result.eps, fwdEps: result.fwdEps, dataDate: result.dataDate,
           ttmRev: result.ttmRev, ttmNI: result.ttmNI, sharesOutstanding: result.sharesOutstanding,
+          assets: result.assets,
         },
         fundUpdated: Date.now(),
         ...(result.earningsTrend?.length ? { earningsTrend: result.earningsTrend, trendUpdated: Date.now() } : {}),
@@ -3974,11 +3986,15 @@ async function openModal(idx){
         const f = driveStock.fundamentals;
         const realD = allData.find(a => a.ticker === d.ticker);
         if (realD && f) {
-          const keys = ['pe','pb','roe','npm','de','dy','fcf','cr','rg','eg','beta','w52high','w52low','w52change','mktCap','eps','fwdEps','dataDate','ttmRev','ttmNI','sharesOutstanding'];
+          const keys = ['pe','pb','roe','npm','de','dy','fcf','cr','rg','eg','beta','w52high','w52low','w52change','mktCap','eps','fwdEps','dataDate','ttmRev','ttmNI','sharesOutstanding','assets'];
           keys.forEach(k => { if (f[k] != null) realD[k] = f[k]; });
           // Update rev/ni from Yahoo TTM values (more accurate than hardcoded STOCKS data)
           if (f.ttmRev) realD.rev = f.ttmRev / 1e9;
           if (f.ttmNI)  realD.ni  = f.ttmNI  / 1e9;
+          // Recompute P/E from current live price + cached EPS — P/E shifts daily with price
+          if(realD.eps > 0 && realD.price > 0) realD.pe = +(realD.price / realD.eps).toFixed(2);
+          // Recompute net margin from cached TTM values — stays consistent with live rev/NI
+          if(f.ttmRev > 0 && f.ttmNI != null) realD.npm = f.ttmNI / f.ttmRev;
           // Restore earningsTrend and DCF result from Drive if available
           if (driveStock.earningsTrend?.length && (Date.now() - (driveStock.trendUpdated||0) < GD_TREND_TTL))
             realD.earningsTrend = driveStock.earningsTrend;
@@ -4004,6 +4020,7 @@ async function openModal(idx){
           realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
           realD.combined=calcCombined(realD);
           const _e=window._fd?.find(f=>f.ticker===realD.ticker);if(_e)Object.assign(_e,realD);
+          computeSectorMedianPE(); // refresh sector median now that PE is live
           usedDriveCache = true;
         }
       }
@@ -4022,6 +4039,7 @@ async function openModal(idx){
         if(full.rg!=null) realD.rg=full.rg;
         if(full.eg!=null) realD.eg=full.eg;
         if(full.fcf!=null) realD.fcf=full.fcf;
+        if(full.assets!=null) realD.assets=full.assets;
         if(full.w52high) realD.w52high=full.w52high;
         if(full.w52low) realD.w52low=full.w52low;
         if(full.mktCap) realD.mktCap=full.mktCap;
@@ -4046,6 +4064,7 @@ async function openModal(idx){
         realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
         realD.combined=calcCombined(realD);
         const _e2=window._fd?.find(f=>f.ticker===realD.ticker);if(_e2)Object.assign(_e2,realD);
+        computeSectorMedianPE(); // refresh sector median now that we have a live PE
       }
     }
   }catch(e){ console.warn('Full data fetch failed:', e); }
@@ -4240,7 +4259,7 @@ function buildOverview(d){
       return `<div class="mi"><div class="mil">vs TASI (1Y)</div><div class="miv" style="color:${col}">${vsIdx>=0?'+':''}${(vsIdx*100).toFixed(1)}% <span style="font-size:8px;color:var(--tx3)">(stk ${stockReturn>=0?'+':''}${(stockReturn*100).toFixed(1)}%)</span></div></div>`;
     })()}
   </div>
-  <div class="secl">Key Financials (SAR B, FY2024)</div>
+  <div class="secl">Key Financials (SAR B${d.dataDate?`, ${d.dataDate.slice(0,4)} latest`:', est.'})</div>
   <div class="mgrid">
     <div class="mi"><div class="mil" ${T('revenue')}>Revenue</div><div class="miv">${d.rev!=null?d.rev.toFixed(2)+"B":"—"}</div></div>
     <div class="mi"><div class="mil" ${T('net_income')}>Net Income</div><div class="miv ${d.ni!=null?(d.ni>=0?'pos':'neg'):''}">${d.ni!=null?d.ni.toFixed(2)+"B":"—"}</div></div>
@@ -6461,7 +6480,8 @@ async function fetchTASIIndex() {
     const closes = (res.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
     const timestamps = res.timestamp||[];
     const price = meta?.regularMarketPrice ?? null;
-    const prev = meta?.chartPreviousClose ?? null;
+    // Use regularMarketPreviousClose (yesterday's close) not chartPreviousClose (start of 1-year range)
+    const prev = meta?.regularMarketPreviousClose ?? null;
     const change = (price && prev) ? ((price-prev)/prev)*100 : null;
     // YTD return: find close at or after Jan 1 of current year
     let ytdReturn = null;
