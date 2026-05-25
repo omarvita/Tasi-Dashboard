@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260525d'; // bump this string on every deploy that matters
+  var V='20260525e'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -1335,6 +1335,16 @@ async function gdLoadBulkPrices(onProgress) {
             });
             hits++;
           }
+          // Also load cached P/E/PB/EPS from bulk file (saved by gdSaveBulkPrices)
+          if (entry?.pe > 0 && entry.fundUpdated &&
+              Date.now() - entry.fundUpdated < GD_FUND_TTL) {
+            _gdCache[ticker] = Object.assign(_gdCache[ticker] || {}, {
+              fundamentals: Object.assign((_gdCache[ticker]?.fundamentals || {}), {
+                pe: entry.pe, pb: entry.pb, eps: entry.eps
+              }),
+              fundUpdated: entry.fundUpdated,
+            });
+          }
         }
         if (hits > 0) return hits;
       }
@@ -1369,6 +1379,19 @@ async function gdSaveBulkPrices() {
       }
     }
     if (!Object.keys(prices).length) return;
+    // Also include latest P/E/PB/EPS from per-stock Drive cache so next load
+    // doesn't need Phase 2.5 for stocks already in cache
+    for (const d of allData) {
+      const c = _gdCache[d.ticker];
+      if (c?.fundamentals?.pe > 0 && c.fundUpdated) {
+        prices[d.ticker] = Object.assign(prices[d.ticker] || {}, {
+          pe: c.fundamentals.pe,
+          pb: c.fundamentals.pb ?? null,
+          eps: c.fundamentals.eps ?? null,
+          fundUpdated: c.fundUpdated,
+        });
+      }
+    }
     const body = JSON.stringify({ savedAt: Date.now(), prices });
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify({ name: 'TASI_prices_bulk.json' })], { type: 'application/json' }));
@@ -3897,7 +3920,7 @@ async function fetchStockFull(stock) {
         }));
       }
       // Save fundamentals + earningsTrend to Google Drive (fire-and-forget, 1-day TTL)
-      gdWriteStock(ticker, {
+      const _fundPayload = {
         fundamentals: {
           pe: result.pe, pb: result.pb, roe: result.roe, npm: result.npm,
           de: result.de, dy: result.dy, fcf: result.fcf, cr: result.cr,
@@ -3911,7 +3934,10 @@ async function fetchStockFull(stock) {
         fundUpdated: Date.now(),
         fundVersion: GD_FUND_VER,
         ...(result.earningsTrend?.length ? { earningsTrend: result.earningsTrend, trendUpdated: Date.now() } : {}),
-      });
+      };
+      // Also update in-memory cache so next gdSaveBulkPrices includes this P/E
+      _gdCache[ticker] = Object.assign(_gdCache[ticker] || {}, _fundPayload);
+      gdWriteStock(ticker, _fundPayload);
     }
     // Also get longer chart data for 2-year history
     const meta = raw.chart?.chart?.result?.[0]?.meta;
@@ -6679,6 +6705,22 @@ async function refreshAll(forceRefresh=false){
     if (driveHits > 0) {
       document.getElementById("pl").textContent = `Drive: ${driveHits} stocks loaded`;
     }
+    // Apply cached P/E/PB from Drive fundamentals (saved on previous loads or modal opens)
+    // This means stocks already fetched don't need Phase 2.5 again
+    let peFromDrive = 0;
+    for (let i = 0; i < allData.length; i++) {
+      const c = _gdCache[allData[i].ticker];
+      if (c?.fundamentals?.pe > 0 && c.fundUpdated &&
+          Date.now() - c.fundUpdated < GD_FUND_TTL) {
+        allData[i] = { ...allData[i],
+          pe: c.fundamentals.pe,
+          pb: c.fundamentals.pb || allData[i].pb,
+          livepeLoaded: true, // skip Phase 2.5 for this stock
+        };
+        peFromDrive++;
+      }
+    }
+    if (peFromDrive > 0) console.log(`[P/E] Loaded ${peFromDrive} P/E values from Drive cache`);
   }
 
   // ── Phase 2: Bulk Yahoo v7/quote — all 238 stocks, 20 per request ───────
@@ -6810,6 +6852,13 @@ async function refreshAll(forceRefresh=false){
             livepeLoaded: true,
             combined: calcCombined({...allData[idx], pe, pb}),
           };
+          // Persist P/E to Drive cache so next page load doesn't need Phase 2.5
+          _gdCache[d.ticker] = Object.assign(_gdCache[d.ticker] || {}, {
+            fundamentals: Object.assign((_gdCache[d.ticker]?.fundamentals || {}), {
+              pe, pb: pb || null, eps: eps || null
+            }),
+            fundUpdated: Date.now(),
+          });
         } catch(e) {}
       }));
       const pcPE = 60 + Math.round(((pi + _PE_BATCH) / _needsPE.length) * 20);
