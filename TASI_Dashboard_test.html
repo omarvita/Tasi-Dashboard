@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260524o'; // bump this string on every deploy that matters
+  var V='20260525a'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -6620,69 +6620,72 @@ async function refreshAll(forceRefresh=false){
     }
   }
 
-  // ── Phase 2: Bulk Yahoo v7/quote — 50 stocks per request (5 req total) ──
-  // This is the fast path: one round-trip gets price+change for all stocks.
-  // Only runs for stocks not already covered by Drive cache.
-  const _needsPrice = allData.filter(d => {
-    const c = _gdCache[d.ticker];
-    return !(c?.priceData?.price && c.priceUpdated);
-  });
-  if (_needsPrice.length > 0) {
-    document.getElementById("pl").textContent = `Fetching prices (${_needsPrice.length} stocks)...`;
-    const _QBATCH = 20; // smaller batch — more reliable across proxies
-    for (let qi = 0; qi < _needsPrice.length; qi += _QBATCH) {
-      try {
-      const batch = _needsPrice.slice(qi, qi + _QBATCH);
-      // Do NOT encodeURIComponent the symbols — commas must stay as commas
+  // ── Phase 2: Bulk Yahoo v7/quote — all 238 stocks, 20 per request ───────
+  // Always fetches ALL stocks (not just cache misses) because:
+  //   • change% must always be today's value — Drive cache has stale daily %
+  //   • P/E must come from live trailingPE/EPS — Drive has no P/E
+  //   • price is fresh from the market
+  // Drive Phase 1 is still useful for closes (chart/technical data).
+  document.getElementById("pl").textContent = `Fetching live prices & P/E (${allData.length} stocks)...`;
+  const _QBATCH = 20;
+  for (let qi = 0; qi < allData.length; qi += _QBATCH) {
+    try {
+      const batch = allData.slice(qi, qi + _QBATCH);
       const syms  = batch.map(d => d.ticker).join(',');
-      // Try Yahoo v7/quote first (batch endpoint), then v8/chart per-stock as fallback
-      const qurl  = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketPreviousClose,regularMarketVolume,averageDailyVolume3Month,fiftyTwoWeekHigh,fiftyTwoWeekLow,marketCap`;
-      // Also try Yahoo v6 as alternate batch endpoint
+      // trailingPE + epsTrailingTwelveMonths → live P/E in one request
+      const qurl  = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketPreviousClose,regularMarketVolume,averageDailyVolume3Month,fiftyTwoWeekHigh,fiftyTwoWeekLow,marketCap,trailingPE,epsTrailingTwelveMonths,priceToBook`;
       const qurl6 = `https://query2.finance.yahoo.com/v6/finance/quote?symbols=${syms}`;
       let qdata = {};
       qdata = await Promise.race([fetchWithProxy(qurl), new Promise(r => setTimeout(() => r({}), 12000))]);
-      // If v7 returned no results, try v6
       if (!(qdata?.quoteResponse?.result?.length)) {
         qdata = await Promise.race([fetchWithProxy(qurl6), new Promise(r => setTimeout(() => r({}), 12000))]);
       }
       const quotes = qdata?.quoteResponse?.result || qdata?.quote || [];
-        for (const q of quotes) {
-          if (!q.symbol || q.regularMarketPrice == null) continue;
-          const idx = allData.findIndex(d => d.ticker === q.symbol);
-          if (idx < 0) continue;
-          const price  = q.regularMarketPrice;
-          const change = q.regularMarketChangePercent ?? null;
-          // Preserve existing closes from Drive/memory; v7/quote has no closes
-          const existingCloses     = allData[idx].closes || [];
-          const existingTimestamps = allData[idx].timestamps || [];
-          const tRes = scoreTechnicalWithSteps(existingCloses.length > 5 ? existingCloses : []);
-          allData[idx] = {
-            ...allData[idx],
-            price, change,
-            priceLoaded: true,
-            dataSource: 'yahoo-quote',
-            dataDate: new Date().toISOString().slice(0,10),
-            volume:      q.regularMarketVolume     ?? allData[idx].volume,
-            avgVolume3M: q.averageDailyVolume3Month ?? allData[idx].avgVolume3M,
-            w52high:     q.fiftyTwoWeekHigh         ?? allData[idx].w52high,
-            w52low:      q.fiftyTwoWeekLow          ?? allData[idx].w52low,
-            mktCap:      q.marketCap               ?? allData[idx].mktCap,
-            technical: tRes.score, techSteps: tRes.steps,
-            rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
-            combined: calcCombined({...allData[idx], price, technical: tRes.score}),
-          };
-          // Update _gdCache so Drive save picks it up
-          _gdCache[q.symbol] = Object.assign(_gdCache[q.symbol] || {}, {
-            priceData: { price, change,
-              closes: existingCloses.slice(-252), timestamps: existingTimestamps.slice(-252),
-              volume: allData[idx].volume, avgVolume3M: allData[idx].avgVolume3M },
-            priceUpdated: Date.now(),
-          });
+      for (const q of quotes) {
+        if (!q.symbol || q.regularMarketPrice == null) continue;
+        const idx = allData.findIndex(d => d.ticker === q.symbol);
+        if (idx < 0) continue;
+        const price  = q.regularMarketPrice;
+        const change = q.regularMarketChangePercent ?? null;
+        // ── Live P/E: trailingPE direct, else compute from EPS ──
+        let livePE = allData[idx].pe; // keep hardcoded as last resort
+        if (q.trailingPE > 0) {
+          livePE = +q.trailingPE.toFixed(2);
+        } else if (q.epsTrailingTwelveMonths > 0 && price > 0) {
+          livePE = +(price / q.epsTrailingTwelveMonths).toFixed(2);
         }
-      } catch(e) { console.warn('bulk quote batch failed', e); }
-      document.getElementById("pf").style.width = Math.round(((qi + _QBATCH) / _needsPrice.length) * 60) + '%';
-      doFilter(); updateMetrics();
-    }
+        const livePB = q.priceToBook > 0 ? +q.priceToBook.toFixed(2) : allData[idx].pb;
+        // Preserve existing closes from Drive/memory; v7/quote has no closes
+        const existingCloses     = allData[idx].closes || [];
+        const existingTimestamps = allData[idx].timestamps || [];
+        const tRes = scoreTechnicalWithSteps(existingCloses.length > 5 ? existingCloses : []);
+        allData[idx] = {
+          ...allData[idx],
+          price, change,
+          pe: livePE, pb: livePB,
+          priceLoaded: true,
+          dataSource: 'yahoo-quote',
+          dataDate: new Date().toISOString().slice(0,10),
+          volume:      q.regularMarketVolume      ?? allData[idx].volume,
+          avgVolume3M: q.averageDailyVolume3Month  ?? allData[idx].avgVolume3M,
+          w52high:     q.fiftyTwoWeekHigh          ?? allData[idx].w52high,
+          w52low:      q.fiftyTwoWeekLow           ?? allData[idx].w52low,
+          mktCap:      q.marketCap                ?? allData[idx].mktCap,
+          technical: tRes.score, techSteps: tRes.steps,
+          rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
+          combined: calcCombined({...allData[idx], price, pe: livePE, technical: tRes.score}),
+        };
+        // Update Drive cache entry
+        _gdCache[q.symbol] = Object.assign(_gdCache[q.symbol] || {}, {
+          priceData: { price, change,
+            closes: existingCloses.slice(-252), timestamps: existingTimestamps.slice(-252),
+            volume: allData[idx].volume, avgVolume3M: allData[idx].avgVolume3M },
+          priceUpdated: Date.now(),
+        });
+      }
+    } catch(e) { console.warn('bulk quote batch failed', e); }
+    document.getElementById("pf").style.width = Math.round(((qi + _QBATCH) / allData.length) * 60) + '%';
+    doFilter(); updateMetrics();
   }
 
   // ── Phase 3: Per-stock chart fetch for historical closes (technical scores) ──
