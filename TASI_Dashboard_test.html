@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260525c'; // bump this string on every deploy that matters
+  var V='20260525d'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -6623,15 +6623,17 @@ async function refreshAll(forceRefresh=false){
   const btn=document.getElementById("rbtn");
   if(btn){btn.disabled=true;btn.textContent="Loading...";}
   const pw=document.getElementById("pw");if(pw)pw.style.display="block";
-  // Hard timeout: if refresh takes >60 seconds, stop and show whatever we have
+  // Start TASI index fetch immediately — runs in parallel, not awaited, so it never blocks stock loading
+  fetchTASIIndex();
+  // Hard timeout: if refresh takes >4 minutes, stop and show whatever we have
   const _hardStop = setTimeout(()=>{
-    console.warn('[refreshAll] 60-second hard timeout — stopping fetch loop');
+    console.warn('[refreshAll] 4-minute hard timeout — stopping fetch loop');
     if(pw)pw.style.display="none";
     if(btn){btn.disabled=false;btn.textContent="↻ Reload Data";}
     const loaded=allData.filter(d=>d.priceLoaded).length;
     document.getElementById("pl").textContent=`⚠ Timed out — ${loaded} stocks loaded. Click ↻ to retry.`;
     setTimeout(()=>{ if(pw)pw.style.display="none"; },3000);
-  }, 60*1000);
+  }, 4*60*1000);
 
   // Try cache first unless forced
   if(!forceRefresh){
@@ -6748,20 +6750,28 @@ async function refreshAll(forceRefresh=false){
     document.getElementById("pf").style.width = Math.round(((qi + _QBATCH) / allData.length) * 60) + '%';
     doFilter(); updateMetrics();
   }
+  // Show market P/E stats with whatever P/E values we have so far (Phase 2.5 will refine them)
+  updateMarketPEStats();
 
-  // ── Phase 2.5: quoteSummary P/E for stocks where v7/quote had no trailingPE ──
-  // Saudi .SR stocks have trailingPE=null in v7/quote AND trailingEps absent in defaultKeyStatistics.
-  // The ONLY reliable source is TTM EPS from quarterly income statements (same as the stock modal uses).
-  const _needsPE = allData.filter(d => d.priceLoaded && !d.livepeLoaded);
+  // ── Phase 2.5: quoteSummary P/E — limited to top 80 stocks by market cap ──
+  // Saudi .SR stocks have trailingPE=null in v7/quote AND trailingEps often absent.
+  // The reliable source is TTM EPS from quarterly income statements (same as the stock modal).
+  // We limit to 80 stocks to avoid Yahoo rate limiting; smaller stocks keep hardcoded P/E until modal open.
+  const _allNeedsPE = allData.filter(d => d.priceLoaded && !d.livepeLoaded);
+  // Sort by market cap descending — prioritise largest stocks for accurate P/E
+  const _needsPE = _allNeedsPE
+    .slice()
+    .sort((a, b) => (b.mktCap || 0) - (a.mktCap || 0))
+    .slice(0, 80);
   if (_needsPE.length > 0) {
-    document.getElementById("pl").textContent = `Fetching P/E ratios (${_needsPE.length} stocks)...`;
-    const _PE_BATCH = 10; // conservative concurrency to avoid Yahoo rate limiting
+    document.getElementById("pl").textContent = `Fetching P/E ratios (top ${_needsPE.length} stocks by market cap)...`;
+    const _PE_BATCH = 8; // conservative concurrency — avoid Yahoo rate limiting
     for (let pi = 0; pi < _needsPE.length; pi += _PE_BATCH) {
       await Promise.all(_needsPE.slice(pi, pi + _PE_BATCH).map(async d => {
         const idx = allData.findIndex(x => x.ticker === d.ticker);
         if (idx < 0) return;
         try {
-          // Request quarterly income statements for TTM EPS — same as fetchStockFull
+          // Quarterly income statements for TTM EPS — same logic as the stock modal (fetchStockFull)
           const qsUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${d.ticker}?modules=summaryDetail,defaultKeyStatistics,incomeStatementHistoryQuarterly`;
           const qsData = await Promise.race([
             fetchWithProxy(qsUrl),
@@ -6787,7 +6797,7 @@ async function refreshAll(forceRefresh=false){
               if (ttmEPS > 0) eps = +ttmEPS.toFixed(4);
             }
           }
-          // Compute P/E from live price / TTM EPS — matches Yahoo Finance app exactly
+          // Compute P/E as live price / TTM EPS — matches Yahoo Finance app exactly
           if (eps > 0 && livePrice > 0) {
             pe = +(livePrice / eps).toFixed(2);
           } else if (sd?.trailingPE?.raw > 0) {
@@ -6804,7 +6814,7 @@ async function refreshAll(forceRefresh=false){
       }));
       const pcPE = 60 + Math.round(((pi + _PE_BATCH) / _needsPE.length) * 20);
       document.getElementById("pf").style.width = Math.min(pcPE, 80) + '%';
-      document.getElementById("pl").textContent = `P/E: ${Math.min(pi + _PE_BATCH, _needsPE.length)}/${_needsPE.length} updated`;
+      document.getElementById("pl").textContent = `P/E: ${Math.min(pi + _PE_BATCH, _needsPE.length)}/${_needsPE.length} large caps updated`;
       doFilter(); updateMetrics();
     }
   }
@@ -6873,9 +6883,6 @@ async function refreshAll(forceRefresh=false){
     }
   });
   if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
-
-  // ── Change 5: Fetch TASI index level ──
-  fetchTASIIndex();
 
   doFilter();updateMetrics();
   checkAlerts();
