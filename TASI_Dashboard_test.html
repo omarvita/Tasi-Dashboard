@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260525b'; // bump this string on every deploy that matters
+  var V='20260525c'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -268,6 +268,8 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 #pw-lock input:focus{border-color:var(--acc)}
 #pw-lock button{width:100%;padding:10px;background:var(--acc);color:#000;border:none;border-radius:6px;font-family:var(--mono);font-size:13px;font-weight:700;cursor:pointer}
 #pw-lock .pw-err{font-size:11px;color:var(--red);min-height:16px;margin-top:-8px}
+.tasi-rng-btn { font-family:var(--mono);font-size:9px;padding:2px 8px;border:1px solid var(--b2);border-radius:3px;background:var(--bg3);color:var(--tx3);cursor:pointer; }
+.tasi-rng-btn:hover { background:var(--b2); }
 </style>
 </head>
 <body>
@@ -336,10 +338,12 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
   </div>
 
   <div id="market-bar" style="background:var(--bg2);border:1px solid var(--b1);border-radius:7px;padding:7px 12px;margin-bottom:8px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-family:var(--mono);font-size:10px;color:var(--tx3)">
-    <span style="color:var(--tx2);font-weight:600">TASI</span>
-    <span id="tasi-idx-level" style="font-weight:600;color:var(--tx)">—</span>
-    <span id="tasi-idx-chg">—</span>
-    <span id="tasi-idx-ytd" style="color:var(--tx3)">YTD: —</span>
+    <span onclick="openTASIModal()" style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;padding:2px 8px;border-radius:5px;transition:background 0.15s" onmouseenter="this.style.background='rgba(255,255,255,0.05)'" onmouseleave="this.style.background=''">
+      <span style="color:var(--tx2);font-weight:600;font-size:11px">TASI ↗</span>
+      <span id="tasi-idx-level" style="font-weight:600;color:var(--tx)">—</span>
+      <span id="tasi-idx-chg">—</span>
+      <span id="tasi-idx-ytd" style="color:var(--tx3)">YTD: —</span>
+    </span>
     <span style="border-left:1px solid var(--b1);padding-left:10px">Stocks: <span id="tasi-val">—</span></span>
     <span id="tasi-chg">—</span>
     <span style="margin-left:4px">Advancing: <span id="tasi-adv" style="color:var(--green)">—</span></span>
@@ -348,6 +352,21 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
     <span style="margin-left:auto;color:var(--tx3)" id="tasi-time">—</span>
   </div>
   <div class="secperf" id="secperf-bar"><span class="secperf-lbl">Sectors</span><span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Loading…</span></div>
+  <!-- Market P/E Statistics Panel -->
+  <div id="market-pe-bar" style="background:var(--bg2);border:1px solid var(--b1);border-radius:7px;padding:7px 12px;margin-bottom:8px;font-family:var(--mono);font-size:10px">
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;cursor:pointer" onclick="toggleMarketPEChart()">
+      <span style="font-weight:600;color:var(--tx2);font-size:10px">Market P/E</span>
+      <span style="color:var(--tx3)">Mean: <span id="mpe-mean" style="color:var(--tx);font-weight:600">—</span></span>
+      <span style="color:var(--tx3)">Median: <span id="mpe-median" style="color:var(--tx);font-weight:600">—</span></span>
+      <span style="color:var(--tx3)">Wtd Avg (mktcap): <span id="mpe-wtd" style="color:var(--tx);font-weight:600">—</span></span>
+      <span id="mpe-count" style="color:var(--tx3)"></span>
+      <span style="margin-left:auto;color:var(--tx3);font-size:9px" id="mpe-toggle-hint">▼ show chart</span>
+    </div>
+    <!-- P/E distribution chart (hidden by default) -->
+    <div id="market-pe-chart-wrap" style="display:none;margin-top:10px;height:180px">
+      <canvas id="market-pe-chart"></canvas>
+    </div>
+  </div>
   <div class="pw" id="pw" style="display:none">
     <div class="pl" id="pl">Initialising...</div>
     <div class="pt"><div class="pf" id="pf"></div></div>
@@ -421,6 +440,46 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 
 <div class="mo" id="modal" style="display:none" onclick="if(event.target===this)closeModal()">
   <div class="modal" id="mc2"></div>
+</div>
+
+<!-- TASI Index Chart Modal -->
+<div id="tasi-modal-bg" onclick="if(event.target===this)closeTASIModal()" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.65);z-index:1500;overflow-y:auto;padding:12px">
+  <div style="max-width:860px;margin:0 auto;background:var(--bg2);border-radius:12px;padding:16px;position:relative;border:1px solid var(--b1)">
+    <button onclick="closeTASIModal()" style="position:absolute;top:10px;right:10px;background:var(--bg3);border:1px solid var(--b1);color:var(--tx2);border-radius:6px;width:28px;height:28px;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>
+    <!-- Header row -->
+    <div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:12px;margin-bottom:14px">
+      <span style="font-size:17px;font-weight:700;color:var(--tx)">TASI Index</span>
+      <span style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--tx)" id="tm-level">—</span>
+      <span id="tm-chg" style="font-family:var(--mono);font-size:13px">—</span>
+      <span id="tm-ytd" style="font-family:var(--mono);font-size:11px;color:var(--tx3)">—</span>
+      <span id="tm-tech" style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--tx3)">—</span>
+    </div>
+    <!-- Chart range buttons -->
+    <div style="display:flex;gap:5px;margin-bottom:8px;flex-wrap:wrap">
+      <span style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-right:4px;align-self:center">Range</span>
+      <button onclick="tasiChartRange=30;drawTASIChart()" class="tasi-rng-btn" id="tr-30">1M</button>
+      <button onclick="tasiChartRange=90;drawTASIChart()" class="tasi-rng-btn" id="tr-90">3M</button>
+      <button onclick="tasiChartRange=180;drawTASIChart()" class="tasi-rng-btn" id="tr-180">6M</button>
+      <button onclick="tasiChartRange=365;drawTASIChart()" class="tasi-rng-btn" id="tr-365" style="background:var(--acc);color:#000">1Y</button>
+      <button onclick="tasiChartRange=9999;drawTASIChart()" class="tasi-rng-btn" id="tr-all">All</button>
+      <span style="border-left:1px solid var(--b1);padding-left:8px;display:flex;gap:5px;flex-wrap:wrap">
+        <button onclick="tasiShowSMA20=!tasiShowSMA20;drawTASIChart()" id="tasi-ov-sma20" class="tasi-rng-btn">SMA-20</button>
+        <button onclick="tasiShowSMA50=!tasiShowSMA50;drawTASIChart()" id="tasi-ov-sma50" class="tasi-rng-btn">SMA-50</button>
+        <button onclick="tasiShowBB=!tasiShowBB;drawTASIChart()" id="tasi-ov-bb" class="tasi-rng-btn">Bollinger</button>
+        <button onclick="tasiShowRSI=!tasiShowRSI;drawTASIChart()" id="tasi-ov-rsi" class="tasi-rng-btn">RSI (14)</button>
+      </span>
+    </div>
+    <!-- Main price chart -->
+    <div style="background:var(--bg3);border-radius:8px;padding:8px;margin-bottom:8px;height:280px">
+      <canvas id="tasi-price-chart"></canvas>
+    </div>
+    <!-- RSI panel -->
+    <div id="tasi-rsi-panel" style="display:none;background:var(--bg3);border-radius:8px;padding:8px;margin-bottom:8px;height:100px">
+      <canvas id="tasi-rsi-chart"></canvas>
+    </div>
+    <!-- Technical analysis breakdown -->
+    <div id="tm-tech-steps" style="margin-top:12px;font-size:11px;font-family:var(--mono);color:var(--tx3)"></div>
+  </div>
 </div>
 
 <script>
@@ -6691,32 +6750,46 @@ async function refreshAll(forceRefresh=false){
   }
 
   // ── Phase 2.5: quoteSummary P/E for stocks where v7/quote had no trailingPE ──
-  // Saudi .SR stocks often have trailingPE=null in v7/quote. quoteSummary summaryDetail +
-  // defaultKeyStatistics is the authoritative P/E source (same as the stock modal uses).
+  // Saudi .SR stocks have trailingPE=null in v7/quote AND trailingEps absent in defaultKeyStatistics.
+  // The ONLY reliable source is TTM EPS from quarterly income statements (same as the stock modal uses).
   const _needsPE = allData.filter(d => d.priceLoaded && !d.livepeLoaded);
   if (_needsPE.length > 0) {
     document.getElementById("pl").textContent = `Fetching P/E ratios (${_needsPE.length} stocks)...`;
-    const _PE_BATCH = 20;
+    const _PE_BATCH = 10; // conservative concurrency to avoid Yahoo rate limiting
     for (let pi = 0; pi < _needsPE.length; pi += _PE_BATCH) {
       await Promise.all(_needsPE.slice(pi, pi + _PE_BATCH).map(async d => {
         const idx = allData.findIndex(x => x.ticker === d.ticker);
         if (idx < 0) return;
         try {
-          const qsUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${d.ticker}?modules=summaryDetail,defaultKeyStatistics`;
+          // Request quarterly income statements for TTM EPS — same as fetchStockFull
+          const qsUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${d.ticker}?modules=summaryDetail,defaultKeyStatistics,incomeStatementHistoryQuarterly`;
           const qsData = await Promise.race([
             fetchWithProxy(qsUrl),
-            new Promise(r => setTimeout(() => r(null), 9000))
+            new Promise(r => setTimeout(() => r(null), 10000))
           ]);
           const qsResult = qsData?.quoteSummary?.result?.[0];
           if (!qsResult) return;
           const sd = qsResult.summaryDetail, dk = qsResult.defaultKeyStatistics;
+          const livePrice = allData[idx].price;
           let pe = allData[idx].pe; // keep hardcoded as absolute fallback
-          // trailingPE.raw from summaryDetail (may be stale); prefer price/trailingEps
-          const trailingEps = dk?.trailingEps?.raw;
-          const livePrice   = allData[idx].price;
-          if (trailingEps > 0 && livePrice > 0) {
-            // Compute P/E from live price + trailing EPS — matches Yahoo Finance app exactly
-            pe = +(livePrice / trailingEps).toFixed(2);
+          // Step 1: trailingEps from defaultKeyStatistics
+          let eps = dk?.trailingEps?.raw;
+          // Step 2: TTM EPS from last 4 quarterly income statements (works when trailingEps absent)
+          if (!(eps > 0)) {
+            const qStmts = qsResult.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
+            const last4 = qStmts.slice(0, 4);
+            const shares = dk?.sharesOutstanding?.raw;
+            if (last4.length >= 2 && shares > 0) {
+              const ttmEPS = last4.reduce((s, q) => {
+                const e = q.basicEps?.raw ?? (q.netIncome?.raw != null ? q.netIncome.raw / shares : null);
+                return e != null ? s + e : s;
+              }, 0);
+              if (ttmEPS > 0) eps = +ttmEPS.toFixed(4);
+            }
+          }
+          // Compute P/E from live price / TTM EPS — matches Yahoo Finance app exactly
+          if (eps > 0 && livePrice > 0) {
+            pe = +(livePrice / eps).toFixed(2);
           } else if (sd?.trailingPE?.raw > 0) {
             pe = +sd.trailingPE.raw.toFixed(2);
           }
@@ -6789,6 +6862,7 @@ async function refreshAll(forceRefresh=false){
   document.getElementById("lu").textContent=`${loaded}/${allData.length} prices · ${new Date().toLocaleTimeString("en-SA",{hour:"2-digit",minute:"2-digit"})}`;
   // ── Change 7: Compute sector-relative P/E medians after all prices loaded ──
   computeSectorMedianPE();
+  updateMarketPEStats();
   // Re-score fundamentals with sector-relative P/E now available
   allData.forEach(d => {
     if(d.pe != null) {
@@ -6824,6 +6898,128 @@ function computeSectorMedianPE() {
     medians[s] = vals.length % 2 === 0 ? (vals[mid-1]+vals[mid])/2 : vals[mid];
   });
   sectorMedianPE = medians;
+}
+
+// ── TASI Index Chart Modal ────────────────────────────────────────────────
+let tasiChartInst2 = null, tasiRsiInst2 = null;
+let tasiChartRange = 365, tasiShowSMA20 = true, tasiShowSMA50 = false, tasiShowBB = false, tasiShowRSI = false;
+
+function openTASIModal() {
+  const bg = document.getElementById('tasi-modal-bg');
+  if (!bg) return;
+  // Populate header
+  const { price, change, ytdReturn, closes, timestamps } = tasiIndex;
+  document.getElementById('tm-level').textContent = price ? price.toLocaleString('en-SA', {maximumFractionDigits:0}) : '—';
+  if (change != null) {
+    const col = change >= 0 ? 'var(--green)' : 'var(--red)';
+    document.getElementById('tm-chg').innerHTML = `<span style="color:${col}">${change>=0?'+':''}${change.toFixed(2)}%</span>`;
+  }
+  if (ytdReturn != null) {
+    const col = ytdReturn >= 0 ? 'var(--green)' : 'var(--red)';
+    document.getElementById('tm-ytd').innerHTML = `YTD: <span style="color:${col}">${ytdReturn>=0?'+':''}${(ytdReturn*100).toFixed(1)}%</span>`;
+  }
+  // Technical score
+  if (closes.length >= 20) {
+    const tRes = scoreTechnicalWithSteps(closes);
+    document.getElementById('tm-tech').textContent = `Technical: ${tRes.score}/100`;
+    // Show breakdown
+    const stepsHtml = tRes.steps.map(s => {
+      const col = s.delta > 0 ? 'var(--green)' : s.delta < 0 ? 'var(--red)' : 'var(--tx3)';
+      return `<span style="display:inline-flex;gap:6px;margin-right:14px;margin-bottom:4px"><span style="color:var(--tx2)">${s.label}:</span><span style="color:${col}">${s.delta>0?'+':''}${s.delta}</span><span style="color:var(--tx3)">(${s.raw})</span></span>`;
+    }).join('');
+    document.getElementById('tm-tech-steps').innerHTML = stepsHtml;
+  }
+  bg.style.display = 'block';
+  document.body.style.overflow = 'hidden';
+  setTimeout(() => drawTASIChart(), 50);
+  // If we have less than 200 closes, try to fetch 2y data for a richer chart
+  if (closes.length < 200) fetchTASIIndexLong();
+}
+
+function closeTASIModal() {
+  const bg = document.getElementById('tasi-modal-bg');
+  if (bg) bg.style.display = 'none';
+  document.body.style.overflow = '';
+  if (tasiChartInst2) { try { tasiChartInst2.destroy(); } catch(e){} tasiChartInst2 = null; }
+  if (tasiRsiInst2)   { try { tasiRsiInst2.destroy();   } catch(e){} tasiRsiInst2   = null; }
+}
+
+function drawTASIChart() {
+  if (tasiChartInst2) { try { tasiChartInst2.destroy(); } catch(e){} tasiChartInst2 = null; }
+  if (tasiRsiInst2)   { try { tasiRsiInst2.destroy();   } catch(e){} tasiRsiInst2   = null; }
+  let closes = tasiIndex.closes.slice();
+  let timestamps = tasiIndex.timestamps.slice();
+  if (closes.length > tasiChartRange) {
+    closes = closes.slice(-tasiChartRange);
+    timestamps = timestamps.slice(-tasiChartRange);
+  }
+  if (closes.length < 2) return;
+  // Update range button highlight
+  ['30','90','180','365','all'].forEach(k => {
+    const btn = document.getElementById('tr-'+k);
+    if (btn) btn.style.background = (tasiChartRange === (k==='all'?9999:+k)) ? 'var(--acc)' : 'var(--bg3)';
+    if (btn) btn.style.color = (tasiChartRange === (k==='all'?9999:+k)) ? '#000' : 'var(--tx3)';
+  });
+  // Update overlay button highlight
+  [['tasi-ov-sma20',tasiShowSMA20],['tasi-ov-sma50',tasiShowSMA50],['tasi-ov-bb',tasiShowBB],['tasi-ov-rsi',tasiShowRSI]].forEach(([id,on]) => {
+    const b = document.getElementById(id);
+    if (b) { b.style.background = on ? 'var(--acc)' : 'var(--bg3)'; b.style.color = on ? '#000' : 'var(--tx3)'; }
+  });
+  const labels = timestamps.map(t => { const d=new Date(t*1000); return d.getDate()+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]+' '+String(d.getFullYear()).slice(-2); });
+  const datasets = [{ label:'TASI', data:closes, borderColor:'#4f9cf9', backgroundColor:'transparent', pointRadius:0, borderWidth:1.5, tension:0.2 }];
+  if (tasiShowSMA20) {
+    const sma20 = closes.map((_,i) => i<19 ? null : closes.slice(i-19,i+1).reduce((a,b)=>a+b,0)/20);
+    datasets.push({ label:'SMA-20', data:sma20, borderColor:'#f5a623', backgroundColor:'transparent', pointRadius:0, borderWidth:1, borderDash:[4,3], tension:0.2 });
+  }
+  if (tasiShowSMA50) {
+    const sma50 = closes.map((_,i) => i<49 ? null : closes.slice(i-49,i+1).reduce((a,b)=>a+b,0)/50);
+    datasets.push({ label:'SMA-50', data:sma50, borderColor:'#7ed321', backgroundColor:'transparent', pointRadius:0, borderWidth:1, borderDash:[6,3], tension:0.2 });
+  }
+  if (tasiShowBB && typeof computeBollinger === 'function') {
+    const bb = computeBollinger(closes);
+    datasets.push({ label:'BB Upper', data:bb.map(b=>b.upper), borderColor:'#9b59b699', backgroundColor:'transparent', pointRadius:0, borderWidth:1, borderDash:[2,2], tension:0.2 });
+    datasets.push({ label:'BB Lower', data:bb.map(b=>b.lower), borderColor:'#9b59b699', backgroundColor:'rgba(155,89,182,0.05)', pointRadius:0, borderWidth:1, borderDash:[2,2], fill:'-1', tension:0.2 });
+  }
+  const fontOpts = { size:8, family:"'IBM Plex Mono'" };
+  const ctx = document.getElementById('tasi-price-chart');
+  if (!ctx) return;
+  tasiChartInst2 = new Chart(ctx, { type:'line', data:{ labels, datasets }, options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false}, plugins:{ legend:{ display:datasets.length>1, labels:{color:'#8a9ab5',font:fontOpts,boxWidth:10} }, tooltip:{ backgroundColor:'rgba(24,28,34,0.97)', borderColor:'#2d3440', borderWidth:1, titleColor:'#e8eaed', bodyColor:'#8a9ab5', titleFont:{family:"'IBM Plex Mono'",size:10}, bodyFont:{family:"'IBM Plex Mono'",size:10}, callbacks:{ title:items=>`Date: ${items[0].label}`, label:item=>`${item.dataset.label}: ${item.raw!=null?item.raw.toLocaleString('en-SA',{maximumFractionDigits:2}):'—'}` } } }, scales:{ x:{ticks:{font:fontOpts,color:'#4a5568',maxTicksLimit:9},grid:{display:false},border:{color:'#232830'}}, y:{ticks:{font:fontOpts,color:'#4a5568',callback:v=>v.toLocaleString('en-SA',{maximumFractionDigits:0})},grid:{color:'rgba(255,255,255,0.03)'},border:{color:'#232830'}} } } });
+  // RSI sub-chart
+  const rsiPanel = document.getElementById('tasi-rsi-panel');
+  if (rsiPanel) rsiPanel.style.display = tasiShowRSI ? 'block' : 'none';
+  if (tasiShowRSI && typeof computeRSIArr === 'function') {
+    setTimeout(() => {
+      const rsiCtx = document.getElementById('tasi-rsi-chart');
+      if (!rsiCtx) return;
+      const rsiArr = computeRSIArr(closes);
+      tasiRsiInst2 = new Chart(rsiCtx, { type:'line', data:{ labels, datasets:[
+        { label:'RSI', data:rsiArr, borderColor:'#9b59b6', backgroundColor:'transparent', pointRadius:0, borderWidth:1.2, tension:0.2 },
+        { label:'70', data:labels.map(()=>70), borderColor:'rgba(231,76,60,0.4)', borderDash:[4,3], pointRadius:0, borderWidth:1 },
+        { label:'30', data:labels.map(()=>30), borderColor:'rgba(46,213,115,0.4)', borderDash:[4,3], pointRadius:0, borderWidth:1 }
+      ] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, tooltip:{enabled:false} }, scales:{ x:{display:false}, y:{min:0,max:100,ticks:{font:fontOpts,color:'#4a5568',maxTicksLimit:5},grid:{color:'rgba(255,255,255,0.03)'},border:{color:'#232830'}} } } });
+    }, 10);
+  }
+}
+
+async function fetchTASIIndexLong() {
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/%5ETASI?interval=1d&range=2y`;
+    const data = await fetchWithProxy(url);
+    const res = data?.chart?.result?.[0];
+    if (!res) return;
+    const closes = (res.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
+    const timestamps = res.timestamp||[];
+    if (closes.length > tasiIndex.closes.length) {
+      tasiIndex.closes = closes;
+      tasiIndex.timestamps = timestamps;
+      // Recompute YTD
+      const yearStart = new Date(new Date().getFullYear(), 0, 1).getTime() / 1000;
+      let yi = 0; for(let i=0;i<timestamps.length;i++){if(timestamps[i]>=yearStart){yi=i;break;}}
+      tasiIndex.ytdReturn = closes[yi] > 0 ? (closes[closes.length-1]-closes[yi])/closes[yi] : null;
+      // Re-draw if modal is open
+      if (document.getElementById('tasi-modal-bg')?.style.display !== 'none') drawTASIChart();
+    }
+  } catch(e) {}
 }
 
 // ── Change 5: TASI Index fetch ──
@@ -6888,6 +7084,125 @@ function computeVolatility(closes) {
   const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
   const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / (returns.length - 1);
   return Math.sqrt(variance * 252) * 100; // annualized in %
+}
+
+// ── Market P/E Statistics ─────────────────────────────────────────────────
+let marketPEChartInst = null;
+let marketPEChartVisible = false;
+
+function updateMarketPEStats() {
+  // Only use stocks with valid P/E (positive, < 200, with mktCap)
+  const valid = allData.filter(d => d.pe > 0 && d.pe < 200 && d.priceLoaded);
+  if (valid.length === 0) return;
+  // Mean P/E
+  const mean = valid.reduce((s,d) => s + d.pe, 0) / valid.length;
+  // Median P/E
+  const sorted = valid.map(d=>d.pe).sort((a,b)=>a-b);
+  const mid = Math.floor(sorted.length/2);
+  const median = sorted.length%2 ? sorted[mid] : (sorted[mid-1]+sorted[mid])/2;
+  // Market-cap weighted average P/E
+  const totalMktCap = valid.filter(d=>d.mktCap>0).reduce((s,d)=>s+d.mktCap,0);
+  const wtdAvg = totalMktCap > 0
+    ? valid.filter(d=>d.mktCap>0).reduce((s,d) => s + d.pe*(d.mktCap/totalMktCap), 0)
+    : mean;
+  document.getElementById('mpe-mean').textContent = mean.toFixed(1)+'x';
+  document.getElementById('mpe-median').textContent = median.toFixed(1)+'x';
+  document.getElementById('mpe-wtd').textContent = wtdAvg.toFixed(1)+'x';
+  document.getElementById('mpe-count').textContent = `(${valid.length} stocks)`;
+  if (marketPEChartVisible) renderMarketPEChart(valid, mean, median, wtdAvg);
+}
+
+function toggleMarketPEChart() {
+  const wrap = document.getElementById('market-pe-chart-wrap');
+  const hint = document.getElementById('mpe-toggle-hint');
+  if (!wrap) return;
+  marketPEChartVisible = !marketPEChartVisible;
+  wrap.style.display = marketPEChartVisible ? 'block' : 'none';
+  if (hint) hint.textContent = marketPEChartVisible ? '▲ hide chart' : '▼ show chart';
+  if (marketPEChartVisible) {
+    const valid = allData.filter(d => d.pe > 0 && d.pe < 200 && d.priceLoaded);
+    if (valid.length === 0) return;
+    const mean = valid.reduce((s,d)=>s+d.pe,0)/valid.length;
+    const sorted = valid.map(d=>d.pe).sort((a,b)=>a-b);
+    const mid = Math.floor(sorted.length/2);
+    const median = sorted.length%2 ? sorted[mid] : (sorted[mid-1]+sorted[mid])/2;
+    const totalMktCap = valid.filter(d=>d.mktCap>0).reduce((s,d)=>s+d.mktCap,0);
+    const wtdAvg = totalMktCap > 0 ? valid.filter(d=>d.mktCap>0).reduce((s,d)=>s+d.pe*(d.mktCap/totalMktCap),0) : mean;
+    setTimeout(() => renderMarketPEChart(valid, mean, median, wtdAvg), 30);
+  } else {
+    if (marketPEChartInst) { try { marketPEChartInst.destroy(); } catch(e){} marketPEChartInst = null; }
+  }
+}
+
+function renderMarketPEChart(valid, mean, median, wtdAvg) {
+  if (marketPEChartInst) { try { marketPEChartInst.destroy(); } catch(e){} marketPEChartInst = null; }
+  const ctx = document.getElementById('market-pe-chart');
+  if (!ctx) return;
+  // Build histogram buckets: 0-5, 5-10, 10-15, ... 50-55, 55+
+  const buckets = [];
+  for (let b = 0; b < 60; b += 5) buckets.push({ min:b, max:b+5, count:0, wtdCount:0, totalMC:0 });
+  buckets.push({ min:60, max:999, count:0, wtdCount:0, totalMC:0, label:'60+' });
+  valid.forEach(d => {
+    const idx = d.pe >= 60 ? buckets.length-1 : Math.floor(d.pe/5);
+    if (idx >= 0 && idx < buckets.length) {
+      buckets[idx].count++;
+      if (d.mktCap > 0) { buckets[idx].totalMC += d.mktCap; }
+    }
+  });
+  const totalMC = buckets.reduce((s,b)=>s+b.totalMC, 0);
+  const labels = buckets.map((b,i) => i === buckets.length-1 ? '60+' : `${b.min}-${b.max}`);
+  const counts = buckets.map(b => b.count);
+  const mcPct   = buckets.map(b => totalMC > 0 ? +(b.totalMC/totalMC*100).toFixed(1) : 0);
+  const fontOpts = { size:8, family:"'IBM Plex Mono'" };
+  marketPEChartInst = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label:'# Stocks', data:counts, backgroundColor:'rgba(79,156,249,0.6)', borderColor:'rgba(79,156,249,0.9)', borderWidth:1, yAxisID:'y' },
+        { label:'Mktcap %', data:mcPct, type:'line', borderColor:'#f5a623', backgroundColor:'transparent', pointRadius:2, borderWidth:1.5, tension:0.3, yAxisID:'y2' }
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins: {
+        legend:{ display:true, labels:{color:'#8a9ab5', font:fontOpts, boxWidth:10} },
+        tooltip:{ backgroundColor:'rgba(24,28,34,0.97)', borderColor:'#2d3440', borderWidth:1, titleColor:'#e8eaed', bodyColor:'#8a9ab5', titleFont:{family:"'IBM Plex Mono'",size:9}, bodyFont:{family:"'IBM Plex Mono'",size:9} },
+        annotation: undefined
+      },
+      scales: {
+        x:{ ticks:{font:fontOpts, color:'#4a5568', maxRotation:45}, grid:{display:false}, border:{color:'#232830'} },
+        y:{ title:{display:true, text:'# Stocks', color:'#4a5568', font:fontOpts}, ticks:{font:fontOpts, color:'#4a5568'}, grid:{color:'rgba(255,255,255,0.03)'}, border:{color:'#232830'} },
+        y2:{ position:'right', title:{display:true, text:'Mktcap %', color:'#4a5568', font:fontOpts}, ticks:{font:fontOpts, color:'#4a5568', callback:v=>v+'%'}, grid:{display:false}, border:{color:'#232830'} }
+      }
+    }
+  });
+  // Draw mean, median, wtdAvg as vertical lines using afterDraw plugin
+  const plugin = {
+    id: 'pe-vlines',
+    afterDraw(chart) {
+      const {ctx: c, scales:{x}} = chart;
+      [[mean,'#e74c3c','Mean'],[median,'#2ed573','Median'],[wtdAvg,'#f5a623','Wtd']].forEach(([val,col,lbl]) => {
+        const bIdx = val >= 60 ? buckets.length-1 : Math.floor(val/5);
+        const xPos = x.getPixelForValue(bIdx);
+        c.save();
+        c.beginPath();
+        c.moveTo(xPos, chart.chartArea.top);
+        c.lineTo(xPos, chart.chartArea.bottom);
+        c.strokeStyle = col;
+        c.lineWidth = 1.5;
+        c.setLineDash([4,3]);
+        c.stroke();
+        c.fillStyle = col;
+        c.font = "8px 'IBM Plex Mono'";
+        c.fillText(`${lbl} ${val.toFixed(1)}x`, xPos+3, chart.chartArea.top+12);
+        c.restore();
+      });
+    }
+  };
+  marketPEChartInst.options.plugins.peVlines = true;
+  Chart.register(plugin);
+  marketPEChartInst.update();
 }
 
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
