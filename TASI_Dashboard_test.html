@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260525e'; // bump this string on every deploy that matters
+  var V='20260525f'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -3608,6 +3608,7 @@ async function autoDiscoverSaudiStocks() {
       const data = await fetchWithProxyPost(url, makeBody(offset));
       const quotes = data?.finance?.result?.[0]?.quotes || data?.result?.[0]?.quotes || data?.quotes || [];
       if (!quotes.length) break;
+      let screenerPEUpdates = 0;
       for (const q of quotes) {
         const added = _addDiscoveredStock(
           q.symbol,
@@ -3620,6 +3621,27 @@ async function autoDiscoverSaudiStocks() {
           existing
         );
         if (added) totalAdded++;
+        // Also update P/E for existing stocks when screener returns trailingPE
+        // (screener works for ~30-40% of Saudi stocks where Yahoo has reliable data)
+        if (!added && q.trailingPE > 0) {
+          const existingIdx = allData.findIndex(d => d.ticker === q.symbol);
+          if (existingIdx >= 0 && !allData[existingIdx].livepeLoaded) {
+            const scPE = +q.trailingPE.toFixed(2);
+            const scPB = q.priceToBook > 0 ? +q.priceToBook.toFixed(2) : allData[existingIdx].pb;
+            allData[existingIdx] = { ...allData[existingIdx], pe: scPE, pb: scPB, livepeLoaded: true };
+            // Persist to in-memory cache so Phase 2.5 skips this stock
+            _gdCache[q.symbol] = Object.assign(_gdCache[q.symbol] || {}, {
+              fundamentals: Object.assign((_gdCache[q.symbol]?.fundamentals || {}), {
+                pe: scPE, pb: scPB || null }),
+              fundUpdated: Date.now(),
+            });
+            screenerPEUpdates++;
+          }
+        }
+      }
+      if (screenerPEUpdates > 0) {
+        console.log(`[Screener] Updated P/E for ${screenerPEUpdates} existing stocks from Yahoo screener`);
+        updateMarketPEStats(); doFilter(); updateMetrics();
       }
       if (quotes.length < 250) break; // no more pages
     }
