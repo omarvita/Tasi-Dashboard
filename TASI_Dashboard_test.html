@@ -379,11 +379,17 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
             <span>Cheap &lt;12</span><span>Fair 12–22</span><span>Expensive &gt;22</span>
           </div>
         </div>
-        <div style="display:flex;gap:4px;margin-left:auto">
+        <div style="display:flex;gap:4px;margin-left:auto;align-items:center;flex-wrap:wrap">
+          <span style="color:var(--tx3);font-size:8px;margin-right:2px">Curve:</span>
+          <button class="tasi-rng-btn" id="mpe-c-wtd"  onclick="setMPECurve('wtd')"  style="background:var(--acc);color:#000;border-color:var(--acc)">Wtd Avg</button>
+          <button class="tasi-rng-btn" id="mpe-c-med"  onclick="setMPECurve('med')">Median</button>
+          <button class="tasi-rng-btn" id="mpe-c-mean" onclick="setMPECurve('mean')">Mean</button>
+          <span style="border-left:1px solid var(--b2);height:12px;margin:0 4px"></span>
           <button class="tasi-rng-btn" id="mpe-r-3m"  onclick="setMPERange('3M')">3M</button>
           <button class="tasi-rng-btn" id="mpe-r-6m"  onclick="setMPERange('6M')">6M</button>
           <button class="tasi-rng-btn" id="mpe-r-1y"  onclick="setMPERange('1Y')" style="background:var(--acc);color:#000;border-color:var(--acc)">1Y</button>
           <button class="tasi-rng-btn" id="mpe-r-2y"  onclick="setMPERange('2Y')">2Y</button>
+          <button class="tasi-rng-btn" id="mpe-r-5y"  onclick="setMPERange('5Y')">5Y</button>
         </div>
       </div>
       <div style="height:180px"><canvas id="market-pe-chart"></canvas></div>
@@ -405,6 +411,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
       <option value="peg">Sort: PEG (low→high)</option>
       <option value="change">Sort: Daily Chg%</option>
       <option value="vsTasi">Sort: vs TASI</option>
+      <option value="dcfUpside">Sort: Fair Value Upside</option>
     </select>
     <select id="vs" onchange="doFilter()">
       <option value="all">All securities</option>
@@ -436,7 +443,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
         <th class="col-bu" style="width:82px" onclick="sk('buffett')">Buffett↕</th>
         <th style="width:82px" onclick="sk('combined')">Score↕</th>
         <th style="width:48px">Signal</th>
-        <th class="col-tr" style="width:50px">Trend</th>
+        <th class="col-tr" style="width:66px" onclick="sk('dcfUpside')" title="DCF Fair Value vs current price↕">Fair Val↕</th>
         <th class="col-vs" style="width:52px" onclick="sk('vsTasi')" title="6-month return vs TASI index">vs TASI↕</th>
         <th class="col-st" style="width:32px">★</th>
         <th class="col-cp" style="width:32px">⊕</th>
@@ -483,6 +490,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
       <button onclick="tasiChartRange=90;drawTASIChart()" class="tasi-rng-btn" id="tr-90">3M</button>
       <button onclick="tasiChartRange=180;drawTASIChart()" class="tasi-rng-btn" id="tr-180">6M</button>
       <button onclick="tasiChartRange=365;drawTASIChart()" class="tasi-rng-btn" id="tr-365" style="background:var(--acc);color:#000">1Y</button>
+      <button onclick="tasiChartRange=1825;drawTASIChart()" class="tasi-rng-btn" id="tr-1825">5Y</button>
       <button onclick="tasiChartRange=9999;drawTASIChart()" class="tasi-rng-btn" id="tr-all">All</button>
       <span style="border-left:1px solid var(--b1);padding-left:8px;display:flex;gap:5px;flex-wrap:wrap">
         <button onclick="tasiShowSMA20=!tasiShowSMA20;drawTASIChart()" id="tasi-ov-sma20" class="tasi-rng-btn">SMA-20</button>
@@ -1432,8 +1440,8 @@ async function gdSaveBulkPrices() {
     // Include TASI index historical closes in bulk file so next load is instant
     if (tasiIndex.closes?.length > 10) {
       prices['_tasi'] = {
-        closes: tasiIndex.closes.slice(-750),
-        timestamps: tasiIndex.timestamps.slice(-750),
+        closes: tasiIndex.closes.slice(-3000),
+        timestamps: tasiIndex.timestamps.slice(-3000),
         price: tasiIndex.price,
         change: tasiIndex.change,
         ytdReturn: tasiIndex.ytdReturn,
@@ -4219,7 +4227,15 @@ function renderTable(){
       <td class="col-bu">${(d.noHardcodedData&&!d.priceLoaded)?'<span class="nav">—</span>':bar(d.buffett??50)}</td>
       <td style="min-width:60px">${(d.noHardcodedData&&!d.priceLoaded)?'<span class="nav" style="font-size:11px">Unscored</span>':bar(d.combined??50)}</td>
       <td style="min-width:40px"><span class="badge ${sig.cls}">${(d.noHardcodedData&&!d.priceLoaded)?'—':sig.label}</span></td>
-      <td class="col-tr">${makeSparkline(d.closes)}</td>
+      <td class="col-tr">${(()=>{
+        if (d.dcfPS != null && d.price) {
+          const up = d.dcfUpside ?? 0;
+          const col = up > 0.15 ? 'var(--green)' : up > -0.10 ? 'var(--amb)' : 'var(--red)';
+          const sign = up >= 0 ? '+' : '';
+          return `<div style="line-height:1.3"><div style="font-family:var(--mono);font-size:10px;font-weight:600;color:${col}">${d.dcfPS.toFixed(1)}</div><div style="font-family:var(--mono);font-size:8px;color:${col}">${sign}${(up*100).toFixed(1)}%</div></div>`;
+        }
+        return '<span class="nav" style="font-size:9px">—</span>';
+      })()}</td>
       <td class="col-vs">${(()=>{
         const v=d.vsTasi;
         if(v==null)return'<span class="nav" style="font-size:9px">—</span>';
@@ -4389,7 +4405,7 @@ function saveUIState(){
   }catch(e){}
 }
 
-const VALID_SORT_KEYS = new Set(['combined','fundamental','technical','buffett','pegScore','pe','peg','dy','roe','npm','rg','eg','price','change','mktCap']);
+const VALID_SORT_KEYS = new Set(['combined','fundamental','technical','buffett','pegScore','pe','peg','dy','roe','npm','rg','eg','price','change','mktCap','dcfUpside']);
 function restoreUIState(){
   try{
     const raw=localStorage.getItem('TASI_ui_state');
@@ -7093,11 +7109,20 @@ async function refreshAll(forceRefresh=false){
         const fetched = await Promise.race([fetchStockPrice(allData[idx], true), _priceTimeout()]);
         if ((fetched.closes||[]).length > 5) {
           const tRes = scoreTechnicalWithSteps(fetched.closes);
+          // Recompute daily change from fresh closes when market appears open.
+          // closes[-1] = last completed day's close; if price differs meaningfully,
+          // market is intraday-open and closes-based change is more reliable.
+          let validatedChange = allData[idx].priceLoaded ? allData[idx].change : (fetched.change ?? allData[idx].change);
+          const currPx = allData[idx].price;
+          const lastClose = fetched.closes[fetched.closes.length - 1];
+          if (currPx > 0 && lastClose > 0 && Math.abs(currPx - lastClose) / lastClose > 0.001) {
+            validatedChange = +((currPx - lastClose) / lastClose * 100).toFixed(2);
+          }
           allData[idx] = {
             ...allData[idx],
             // Only overwrite price if we didn't already get it from v7/quote
             price:  allData[idx].priceLoaded ? allData[idx].price  : (fetched.price  ?? allData[idx].price),
-            change: allData[idx].priceLoaded ? allData[idx].change : (fetched.change ?? allData[idx].change),
+            change: validatedChange,
             priceLoaded: allData[idx].priceLoaded || fetched.price != null,
             closes: fetched.closes, timestamps: fetched.timestamps,
             dataSource: allData[idx].dataSource || fetched.dataSource,
@@ -7276,12 +7301,12 @@ function drawTASIChart() {
 }
 
 async function fetchTASIIndexLong() {
-  // Yahoo Finance v8/chart (try both hosts)
+  // Yahoo Finance v8/chart — try 10y first, fall back to 5y then 2y
   const urls2y = [
-    `https://query1.finance.yahoo.com/v8/finance/chart/^TASI.SR?interval=1d&range=2y`,
-    `https://query2.finance.yahoo.com/v8/finance/chart/^TASI.SR?interval=1d&range=2y`,
-    `https://query1.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=2y`,
-    `https://query2.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=2y`,
+    `https://query1.finance.yahoo.com/v8/finance/chart/^TASI.SR?interval=1d&range=10y`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/^TASI.SR?interval=1d&range=10y`,
+    `https://query1.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=10y`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=10y`,
   ];
   for (const url of urls2y) {
     try {
@@ -7318,7 +7343,7 @@ async function fetchTASIIndexLong() {
         closes.reverse(); timestamps.reverse();
       }
       if (closes.length > tasiIndex.closes.length) {
-        _applyTASICloses(closes.slice(-750), timestamps.slice(-750));
+        _applyTASICloses(closes.slice(-3000), timestamps.slice(-3000));
       }
     }
   } catch(e) {}
@@ -7526,6 +7551,7 @@ function computeVolatility(closes) {
 let marketPEChartInst = null;
 let marketPEChartVisible = false;
 let _mpeRange = '1Y'; // active range button
+let _mpeCurve = 'wtd'; // 'wtd' | 'med' | 'mean'
 let _mpeLastWtd = null, _mpeLastMed = null, _mpeLastMean = null;
 
 function _mpeCalc() {
@@ -7557,7 +7583,7 @@ function updateMarketPEStats() {
     const existing = hist.findIndex(e=>e.d===today);
     const entry = { d:today, pe:+wtdAvg.toFixed(2), med:+median.toFixed(2), mean:+mean.toFixed(2) };
     if (existing >= 0) hist[existing] = entry; else hist.push(entry);
-    if (hist.length > 730) hist.splice(0, hist.length - 730); // keep 2 years
+    if (hist.length > 3650) hist.splice(0, hist.length - 3650); // keep 10 years
     localStorage.setItem('tasi_mpe_hist', JSON.stringify(hist));
   } catch(e){}
   if (marketPEChartVisible) _renderMPEChart();
@@ -7576,10 +7602,21 @@ function toggleMarketPEChart() {
 
 function setMPERange(r) {
   _mpeRange = r;
-  ['3M','6M','1Y','2Y'].forEach(x => {
+  ['3M','6M','1Y','2Y','5Y'].forEach(x => {
     const btn = document.getElementById('mpe-r-'+x.toLowerCase());
     if (!btn) return;
     if (x === r) { btn.style.background='var(--acc)'; btn.style.color='#000'; btn.style.borderColor='var(--acc)'; }
+    else { btn.style.background=''; btn.style.color=''; btn.style.borderColor=''; }
+  });
+  _renderMPEChart();
+}
+
+function setMPECurve(c) {
+  _mpeCurve = c;
+  ['wtd','med','mean'].forEach(x => {
+    const btn = document.getElementById('mpe-c-'+x);
+    if (!btn) return;
+    if (x === c) { btn.style.background='var(--acc)'; btn.style.color='#000'; btn.style.borderColor='var(--acc)'; }
     else { btn.style.background=''; btn.style.color=''; btn.style.borderColor=''; }
   });
   _renderMPEChart();
@@ -7593,29 +7630,38 @@ function _renderMPEChart() {
   if (!r) return;
   const { wtdAvg, median } = r;
 
+  // Determine which curve value to display in gauge / big number
+  const curveVal = _mpeCurve === 'med' ? median : _mpeCurve === 'mean' ? r.mean : wtdAvg;
+  const curveLabel = _mpeCurve === 'med' ? 'Median' : _mpeCurve === 'mean' ? 'Mean' : 'Wtd Avg';
+
   // Update big value display + gauge pointer
   const bigEl = document.getElementById('mpe-big-val');
   const lblEl = document.getElementById('mpe-val-label');
   const ptr   = document.getElementById('mpe-gauge-ptr');
-  if (bigEl) bigEl.textContent = wtdAvg.toFixed(1)+'x';
+  if (bigEl) bigEl.textContent = curveVal.toFixed(1)+'x';
   if (lblEl) {
-    const label = wtdAvg < 12 ? '(Undervalued)' : wtdAvg < 22 ? '(Fair Value)' : wtdAvg < 30 ? '(Overvalued)' : '(Expensive)';
-    const col   = wtdAvg < 12 ? 'var(--green)' : wtdAvg < 22 ? '#f5a623' : 'var(--red)';
+    const label = curveVal < 12 ? `(${curveLabel} — Undervalued)` : curveVal < 22 ? `(${curveLabel} — Fair Value)` : curveVal < 30 ? `(${curveLabel} — Overvalued)` : `(${curveLabel} — Expensive)`;
+    const col   = curveVal < 12 ? 'var(--green)' : curveVal < 22 ? '#f5a623' : 'var(--red)';
     lblEl.textContent = label; lblEl.style.color = col;
   }
   if (ptr) {
     // Gauge goes 0→30+ mapped to 0→100% width; clamp at 5 and 95
-    const pct = Math.min(95, Math.max(5, ((wtdAvg - 5) / 25) * 100));
+    const pct = Math.min(95, Math.max(5, ((curveVal - 5) / 25) * 100));
     ptr.style.left = pct + '%';
   }
 
   // Build time-series data points
-  const rangeDays = { '3M':90, '6M':180, '1Y':365, '2Y':730 }[_mpeRange] || 365;
+  const rangeDays = { '3M':90, '6M':180, '1Y':365, '2Y':730, '5Y':1825 }[_mpeRange] || 365;
   const cutoffMs  = Date.now() - rangeDays * 864e5;
 
   // Stored actual daily P/E (from localStorage — grows over time)
   const storedHist = JSON.parse(localStorage.getItem('tasi_mpe_hist')||'[]');
   const storedMap  = new Map(storedHist.map(e=>[e.d, e]));
+
+  // Key to read from stored history based on selected curve
+  const curveKey = _mpeCurve === 'med' ? 'med' : _mpeCurve === 'mean' ? 'mean' : 'pe';
+  // Current ratio between selected curve and wtdAvg (for estimating historical curve from price data)
+  const curveRatio = wtdAvg > 0 ? curveVal / wtdAvg : 1;
 
   // Estimated P/E from TASI price history (immediate historical context)
   const priceCloses = tasiIndex.closes || [];
@@ -7629,18 +7675,19 @@ function _renderMPEChart() {
       const tMs = priceStamps[i] * 1000;
       if (tMs < cutoffMs) continue;
       const dateStr = new Date(tMs).toISOString().slice(0,10);
-      if (storedMap.has(dateStr)) {
-        pointMap.set(dateStr, { t:tMs, pe: storedMap.get(dateStr).pe, estimated:false });
+      if (storedMap.has(dateStr) && storedMap.get(dateStr)[curveKey] != null) {
+        pointMap.set(dateStr, { t:tMs, pe: storedMap.get(dateStr)[curveKey], estimated:false });
       } else {
-        pointMap.set(dateStr, { t:tMs, pe: +(priceCloses[i]/mktEPS).toFixed(2), estimated:true });
+        // Scale estimated wtd-avg by curve ratio for median/mean curves
+        pointMap.set(dateStr, { t:tMs, pe: +(priceCloses[i]/mktEPS*curveRatio).toFixed(2), estimated:true });
       }
     }
   }
   // Add any stored points not yet covered (older than TASI history)
   storedHist.forEach(e => {
     const tMs = new Date(e.d).getTime();
-    if (tMs >= cutoffMs && !pointMap.has(e.d)) {
-      pointMap.set(e.d, { t:tMs, pe:e.pe, estimated:false });
+    if (tMs >= cutoffMs && !pointMap.has(e.d) && e[curveKey] != null) {
+      pointMap.set(e.d, { t:tMs, pe:e[curveKey], estimated:false });
     }
   });
 
@@ -7676,7 +7723,7 @@ function _renderMPEChart() {
     data: {
       labels,
       datasets: [
-        { label:'Market P/E (Wtd Avg)', data:peVals,
+        { label:`Market P/E (${curveLabel})`, data:peVals,
           borderColor:'#4f9cf9', backgroundColor:'rgba(79,156,249,0.08)',
           fill:true, pointRadius:0, borderWidth:2, tension:0.2 },
         { label:`Avg ${avgPE.toFixed(1)}x`, data:new Array(labels.length).fill(+avgPE.toFixed(2)),
