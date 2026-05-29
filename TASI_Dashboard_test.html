@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260529i'; // bump this string on every deploy that matters
+  var V='20260529j'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -493,8 +493,8 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
       <button onclick="tasiChartRange=90;drawTASIChart()" class="tasi-rng-btn" id="tr-90">3M</button>
       <button onclick="tasiChartRange=180;drawTASIChart()" class="tasi-rng-btn" id="tr-180">6M</button>
       <button onclick="tasiChartRange=365;drawTASIChart()" class="tasi-rng-btn" id="tr-365" style="background:var(--acc);color:#000">1Y</button>
-      <button onclick="tasiChartRange=1825;drawTASIChart()" class="tasi-rng-btn" id="tr-1825">5Y</button>
-      <button onclick="tasiChartRange=9999;drawTASIChart()" class="tasi-rng-btn" id="tr-all">All</button>
+      <button onclick="tasiChartRange=1825;drawTASIChart();if((tasiIndex.closes||[]).length<1000)fetchTASIIndexLong();" class="tasi-rng-btn" id="tr-1825">5Y</button>
+      <button onclick="tasiChartRange=9999;drawTASIChart();if((tasiIndex.closes||[]).length<1000)fetchTASIIndexLong();" class="tasi-rng-btn" id="tr-all">All</button>
       <span style="border-left:1px solid var(--b1);padding-left:8px;display:flex;gap:5px;flex-wrap:wrap">
         <button onclick="tasiShowSMA20=!tasiShowSMA20;drawTASIChart()" id="tasi-ov-sma20" class="tasi-rng-btn">SMA-20</button>
         <button onclick="tasiShowSMA50=!tasiShowSMA50;drawTASIChart()" id="tasi-ov-sma50" class="tasi-rng-btn">SMA-50</button>
@@ -7012,6 +7012,14 @@ async function refreshAll(forceRefresh=false){
           rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
           combined: calcCombined({...allData[idx], price, pe: livePE, technical: tRes.score}),
         };
+        // Quick P/E-relative fair value — shows in main table without needing full DCF
+        if (!allData[idx].dcfPS && livePE > 0 && price > 0) {
+          const _SFVPE = {'Banking':11,'Insurance':13,'Energy':18,'Petrochemicals':14,'Chemicals':13,'Materials':13,'Building Materials':14,'Real Estate':20,'REITs':16,'Telecom':20,'Technology':28,'Healthcare':25,'Consumer':18,'Utilities':16,'Transportation':14,'Industrial':16};
+          const sFVPE = _SFVPE[allData[idx].sector] || 15;
+          allData[idx].dcfPS = +(price / livePE * sFVPE).toFixed(2);
+          allData[idx].dcfUpside = (allData[idx].dcfPS - price) / price;
+          allData[idx].dcfMethod = 'P/E Est.';
+        }
         // Update Drive cache entry
         _gdCache[q.symbol] = Object.assign(_gdCache[q.symbol] || {}, {
           priceData: { price, change,
@@ -7230,8 +7238,8 @@ function openTASIModal() {
   bg.style.display = 'block';
   document.body.style.overflow = 'hidden';
   setTimeout(() => drawTASIChart(), 50);
-  // If we have less than 200 closes, try to fetch 2y data for a richer chart
-  if (closes.length < 200) fetchTASIIndexLong();
+  // If we have less than 1000 closes, fetch full 10y data for richer chart
+  if (closes.length < 1000) fetchTASIIndexLong();
 }
 
 function closeTASIModal() {
@@ -7559,8 +7567,8 @@ async function fetchTASIIndex() {
 
   // Refresh market P/E chart if open (uses tasiIndex.closes for historical line)
   if (marketPEChartVisible) _renderMPEChart();
-  // Queue long-range fetch for full 2Y closes (used by TASI modal chart)
-  if (closes.length < 200) fetchTASIIndexLong();
+  // Queue long-range fetch for full 10Y closes (used by TASI modal chart)
+  if (closes.length < 1000) fetchTASIIndexLong();
 }
 
 // ── Change 6: Compute annualized historical volatility from daily closes ──
@@ -7806,13 +7814,12 @@ function _renderMPEChart() {
   if (!ctx) return;
   const r = _mpeCalc();
   if (!r) return;
-  const { wtdAvg, median } = r;
+  const { wtdAvg, median, mean } = r;
 
-  // Determine which curve value to display in gauge / big number
-  const curveVal = _mpeCurve === 'med' ? median : _mpeCurve === 'mean' ? r.mean : wtdAvg;
+  // Gauge/big-number uses the curve selected by the buttons
+  const curveVal   = _mpeCurve === 'med' ? median : _mpeCurve === 'mean' ? mean : wtdAvg;
   const curveLabel = _mpeCurve === 'med' ? 'Median' : _mpeCurve === 'mean' ? 'Mean' : 'Wtd Avg';
 
-  // Update big value display + gauge pointer
   const bigEl = document.getElementById('mpe-big-val');
   const lblEl = document.getElementById('mpe-val-label');
   const ptr   = document.getElementById('mpe-gauge-ptr');
@@ -7823,90 +7830,89 @@ function _renderMPEChart() {
     lblEl.textContent = label; lblEl.style.color = col;
   }
   if (ptr) {
-    // Gauge goes 0→30+ mapped to 0→100% width; clamp at 5 and 95
     const pct = Math.min(95, Math.max(5, ((curveVal - 5) / 25) * 100));
     ptr.style.left = pct + '%';
   }
 
-  // Build time-series data points
   const rangeDays = { '3M':90, '6M':180, '1Y':365, '2Y':730, '5Y':1825 }[_mpeRange] || 365;
   const cutoffMs  = Date.now() - rangeDays * 864e5;
 
-  // Stored actual daily P/E (in-memory cache; parsed once in updateMarketPEStats)
-  const storedHist = _mpeHistCache || JSON.parse(localStorage.getItem('tasi_mpe_hist')||'[]');
-  const storedMap  = new Map(storedHist.map(e=>[e.d, e]));
+  // Filter out pre-REIT-exclusion data (inflated entries with pe > 40)
+  const rawHist   = _mpeHistCache || JSON.parse(localStorage.getItem('tasi_mpe_hist')||'[]');
+  const validHist = rawHist.filter(e => e.pe > 0 && e.pe < 40);
+  const storedMap = new Map(validHist.map(e=>[e.d, e]));
 
-  // Key to read from stored history based on selected curve
-  const curveKey = _mpeCurve === 'med' ? 'med' : _mpeCurve === 'mean' ? 'mean' : 'pe';
-  // Current ratio between selected curve and wtdAvg (for estimating historical curve from price data)
-  const curveRatio = wtdAvg > 0 ? curveVal / wtdAvg : 1;
+  // Ratios for estimating historical median/mean from TASI price (when actual stored data unavailable)
+  const medRatio  = wtdAvg > 0 ? median / wtdAvg : 1;
+  const meanRatio = wtdAvg > 0 ? mean   / wtdAvg : 1;
 
-  // Estimated P/E from TASI price history (immediate historical context)
-  const priceCloses = tasiIndex.closes || [];
-  const priceStamps = tasiIndex.timestamps || [];
+  const priceCloses  = tasiIndex.closes || [];
+  const priceStamps  = tasiIndex.timestamps || [];
   const currentPrice = tasiIndex.price;
-  const pointMap = new Map(); // date string → { t, pe, estimated }
+
+  // Three separate point maps — one per curve
+  const wtdMap = new Map(), medMap = new Map(), meanMap = new Map();
+
   if (priceCloses.length > 5 && currentPrice > 0 && wtdAvg > 0) {
-    const mktEPS = currentPrice / wtdAvg; // estimated market earnings per index unit
+    const mktEPS = currentPrice / wtdAvg;
     for (let i = 0; i < priceCloses.length; i++) {
       if (!priceCloses[i] || !priceStamps[i]) continue;
       const tMs = priceStamps[i] * 1000;
       if (tMs < cutoffMs) continue;
       const dateStr = new Date(tMs).toISOString().slice(0,10);
-      if (storedMap.has(dateStr) && storedMap.get(dateStr)[curveKey] != null) {
-        pointMap.set(dateStr, { t:tMs, pe: storedMap.get(dateStr)[curveKey], estimated:false });
-      } else {
-        // Scale estimated wtd-avg by curve ratio for median/mean curves
-        pointMap.set(dateStr, { t:tMs, pe: +(priceCloses[i]/mktEPS*curveRatio).toFixed(2), estimated:true });
-      }
+      const stored  = storedMap.get(dateStr);
+      const estWtd  = +(priceCloses[i] / mktEPS).toFixed(2);
+      if (estWtd <= 0 || estWtd > 40) continue;
+      if (stored?.pe  > 0 && stored.pe  < 40) wtdMap.set(dateStr,  { t:tMs, pe:stored.pe  });
+      else                                      wtdMap.set(dateStr,  { t:tMs, pe:estWtd, estimated:true });
+      if (stored?.med > 0 && stored.med < 40) medMap.set(dateStr,  { t:tMs, pe:stored.med });
+      else                                      medMap.set(dateStr,  { t:tMs, pe:+(estWtd*medRatio).toFixed(2), estimated:true });
+      if (stored?.mean> 0 && stored.mean< 40) meanMap.set(dateStr, { t:tMs, pe:stored.mean });
+      else                                      meanMap.set(dateStr, { t:tMs, pe:+(estWtd*meanRatio).toFixed(2), estimated:true });
     }
   }
-  // Add any stored points not yet covered (older than TASI history)
-  storedHist.forEach(e => {
+  // Add stored entries not covered by TASI price timestamps
+  validHist.forEach(e => {
     const tMs = new Date(e.d).getTime();
-    if (tMs >= cutoffMs && !pointMap.has(e.d) && e[curveKey] != null) {
-      pointMap.set(e.d, { t:tMs, pe:e[curveKey], estimated:false });
-    }
+    if (tMs < cutoffMs) return;
+    if (!wtdMap.has(e.d)  && e.pe   > 0) wtdMap.set(e.d,  { t:tMs, pe:e.pe   });
+    if (!medMap.has(e.d)  && e.med  > 0) medMap.set(e.d,  { t:tMs, pe:e.med  });
+    if (!meanMap.has(e.d) && e.mean > 0) meanMap.set(e.d, { t:tMs, pe:e.mean });
   });
 
-  const points = [...pointMap.values()].sort((a,b)=>a.t-b.t);
-  if (!points.length) {
-    // No historical data yet — just show gauge/current values, trigger TASI fetch
+  const allDates = [...new Set([...wtdMap.keys(), ...medMap.keys(), ...meanMap.keys()])]
+    .filter(d => { const e = wtdMap.get(d)||medMap.get(d)||meanMap.get(d); return e && e.t >= cutoffMs; })
+    .sort();
+
+  if (!allDates.length) {
     if (!tasiIndex.price) fetchTASIIndex();
     return;
   }
-  // Suppress chart when only 1 data point (single dot is misleading)
-  if (points.length < 5) {
-    // Show "building history" placeholder instead of a chart
-    const ctx2 = document.getElementById('market-pe-chart');
-    if (ctx2) {
-      const c2 = ctx2.getContext('2d');
-      c2.clearRect(0, 0, ctx2.width, ctx2.height);
-      c2.fillStyle = '#4a5568';
-      c2.font = "11px 'IBM Plex Mono'";
-      c2.textAlign = 'center';
-      c2.fillText('Historical P/E chart builds over time — reload daily for trend data.', ctx2.width/2, ctx2.height/2 - 10);
-      c2.fillText(`Today: ${wtdAvg.toFixed(1)}x  Median: ${median.toFixed(1)}x  (${points.length} session${points.length>1?'s':''}  stored)`, ctx2.width/2, ctx2.height/2 + 12);
-    }
+  if (allDates.length < 5) {
+    const c2 = ctx.getContext('2d');
+    c2.clearRect(0, 0, ctx.width, ctx.height);
+    c2.fillStyle = '#4a5568'; c2.font = "11px 'IBM Plex Mono'"; c2.textAlign = 'center';
+    c2.fillText('Historical P/E chart builds over time — reload daily for trend data.', ctx.width/2, ctx.height/2 - 10);
+    c2.fillText(`Wtd ${wtdAvg.toFixed(1)}x  Median ${median.toFixed(1)}x  Mean ${mean.toFixed(1)}x`, ctx.width/2, ctx.height/2 + 12);
     return;
   }
 
-  const avgPE = points.reduce((s,p)=>s+p.pe,0)/points.length;
-  const labels = points.map(p => new Date(p.t).toISOString().slice(0,10));
-  const peVals = points.map(p => p.pe);
+  const wtdVals  = allDates.map(d => wtdMap.get(d)?.pe  ?? null);
+  const medVals  = allDates.map(d => medMap.get(d)?.pe  ?? null);
+  const meanVals = allDates.map(d => meanMap.get(d)?.pe ?? null);
+  const validWtd = wtdVals.filter(v => v != null);
+  const avgPE    = validWtd.length ? validWtd.reduce((s,v)=>s+v,0)/validWtd.length : wtdAvg;
   const fontOpts = { size:8, family:"'IBM Plex Mono'" };
 
   marketPEChartInst = new Chart(ctx, {
     type: 'line',
     data: {
-      labels,
+      labels: allDates,
       datasets: [
-        { label:`Market P/E (${curveLabel})`, data:peVals,
-          borderColor:'#4f9cf9', backgroundColor:'rgba(79,156,249,0.08)',
-          fill:true, pointRadius:0, borderWidth:2, tension:0.2 },
-        { label:`Avg ${avgPE.toFixed(1)}x`, data:new Array(labels.length).fill(+avgPE.toFixed(2)),
-          borderColor:'#f5a623', backgroundColor:'transparent',
-          borderDash:[5,4], pointRadius:0, borderWidth:1.5 }
+        { label:`Wtd Avg ${wtdAvg.toFixed(1)}x`,  data:wtdVals,  borderColor:'#4f9cf9', backgroundColor:'rgba(79,156,249,0.06)', fill:true,  pointRadius:0, borderWidth:2,   tension:0.2, spanGaps:true },
+        { label:`Median ${median.toFixed(1)}x`,    data:medVals,  borderColor:'#22c55e', backgroundColor:'transparent',           fill:false, pointRadius:0, borderWidth:1.5, tension:0.2, spanGaps:true },
+        { label:`Mean ${mean.toFixed(1)}x`,        data:meanVals, borderColor:'#f59e0b', backgroundColor:'transparent',           fill:false, pointRadius:0, borderWidth:1.5, tension:0.2, spanGaps:true, borderDash:[4,3] },
+        { label:`Period Avg ${avgPE.toFixed(1)}x`, data:new Array(allDates.length).fill(+avgPE.toFixed(2)), borderColor:'#4a5568', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:1, borderDash:[5,4], spanGaps:true }
       ]
     },
     options: {
@@ -7917,7 +7923,7 @@ function _renderMPEChart() {
         tooltip:{ backgroundColor:'rgba(24,28,34,0.97)', borderColor:'#2d3440', borderWidth:1,
           titleColor:'#e8eaed', bodyColor:'#8a9ab5',
           titleFont:{family:"'IBM Plex Mono'",size:9}, bodyFont:{family:"'IBM Plex Mono'",size:9},
-          callbacks:{ label: c=>`${c.dataset.label}: ${c.raw}x` }
+          callbacks:{ label: c => c.raw != null ? `${c.dataset.label}: ${c.raw}x` : null }
         }
       },
       scales: {
