@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260529g'; // bump this string on every deploy that matters
+  var V='20260529h'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -5297,7 +5297,15 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
         }).join('')}</tbody>
       </table></div></div>`;
   }
-  const pLabel = period === 'quarterly' ? (r => r.fiscal_date || '—') : (r => 'FY' + (r.fiscal_date || '—').slice(0, 4));
+  // Quarterly columns shown as "2026 Q1", "2025 Q4"… (calendar quarter from period end date)
+  const fiscalQuarterLabel = (fd) => {
+    if (!fd || fd === '—') return '—';
+    const m = String(fd).match(/^(\d{4})-(\d{2})/);
+    if (!m) return fd; // already a label (e.g. "Q1 2026") or year-only — leave untouched
+    const q = Math.min(4, Math.max(1, Math.ceil(parseInt(m[2], 10) / 3)));
+    return `${m[1]} Q${q}`;
+  };
+  const pLabel = period === 'quarterly' ? (r => fiscalQuarterLabel(r.fiscal_date)) : (r => 'FY' + (r.fiscal_date || '—').slice(0, 4));
 
   // Banks and insurance use a different P&L structure — no COGS, no EBITDA, no traditional margins
   const sector = stockObj?.sector || stockObj?.s || '';
