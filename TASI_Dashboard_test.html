@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260529b'; // bump this string on every deploy that matters
+  var V='20260529c'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -1350,6 +1350,19 @@ async function gdLoadBulkPrices(onProgress) {
       if (bulk?.prices) {
         let hits = 0;
         for (const [ticker, entry] of Object.entries(bulk.prices)) {
+          // Special: TASI index historical data stored under _tasi key
+          if (ticker === '_tasi' && entry?.closes?.length > 0) {
+            if (entry.closes.length > tasiIndex.closes.length) {
+              tasiIndex = {
+                closes: entry.closes,
+                timestamps: entry.timestamps || [],
+                price: tasiIndex.price || entry.price || null,
+                change: tasiIndex.change ?? entry.change ?? null,
+                ytdReturn: tasiIndex.ytdReturn ?? entry.ytdReturn ?? null,
+              };
+            }
+            continue;
+          }
           if (entry?.priceData) {
             _gdCache[ticker] = Object.assign(_gdCache[ticker] || {}, {
               priceData: entry.priceData, priceUpdated: entry.priceUpdated,
@@ -1412,6 +1425,17 @@ async function gdSaveBulkPrices() {
           fundUpdated: c.fundUpdated,
         });
       }
+    }
+    // Include TASI index historical closes in bulk file so next load is instant
+    if (tasiIndex.closes?.length > 10) {
+      prices['_tasi'] = {
+        closes: tasiIndex.closes.slice(-750),
+        timestamps: tasiIndex.timestamps.slice(-750),
+        price: tasiIndex.price,
+        change: tasiIndex.change,
+        ytdReturn: tasiIndex.ytdReturn,
+        savedAt: Date.now(),
+      };
     }
     const body = JSON.stringify({ savedAt: Date.now(), prices });
     const form = new FormData();
@@ -7052,7 +7076,19 @@ function drawTASIChart() {
     closes = closes.slice(-tasiChartRange);
     timestamps = timestamps.slice(-tasiChartRange);
   }
-  if (closes.length < 2) return;
+  if (closes.length < 2) {
+    const ctxEl = document.getElementById('tasi-price-chart');
+    if (ctxEl) {
+      ctxEl.width = ctxEl.offsetWidth || 600; ctxEl.height = ctxEl.offsetHeight || 300;
+      const c2d = ctxEl.getContext('2d');
+      c2d.clearRect(0, 0, ctxEl.width, ctxEl.height);
+      c2d.fillStyle = '#4a5568';
+      c2d.font = "13px 'IBM Plex Mono'";
+      c2d.textAlign = 'center';
+      c2d.fillText('Loading historical data…', ctxEl.width/2, ctxEl.height/2);
+    }
+    return;
+  }
   // Update range button highlight
   ['30','90','180','365','all'].forEach(k => {
     const btn = document.getElementById('tr-'+k);
@@ -7101,6 +7137,7 @@ function drawTASIChart() {
 }
 
 async function fetchTASIIndexLong() {
+  // Yahoo Finance v8/chart (try both hosts)
   const urls2y = [
     `https://query1.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=2y`,
     `https://query2.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=2y`,
@@ -7113,17 +7150,55 @@ async function fetchTASIIndexLong() {
       const closes = (res.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
       const timestamps = res.timestamp||[];
       if (closes.length > tasiIndex.closes.length) {
-        tasiIndex.closes = closes;
-        tasiIndex.timestamps = timestamps;
-        const yearStart = new Date(new Date().getFullYear(), 0, 1).getTime() / 1000;
-        let yi = 0; for(let i=0;i<timestamps.length;i++){if(timestamps[i]>=yearStart){yi=i;break;}}
-        tasiIndex.ytdReturn = closes[yi] > 0 ? (closes[closes.length-1]-closes[yi])/closes[yi] : null;
-        if (document.getElementById('tasi-modal-bg')?.style.display !== 'none') drawTASIChart();
-        if (marketPEChartVisible) _renderMPEChart();
+        _applyTASICloses(closes, timestamps);
+        return;
       }
-      return;
     } catch(e) {}
   }
+  // Stooq CSV fallback — free, no auth, daily OHLCV for all indices
+  try {
+    const csvText = await Promise.race([
+      fetchHTMLViaProxy(`https://stooq.com/q/d/l/?s=^tasi&i=d`),
+      new Promise(r=>setTimeout(()=>r(null),15000))
+    ]);
+    if (csvText && csvText.length > 500) {
+      const lines = csvText.trim().split(/\r?\n/).slice(1); // skip header row
+      const closes = [], timestamps = [];
+      for (const line of lines) {
+        const parts = line.split(',');
+        if (parts.length < 5) continue;
+        const close = parseFloat(parts[4]);
+        if (isNaN(close) || close <= 0) continue;
+        const ts = Math.floor(new Date(parts[0].trim()).getTime() / 1000);
+        if (ts > 0) { closes.push(close); timestamps.push(ts); }
+      }
+      // Stooq returns newest-first — reverse to get oldest-first
+      if (closes.length > 1 && timestamps[0] > timestamps[timestamps.length-1]) {
+        closes.reverse(); timestamps.reverse();
+      }
+      if (closes.length > tasiIndex.closes.length) {
+        _applyTASICloses(closes.slice(-750), timestamps.slice(-750));
+      }
+    }
+  } catch(e) {}
+}
+
+function _applyTASICloses(closes, timestamps) {
+  tasiIndex.closes = closes;
+  tasiIndex.timestamps = timestamps;
+  const yearStart = new Date(new Date().getFullYear(), 0, 1).getTime() / 1000;
+  let yi = 0; for(let i=0;i<timestamps.length;i++){if(timestamps[i]>=yearStart){yi=i;break;}}
+  tasiIndex.ytdReturn = closes[yi] > 0 ? (closes[closes.length-1]-closes[yi])/closes[yi] : null;
+  // Refresh YTD display
+  const ytdEl = document.getElementById('tasi-idx-ytd');
+  if (ytdEl && tasiIndex.ytdReturn != null) {
+    const col = tasiIndex.ytdReturn >= 0 ? 'var(--green)' : 'var(--red)';
+    ytdEl.innerHTML = `<span style="color:var(--tx3)">YTD: <span style="color:${col}">${tasiIndex.ytdReturn>=0?'+':''}${(tasiIndex.ytdReturn*100).toFixed(1)}%</span></span>`;
+  }
+  if (document.getElementById('tasi-modal-bg')?.style.display !== 'none') drawTASIChart();
+  if (marketPEChartVisible) _renderMPEChart();
+  // Persist to Drive so next load is instant
+  if (GD_TOKEN) gdSaveBulkPrices();
 }
 
 // ── Change 5: TASI Index fetch ──
