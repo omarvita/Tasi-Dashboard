@@ -2460,7 +2460,7 @@ function _portFilter(q) {
       onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
       <div>
         <span style="font-family:var(--mono);font-size:10px;color:var(--acc);font-weight:600">${d.ticker.replace('.SR','')}</span>
-        <span style="font-family:var(--mono);font-size:9px;color:var(--tx2);margin-left:6px">${d.name.split(' ').slice(0,4).join(' ')}</span>
+        <span style="font-family:var(--mono);font-size:9px;color:var(--tx2);margin-left:6px">${escapeHTML(d.name.split(' ').slice(0,4).join(' '))}</span>
       </div>
       <div style="text-align:right;flex-shrink:0;margin-left:8px">
         <span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">${priceStr}</span>
@@ -3489,16 +3489,21 @@ function scorePEG(pe,eg,annIS){
       pegGrowthRate = Math.pow(eps0 / eps2, 1/2) - 1; // 2-year CAGR
     }
   }
+  // Cap growth at 25% — Saudi banks/telecoms rarely sustain above this;
+  // uncapped inputs from one-off earnings spikes produce misleadingly low PEGs.
+  if (pegGrowthRate != null) pegGrowthRate = Math.min(pegGrowthRate, 0.25);
   const peg = (pe != null && pegGrowthRate != null && pegGrowthRate > 0)
     ? pe / (pegGrowthRate * 100) : null;
   if(!pe||!pegGrowthRate||pegGrowthRate<=0||peg==null)return{score:50,peg:null,steps:[{label:"PEG Ratio",raw:"N/A",delta:0,why:"Cannot calculate — need positive P/E and EG"}]};
+  // Saudi market thresholds — wider "fair" band than US norms:
+  // TASI growth stocks (Healthcare, Tech, Vision 2030 plays) trade at PEG 1.5–2.5
   let p=50,delta=0,why="";
   if(peg<0.5){delta=+25;why="Exceptional: PEG < 0.5 — very undervalued vs growth";}
   else if(peg<1.0){delta=+18;why="Undervalued: PEG 0.5–1.0 — Buffett sweet spot";}
-  else if(peg<1.5){delta=+8;why="Fair: PEG 1.0–1.5 — reasonably priced for growth";}
-  else if(peg<2.0){delta=-5;why="Slightly expensive: PEG 1.5–2.0";}
-  else if(peg<3.0){delta=-15;why="Expensive: PEG 2.0–3.0 — growth priced in";}
-  else{delta=-25;why="Very expensive: PEG > 3.0 — significant growth premium";}
+  else if(peg<2.0){delta=+8;why="Fair: PEG 1.0–2.0 — reasonable for Saudi market growth premium";}
+  else if(peg<3.0){delta=-8;why="Slightly expensive: PEG 2.0–3.0 — growth priced in";}
+  else if(peg<4.0){delta=-18;why="Expensive: PEG 3.0–4.0 — significant growth premium";}
+  else{delta=-25;why="Very expensive: PEG > 4.0 — speculative growth priced in";}
   p+=delta;
   return{score:Math.min(100,Math.max(0,Math.round(p))),peg:parseFloat(peg.toFixed(2)),steps:[{label:"PEG Ratio",raw:peg.toFixed(2),delta,why}]};
 }
@@ -4203,7 +4208,7 @@ function renderTable(){
     return`<tr class="data-row" onclick="openModal(${start+i})" onmouseenter="gdPrefetch(${start+i})">
       <td class="rk">${start+i+1}</td>
       <td class="tk" style="white-space:normal;min-width:54px">${d.ticker.replace(".SR","")}<span class="mob-company" style="display:none">${shortName}${moat}${reit}</span></td>
-      <td class="col-co" title="${d.name}" style="color:var(--tx)">${getStockName(d)}${moat}${reit}</td>
+      <td class="col-co" title="${escapeHTML(d.name)}" style="color:var(--tx)">${escapeHTML(getStockName(d))}${moat}${reit}</td>
       <td style="min-width:52px"><span class="pv">${hasPx?d.price.toFixed(2):'—'}</span>${lv}</td>
       <td class="${cc}" style="min-width:44px">${cs}</td>
       <td class="col-pe"><span style="font-family:var(--mono);font-size:10px;color:var(--tx)">${d.pe!=null?d.pe.toFixed(1):'<span class="nav">—</span>'}</span></td>
@@ -4427,8 +4432,8 @@ function _renderModalShell(d) {
   <div class="mhead">
     <div class="mhtop">
       <div>
-        <div class="mtitle">${d.name} ${moat}${reit}${_capTier?` <span style="color:${_capTier.color};font-size:8px;font-family:var(--mono)">${_capTier.label}</span>`:''}</div>
-        <div class="msub">${d.ticker} · ${d.sector} · Signal: <span class="badge ${sig.cls}">${sig.label}</span> &nbsp;<span style="font-family:var(--mono);font-size:9px;font-weight:600;padding:2px 7px;border-radius:3px;background:${_risk.color}22;color:${_risk.color};border:1px solid ${_risk.color}55" title="Risk factors: ${_risk.flags.join(', ')||'None identified'}">Risk: ${_risk.level}</span> · ${d.priceLoaded?'<span style="color:var(--acc)">● Live data</span>':'<span style="color:var(--tx3)">○ Loading…</span>'}</div>
+        <div class="mtitle">${escapeHTML(d.name)} ${moat}${reit}${_capTier?` <span style="color:${_capTier.color};font-size:8px;font-family:var(--mono)">${_capTier.label}</span>`:''}</div>
+        <div class="msub">${escapeHTML(d.ticker)} · ${escapeHTML(d.sector)} · Signal: <span class="badge ${sig.cls}">${sig.label}</span> &nbsp;<span style="font-family:var(--mono);font-size:9px;font-weight:600;padding:2px 7px;border-radius:3px;background:${_risk.color}22;color:${_risk.color};border:1px solid ${_risk.color}55" title="Risk factors: ${_risk.flags.join(', ')||'None identified'}">Risk: ${_risk.level}</span> · ${d.priceLoaded?'<span style="color:var(--acc)">● Live data</span>':'<span style="color:var(--tx3)">○ Loading…</span>'}</div>
       </div>
       <div style="display:flex;gap:4px;align-items:center">
         <button id="fs-btn" onclick="toggleModalFS()" title="Toggle fullscreen" style="width:22px;height:22px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;cursor:pointer;color:var(--tx2);font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .12s;padding:0" onmouseover="this.style.borderColor='var(--acc)';this.style.color='var(--acc)'" onmouseout="this.style.borderColor='var(--b2)';this.style.color='var(--tx2)'">⛶</button>
@@ -5644,7 +5649,16 @@ async function buildDCF(d) {
   }
 
   // ── WACC ──
-  const rfRate=0.055, erp=0.065, kd=0.055, termGrowth=0.025;
+  const rfRate=0.055, erp=0.065, kd=0.055;
+  // Sector-aware terminal growth — Vision 2030 tailwinds lift domestic sectors;
+  // commodities/petrochem mean-revert to global cycle; banking/consumer = TASI long-run.
+  const TERM_GROWTH_BY_SECTOR = {
+    'Technology':0.035,'Healthcare':0.035,'Real Estate':0.035,
+    'Banking':0.030,'Insurance':0.030,'Consumer':0.030,'Telecom':0.030,'Utilities':0.030,
+    'Industrial':0.025,'Transportation':0.025,'Building Materials':0.025,'Materials':0.025,
+    'Energy':0.020,'Petrochemicals':0.020,'Chemicals':0.020,
+  };
+  const termGrowth = TERM_GROWTH_BY_SECTOR[d.sector] ?? 0.025;
   const _energyTaxTickers = ['2222.SR','2010.SR'];
   const taxRate = _energyTaxTickers.includes(d.ticker) ? 0.20 : 0.05;
   // Sector-specific beta defaults — used when Yahoo Finance has not provided a measured beta.
@@ -7513,17 +7527,31 @@ async function fetchTASIIndex() {
     ytdEl.innerHTML = `<span style="color:var(--tx3)">YTD: <span style="color:${col}">${ytdReturn>=0?'+':''}${(ytdReturn*100).toFixed(1)}%</span></span>`;
   }
 
-  // Compute vsTASI for all stocks (stock return over same window vs TASI)
-  const tasiRet = closes.length > 0 ? (closes[closes.length-1] - closes[0]) / closes[0] : null;
-  if (tasiRet != null) {
+  // Compute vsTASI — align TASI window to each stock's price history start date
+  // so both returns cover the same calendar period (fixes window-mismatch bias).
+  const tasiTS = tasiIndex.timestamps || [];
+  const tasiCL = tasiIndex.closes || [];
+  if (tasiCL.length > 0) {
     allData.forEach(d => {
-      if (d.closes && d.closes.length >= 10) {
-        const sr = (d.closes[d.closes.length-1] - d.closes[0]) / d.closes[0];
-        d.vsTasi = parseFloat(((sr - tasiRet)*100).toFixed(1));
+      if (!d.closes || d.closes.length < 10) return;
+      const stockStartTS = (d.timestamps || [])[0];
+      let alignedTasiRet;
+      if (stockStartTS && tasiTS.length > 0) {
+        // Find earliest TASI close on or after the stock's first timestamp
+        const ti = tasiTS.findIndex(ts => ts >= stockStartTS);
+        if (ti >= 0 && ti < tasiCL.length - 1) {
+          alignedTasiRet = (tasiCL[tasiCL.length-1] - tasiCL[ti]) / tasiCL[ti];
+        }
       }
+      if (alignedTasiRet == null) {
+        // Fallback: same full-window ratio as before
+        alignedTasiRet = (tasiCL[tasiCL.length-1] - tasiCL[0]) / tasiCL[0];
+      }
+      const sr = (d.closes[d.closes.length-1] - d.closes[0]) / d.closes[0];
+      d.vsTasi = parseFloat(((sr - alignedTasiRet)*100).toFixed(1));
     });
     if (window._fd) { const _m=new Map(allData.map(d=>[d.ticker,d])); window._fd=window._fd.map(d=>_m.get(d.ticker)||d); }
-    renderTable();
+    scheduleRender();
   }
 
   // Refresh market P/E chart if open (uses tasiIndex.closes for historical line)
