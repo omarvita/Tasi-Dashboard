@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260529d'; // bump this string on every deploy that matters
+  var V='20260529e'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -394,7 +394,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
   </div>
 
   <div class="ctrl">
-    <div class="sw"><span class="si">⌕</span><input type="text" id="search" placeholder="Search ticker or name..." oninput="doFilter()"></div>
+    <div class="sw"><span class="si">⌕</span><input type="text" id="search" placeholder="Search ticker or name..." oninput="debouncedSearch()"></div>
     <select id="ss" onchange="doSort()">
       <option value="combined">Sort: Combined Score</option>
       <option value="buffett">Sort: Buffett</option>
@@ -586,7 +586,7 @@ function toggleWatch(ticker, e) {
   if(watchlist.has(ticker)) watchlist.delete(ticker);
   else watchlist.add(ticker);
   try { localStorage.setItem('TASI_watchlist', JSON.stringify([...watchlist])); } catch(e){}
-  doFilter(); updateMetrics();
+  scheduleRender();
   // Update star icon if modal open
   const starEl = document.getElementById('star-'+ticker);
   if(starEl) starEl.textContent = watchlist.has(ticker) ? '★' : '☆';
@@ -3776,7 +3776,7 @@ async function autoDiscoverSaudiStocks() {
       }
       if (screenerPEUpdates > 0) {
         console.log(`[Screener] Updated P/E for ${screenerPEUpdates} existing stocks from Yahoo screener`);
-        updateMarketPEStats(); doFilter(); updateMetrics();
+        updateMarketPEStats(); scheduleRender();
       }
       if (quotes.length < 250) break; // no more pages
     }
@@ -4137,6 +4137,16 @@ function doFilter(){
   if(watchlistFilterOn)base=base.filter(d=>watchlist.has(d.ticker));
   filtData=base.filter(d=>d.name.toLowerCase().includes(q)||d.ticker.toLowerCase().includes(q)||getStockName(d).toLowerCase().includes(q));
   applySort();curPage=1;renderTable();updateMetrics();
+}
+// Coalesce many per-batch refresh requests during bulk loads into one render
+// per animation frame — avoids dozens of full 238-row re-renders during refreshAll.
+let _renderPending=false;
+let _searchT=null;
+function debouncedSearch(){ clearTimeout(_searchT); _searchT=setTimeout(doFilter, 160); }
+function scheduleRender(){
+  if(_renderPending)return;
+  _renderPending=true;
+  (window.requestAnimationFrame||setTimeout)(()=>{ _renderPending=false; doFilter(); });
 }
 function sk(k){sortKey=k;document.getElementById("ss").value=k;applySort();curPage=1;renderTable();}
 function doSort(){sortKey=document.getElementById("ss").value;applySort();curPage=1;renderTable();saveUIState();}
@@ -5112,7 +5122,7 @@ async function buildFinancials(d, period) {
     // Statements are the authoritative source — derive overview metrics & recompute scores
     if (!d.rawTwelveData) d.rawTwelveData = {};
     d.rawTwelveData[cacheKey] = stmtData;
-    try { if (applyDerivedMetrics(d) && !_fetchingAllFin) { doFilter(); updateMetrics(); } } catch(e){}
+    try { if (applyDerivedMetrics(d) && !_fetchingAllFin) { scheduleRender(); } } catch(e){}
     return renderTwelveStatements(stmtData, period, d.ticker, src, d);
   }
 
@@ -6955,7 +6965,7 @@ async function refreshAll(forceRefresh=false){
       }
     } catch(e) { console.warn('bulk quote batch failed', e); }
     document.getElementById("pf").style.width = Math.round(((qi + _QBATCH) / allData.length) * 60) + '%';
-    doFilter(); updateMetrics();
+    scheduleRender();
   }
   // Show market P/E stats with whatever P/E values we have so far (Phase 2.5 will refine them)
   updateMarketPEStats();
@@ -7029,7 +7039,7 @@ async function refreshAll(forceRefresh=false){
       const pcPE = 60 + Math.round(((pi + _PE_BATCH) / _needsPE.length) * 20);
       document.getElementById("pf").style.width = Math.min(pcPE, 80) + '%';
       document.getElementById("pl").textContent = `P/E: ${Math.min(pi + _PE_BATCH, _needsPE.length)}/${_needsPE.length} large caps updated`;
-      doFilter(); updateMetrics();
+      scheduleRender();
     }
   }
 
@@ -7071,7 +7081,7 @@ async function refreshAll(forceRefresh=false){
       } catch(e) {}
     }));
     if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
-    doFilter(); updateMetrics();
+    scheduleRender();
   }
 
   clearTimeout(_hardStop); // normal completion — cancel the 4-min failsafe
@@ -7331,12 +7341,12 @@ async function fetchAllFinancials(){
       if (btn) btn.textContent = `⏳ ${done}/${stocks.length}…`;
       tdLog(`Retrieving statements… ${done}/${stocks.length} (${ok} with data)`, true);
     }));
-    doFilter(); updateMetrics();
+    scheduleRender();
   }
   // Persist everything to Drive + local cache
   try { if (GD_TOKEN) await gdSaveBulkPrices(); } catch(e){}
   try { await saveCache(); } catch(e){}
-  doFilter(); updateMetrics();
+  scheduleRender();
   tdLog(`✓ Done — retrieved statements for ${ok}/${stocks.length} stocks. All overview metrics & scores recalculated and saved to Google Drive.`, true);
   if (btn) { btn.disabled = false; btn.textContent = '📊 Retrieve All Financial Statements'; }
   _fetchingAllFin = false;
