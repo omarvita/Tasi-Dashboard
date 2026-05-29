@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260529c'; // bump this string on every deploy that matters
+  var V='20260529d'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -1370,12 +1370,11 @@ async function gdLoadBulkPrices(onProgress) {
             hits++;
           }
           // Also load cached P/E/PB/EPS from bulk file (saved by gdSaveBulkPrices)
-          if (entry?.pe > 0 && entry.fundUpdated &&
+          if ((entry?.pe > 0 || entry?.fund) && entry.fundUpdated &&
               Date.now() - entry.fundUpdated < GD_FUND_TTL) {
             _gdCache[ticker] = Object.assign(_gdCache[ticker] || {}, {
-              fundamentals: Object.assign((_gdCache[ticker]?.fundamentals || {}), {
-                pe: entry.pe, pb: entry.pb, eps: entry.eps
-              }),
+              fundamentals: Object.assign((_gdCache[ticker]?.fundamentals || {}),
+                { pe: entry.pe, pb: entry.pb, eps: entry.eps }, entry.fund || {}),
               fundUpdated: entry.fundUpdated,
             });
           }
@@ -1417,11 +1416,14 @@ async function gdSaveBulkPrices() {
     // doesn't need Phase 2.5 for stocks already in cache
     for (const d of allData) {
       const c = _gdCache[d.ticker];
-      if (c?.fundamentals?.pe > 0 && c.fundUpdated) {
+      if (c?.fundamentals && c.fundUpdated && (c.fundamentals.pe > 0 || c.fundamentals.roe != null)) {
+        const F = c.fundamentals;
         prices[d.ticker] = Object.assign(prices[d.ticker] || {}, {
-          pe: c.fundamentals.pe,
-          pb: c.fundamentals.pb ?? null,
-          eps: c.fundamentals.eps ?? null,
+          pe: F.pe ?? null, pb: F.pb ?? null, eps: F.eps ?? null,
+          fund: { roe:F.roe??null, npm:F.npm??null, de:F.de??null, dy:F.dy??null,
+                  fcf:F.fcf??null, cr:F.cr??null, rg:F.rg??null, eg:F.eg??null,
+                  assets:F.assets??null, beta:F.beta??null,
+                  ttmRev:F.ttmRev??null, ttmNI:F.ttmNI??null },
           fundUpdated: c.fundUpdated,
         });
       }
@@ -2933,6 +2935,7 @@ const MORE_TICKERS = [
 let allData=[],filtData=[],activeSector="All",sortKey="combined",curPage=1;
 let sectorMedianPE = {}; // populated after refreshAll completes
 let tasiIndex = { price:null, change:null, closes:[], timestamps:[], ytdReturn:null }; // TASI ^TASI index
+let _fetchingAllFin = false; // true while bulk financial-statement retrieval runs
 
 // ── COMBINED SCORE WEIGHTS ──
 let SCORE_WEIGHTS = JSON.parse(localStorage.getItem('tasi_score_weights') || 'null') || {fundamental:30,technical:20,buffett:35,peg:15,dcf:0};
@@ -3502,6 +3505,93 @@ function scorePEG(pe,eg,annIS){
   p+=delta;
   return{score:Math.min(100,Math.max(0,Math.round(p))),peg:parseFloat(peg.toFixed(2)),steps:[{label:"PEG Ratio",raw:peg.toFixed(2),delta,why}]};
 }
+
+// ════════════════════════════════════════════════════════════════════
+// DERIVE OVERVIEW METRICS FROM FETCHED FINANCIAL STATEMENTS
+// Statements (is/bs/cf) are the most authoritative source. When present we
+// compute ROE, net margin, D/E, FCF, revenue & earnings growth and total
+// assets directly from them; otherwise the existing quoteSummary-based
+// values stay in place (the "regular" fallback).
+// ════════════════════════════════════════════════════════════════════
+function _num(v){ if(v==null) return null; const n=typeof v==='number'?v:parseFloat(String(v).replace(/,/g,'')); return isNaN(n)?null:n; }
+
+function deriveMetricsFromStatements(annual, quarterly){
+  const out = {};
+  const aIS = annual?.is, aBS = annual?.bs, aCF = annual?.cf;
+  const qIS = quarterly?.is, qCF = quarterly?.cf;
+  // TTM revenue & net income — last 4 quarters preferred (most current), else latest annual
+  let ttmRev=null, ttmNI=null;
+  if (Array.isArray(qIS) && qIS.length>=4){
+    const last4=qIS.slice(0,4); let rev=0,ni=0,revN=0,niN=0;
+    for(const q of last4){ const r=_num(q.revenue), n=_num(q.net_income); if(r!=null){rev+=r;revN++;} if(n!=null){ni+=n;niN++;} }
+    if(revN===4 && rev>0) ttmRev=rev;
+    if(niN===4) ttmNI=ni;
+  }
+  if (ttmRev==null && Array.isArray(aIS) && _num(aIS[0]?.revenue)>0) ttmRev=_num(aIS[0].revenue);
+  if (ttmNI==null && Array.isArray(aIS) && _num(aIS[0]?.net_income)!=null) ttmNI=_num(aIS[0].net_income);
+  if (ttmRev>0 && ttmNI!=null) out.npm = ttmNI/ttmRev;
+  // Balance sheet (latest period)
+  const eq=_num(aBS?.[0]?.total_equity), ta=_num(aBS?.[0]?.total_assets), ltd=_num(aBS?.[0]?.long_term_debt);
+  if (ta>0) out.assets = ta/1e9;
+  if (ttmNI!=null && eq>0) out.roe = ttmNI/eq;
+  // D/E (%) from long-term debt only (avoids overstating for banks via total liabilities)
+  if (eq>0 && ltd!=null) out.de = (ltd/eq)*100;
+  // Free cash flow positive? TTM from quarters else latest annual
+  let ttmFCF=null;
+  if (Array.isArray(qCF) && qCF.length>=4){ const f4=qCF.slice(0,4); let s=0,cnt=0; for(const q of f4){const v=_num(q.free_cash_flow); if(v!=null){s+=v;cnt++;}} if(cnt>=3) ttmFCF=s; }
+  if (ttmFCF==null) ttmFCF=_num(aCF?.[0]?.free_cash_flow);
+  if (ttmFCF!=null) out.fcf = ttmFCF>0;
+  // YoY growth from annuals
+  if (Array.isArray(aIS) && aIS.length>=2){
+    const r0=_num(aIS[0].revenue), r1=_num(aIS[1].revenue);
+    if(r0>0 && r1>0) out.rg=(r0-r1)/r1;
+    const n0=_num(aIS[0].net_income), n1=_num(aIS[1].net_income);
+    if(n0!=null && n1>0) out.eg=(n0-n1)/n1;
+  }
+  out.ttmRev=ttmRev; out.ttmNI=ttmNI;
+  return out;
+}
+
+// Recompute every criteria score from the stock's current metrics.
+function recomputeAllScores(d){
+  const noHardcoded = d.noHardcodedData && !d.priceLoaded;
+  const fRes = scoreFundamental(d);
+  const bRes = scoreBuffett(d);
+  const pegRes = scorePEG(d.pe, d.eg, d.rawTwelveData?.annual?.is);
+  d.fundamental = noHardcoded ? null : fRes.score; d.fundSteps = fRes.steps;
+  d.buffett = noHardcoded ? null : bRes.buffett; d.criteria = bRes.criteria; d.buffSteps = bRes.steps;
+  d.peg = pegRes.peg; d.pegScore = pegRes.score; d.pegSteps = pegRes.steps;
+  d.combined = noHardcoded ? null : calcCombined(d);
+}
+
+// Apply statement-derived metrics (primary) and recompute all scores.
+// Keeps quoteSummary values as fallback for metrics statements don't cover
+// (current ratio, dividend yield). Persists to the Drive cache for reload.
+function applyDerivedMetrics(d){
+  const ann = d.rawTwelveData?.annual, qtr = d.rawTwelveData?.quarterly;
+  if (!ann && !qtr) return false;
+  const m = deriveMetricsFromStatements(ann, qtr);
+  const skipDE = (d.sector==='Banking' || d.sector==='Insurance'); // banks aren't assessed on D/E
+  let changed=false;
+  for (const k of ['roe','npm','de','fcf','rg','eg','assets']){
+    if (k==='de' && skipDE) continue;
+    if (m[k]!=null){ d[k]=m[k]; changed=true; }
+  }
+  if (m.ttmRev>0){ d.ttmRev=m.ttmRev; d.rev=m.ttmRev/1e9; }
+  if (m.ttmNI!=null){ d.ttmNI=m.ttmNI; d.ni=m.ttmNI/1e9; }
+  if (changed){
+    recomputeAllScores(d);
+    _gdCache[d.ticker] = Object.assign(_gdCache[d.ticker]||{}, {
+      fundamentals: Object.assign((_gdCache[d.ticker]?.fundamentals||{}), {
+        roe:d.roe, npm:d.npm, de:d.de, fcf:d.fcf, rg:d.rg, eg:d.eg, assets:d.assets,
+        ttmRev:d.ttmRev, ttmNI:d.ttmNI,
+      }),
+      fundUpdated: Date.now(), fundVersion: (typeof GD_FUND_VER!=='undefined'?GD_FUND_VER:1),
+    });
+  }
+  return changed;
+}
+
 
 function getSig(combined,buffett){
   const avg=(combined+buffett)/2;
@@ -5019,6 +5109,10 @@ async function buildFinancials(d, period) {
   const cacheKey = isQ ? 'quarterly' : 'annual';
 
   function enrichAndRender(stmtData, src) {
+    // Statements are the authoritative source — derive overview metrics & recompute scores
+    if (!d.rawTwelveData) d.rawTwelveData = {};
+    d.rawTwelveData[cacheKey] = stmtData;
+    try { if (applyDerivedMetrics(d) && !_fetchingAllFin) { doFilter(); updateMetrics(); } } catch(e){}
     return renderTwelveStatements(stmtData, period, d.ticker, src, d);
   }
 
@@ -6777,17 +6871,21 @@ async function refreshAll(forceRefresh=false){
     let peFromDrive = 0;
     for (let i = 0; i < allData.length; i++) {
       const c = _gdCache[allData[i].ticker];
-      if (c?.fundamentals?.pe > 0 && c.fundUpdated &&
-          Date.now() - c.fundUpdated < GD_FUND_TTL) {
-        allData[i] = { ...allData[i],
-          pe: c.fundamentals.pe,
-          pb: c.fundamentals.pb || allData[i].pb,
-          livepeLoaded: true, // skip Phase 2.5 for this stock
-        };
+      if (c?.fundamentals && c.fundUpdated && Date.now() - c.fundUpdated < GD_FUND_TTL &&
+          (c.fundamentals.pe > 0 || c.fundamentals.roe != null)) {
+        const F = c.fundamentals, d = allData[i];
+        if (F.pe > 0) { d.pe = F.pe; d.livepeLoaded = true; }
+        if (F.pb != null) d.pb = F.pb;
+        for (const k of ['roe','npm','de','dy','fcf','cr','rg','eg','assets','beta']) {
+          if (F[k] != null) d[k] = F[k];
+        }
+        if (F.ttmRev > 0) { d.ttmRev = F.ttmRev; d.rev = F.ttmRev/1e9; }
+        if (F.ttmNI != null) { d.ttmNI = F.ttmNI; d.ni = F.ttmNI/1e9; }
+        try { recomputeAllScores(d); } catch(e){}
         peFromDrive++;
       }
     }
-    if (peFromDrive > 0) console.log(`[P/E] Loaded ${peFromDrive} P/E values from Drive cache`);
+    if (peFromDrive > 0) console.log(`[Fundamentals] Loaded ${peFromDrive} stocks' metrics from Drive cache`);
   }
 
   // ── Phase 2: Bulk Yahoo v7/quote — all 238 stocks, 20 per request ───────
@@ -7139,6 +7237,8 @@ function drawTASIChart() {
 async function fetchTASIIndexLong() {
   // Yahoo Finance v8/chart (try both hosts)
   const urls2y = [
+    `https://query1.finance.yahoo.com/v8/finance/chart/^TASI.SR?interval=1d&range=2y`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/^TASI.SR?interval=1d&range=2y`,
     `https://query1.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=2y`,
     `https://query2.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=2y`,
   ];
@@ -7201,19 +7301,64 @@ function _applyTASICloses(closes, timestamps) {
   if (GD_TOKEN) gdSaveBulkPrices();
 }
 
+// ── Bulk retrieve: financial statements for ALL stocks ──
+// Fetches annual (and quarterly) statements per stock, derives all overview
+// metrics, recomputes every criteria score and the DCF/Fair Value, then saves
+// to Google Drive so subsequent loads are instant.
+async function fetchAllFinancials(){
+  if (_fetchingAllFin) { tdLog('Already retrieving — please wait…', false); return; }
+  _fetchingAllFin = true;
+  const btn = document.getElementById('fetch-all-fin-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Retrieving…'; }
+  const stocks = allData.filter(d => d.ticker && d.ticker.endsWith('.SR'));
+  let done = 0, ok = 0;
+  const CONC = 4; // conservative concurrency to avoid proxy/source throttling
+  tdLog(`Retrieving financial statements for ${stocks.length} stocks…`, true);
+  for (let i = 0; i < stocks.length; i += CONC){
+    await Promise.all(stocks.slice(i, i+CONC).map(async d => {
+      try {
+        // buildFinancials fetches/merges statements, derives metrics, recomputes
+        // scores (via enrichAndRender→applyDerivedMetrics) and writes to Drive.
+        await Promise.race([buildFinancials(d, 'annual'), new Promise(r=>setTimeout(r, 30000))]);
+        // Also fetch quarterly so TTM-based metrics are most current
+        try { await Promise.race([buildFinancials(d, 'quarterly'), new Promise(r=>setTimeout(r, 20000))]); } catch(e){}
+        // Recompute Fair Value (DCF) with the fresh statements
+        try { await Promise.race([buildDCF(d), new Promise(r=>setTimeout(r, 10000))]); } catch(e){}
+        try { applyDerivedMetrics(d); } catch(e){}
+        ok++;
+      } catch(e){}
+      done++;
+      if (btn) btn.textContent = `⏳ ${done}/${stocks.length}…`;
+      tdLog(`Retrieving statements… ${done}/${stocks.length} (${ok} with data)`, true);
+    }));
+    doFilter(); updateMetrics();
+  }
+  // Persist everything to Drive + local cache
+  try { if (GD_TOKEN) await gdSaveBulkPrices(); } catch(e){}
+  try { await saveCache(); } catch(e){}
+  doFilter(); updateMetrics();
+  tdLog(`✓ Done — retrieved statements for ${ok}/${stocks.length} stocks. All overview metrics & scores recalculated and saved to Google Drive.`, true);
+  if (btn) { btn.disabled = false; btn.textContent = '📊 Retrieve All Financial Statements'; }
+  _fetchingAllFin = false;
+}
+
 // ── Change 5: TASI Index fetch ──
 async function fetchTASIIndex() {
   let price = null, change = null, closes = [], timestamps = [], ytdReturn = null;
   try {
     // Primary: v7/quote (most reliable for live index price — same endpoint as stocks)
     // Use raw ^ (not %5E) — pre-encoded % gets double-encoded in proxy chain
-    const q7url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=^TASI`;
-    const q7b   = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=^TASI`;
-    let q7 = await Promise.race([fetchWithProxy(q7url), new Promise(r=>setTimeout(()=>r(null),10000))]);
-    if (!q7?.quoteResponse?.result?.[0]?.regularMarketPrice) {
-      q7 = await Promise.race([fetchWithProxy(q7b), new Promise(r=>setTimeout(()=>r(null),10000))]);
+    const quoteUrls = [
+      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=^TASI.SR`,
+      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=^TASI`,
+      `https://query2.finance.yahoo.com/v7/finance/quote?symbols=^TASI`,
+    ];
+    let q = null;
+    for (const u of quoteUrls) {
+      const q7 = await Promise.race([fetchWithProxy(u), new Promise(r=>setTimeout(()=>r(null),9000))]);
+      const r0 = q7?.quoteResponse?.result?.[0];
+      if (r0?.regularMarketPrice) { q = r0; break; }
     }
-    const q = q7?.quoteResponse?.result?.[0];
     if (q?.regularMarketPrice) {
       price  = q.regularMarketPrice;
       change = q.regularMarketChangePercent ?? null;
@@ -7222,7 +7367,10 @@ async function fetchTASIIndex() {
 
   try {
     // Chart fetch: needed for historical closes + YTD (try both query hosts)
+    // Yahoo canonical index symbol is ^TASI.SR (not ^TASI) for the chart endpoint
     const chartUrls = [
+      `https://query1.finance.yahoo.com/v8/finance/chart/^TASI.SR?interval=1d&range=1y`,
+      `https://query2.finance.yahoo.com/v8/finance/chart/^TASI.SR?interval=1d&range=1y`,
       `https://query1.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=1y`,
       `https://query2.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=1y`,
     ];
@@ -7702,6 +7850,9 @@ function buildSectorPerf() {
       <button class="sp-btn sp-btn-red" onclick="clearTwelveCache()">🗑 Clear Cache</button>
       <button class="sp-btn sp-btn-sec" onclick="validateTickers()" title="Check ALL tickers against Yahoo Finance — batches of 6, ~2-3 min total">⚡ Validate All Tickers</button>
       <button class="sp-btn" onclick="setDashboardPassword()" title="Set a password so only you can open the dashboard">🔒 Set Password</button>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+      <button class="sp-btn" id="fetch-all-fin-btn" onclick="fetchAllFinancials()" title="Fetch financial statements for ALL stocks, derive every overview metric (ROE, margin, D/E, growth…), recompute all scores (Fundamental, Buffett, PEG, Fair Value) and save everything to Google Drive. Takes a few minutes; makes future loads instant.">📊 Retrieve All Financial Statements</button>
     </div>
     <div class="sp-log" id="td-log">Status will appear here after actions.</div>
 
