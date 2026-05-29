@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260529h'; // bump this string on every deploy that matters
+  var V='20260529i'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -361,7 +361,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
       <span style="color:var(--tx3)">Median: <span id="mpe-median" style="color:var(--tx);font-weight:600">—</span></span>
       <span style="color:var(--tx3)">Mean: <span id="mpe-mean" style="color:var(--tx);font-weight:600">—</span></span>
       <span id="mpe-count" style="color:var(--tx3)"></span>
-      <span style="margin-left:auto;color:var(--tx3);font-size:9px" id="mpe-toggle-hint">▼ show chart</span>
+      <span style="margin-left:auto;color:var(--tx3);font-size:9px" id="mpe-toggle-hint">▼ valuation tools</span>
     </div>
     <!-- Market P/E time-series chart (hidden by default) -->
     <div id="market-pe-chart-wrap" style="display:none;margin-top:10px">
@@ -392,6 +392,9 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
           <button class="tasi-rng-btn" id="mpe-r-5y"  onclick="setMPERange('5Y')">5Y</button>
         </div>
       </div>
+      <!-- Market valuation thermometer + indicator tiles -->
+      <div id="mkt-cond-banner" style="display:none;margin-bottom:10px"></div>
+      <div id="mkt-cond-tiles" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>
       <div style="height:180px"><canvas id="market-pe-chart"></canvas></div>
     </div>
   </div>
@@ -7590,6 +7593,159 @@ function _mpeCalc() {
   return { valid, mean, median, wtdAvg, count: valid.length };
 }
 
+// ── Macro / whole-market valuation context ────────────────────────────────
+// Saudi nominal GDP ≈ SAR 4.0 trillion (2024). Risk-free ≈ 5.0% (Saudi 10Y).
+const SAUDI_GDP_SAR = 4.0e12;
+const SAUDI_RF = 0.05;
+const _clamp01 = x => Math.max(0, Math.min(1, x));
+
+function _marketConditions() {
+  const r = _mpeCalc();
+  if (!r) return null;
+  const { wtdAvg, median, mean } = r;
+
+  // Whole-market cap (include REITs here — this is a market-wide aggregate)
+  const withMC = allData.filter(d => d.mktCap > 0 && d.priceLoaded);
+  const totalMC = withMC.reduce((s,d)=>s+d.mktCap, 0);
+  // Aramco (2222.SR) has ~2% free float and dominates cap — show an ex-Aramco view too
+  const exAramcoMC = withMC.filter(d=>d.ticker!=='2222.SR').reduce((s,d)=>s+d.mktCap,0);
+  const buffettInd = totalMC > 0 ? totalMC / SAUDI_GDP_SAR : null;
+  const buffettExAramco = exAramcoMC > 0 ? exAramcoMC / SAUDI_GDP_SAR : null;
+
+  // Earnings yield + equity risk premium (vs Saudi risk-free)
+  const earningsYield = wtdAvg > 0 ? 1/wtdAvg : null;
+  const erp = earningsYield != null ? earningsYield - SAUDI_RF : null;
+
+  // Cap-weighted dividend yield
+  const dyStocks = withMC.filter(d=>d.dy>0);
+  const dyMC = dyStocks.reduce((s,d)=>s+d.mktCap,0);
+  const wtdDY = dyMC>0 ? dyStocks.reduce((s,d)=>s+d.dy*(d.mktCap/dyMC),0) : null;
+
+  // Cap-weighted price-to-book
+  const pbStocks = withMC.filter(d=>d.pb>0 && d.pb<30);
+  const pbMC = pbStocks.reduce((s,d)=>s+d.mktCap,0);
+  const wtdPB = pbMC>0 ? pbStocks.reduce((s,d)=>s+d.pb*(d.mktCap/pbMC),0) : null;
+
+  // Breadth — % of stocks trading above their 50-day SMA (trend participation)
+  const brStocks = allData.filter(d=>d.priceLoaded && d.price>0 && d.sma50>0);
+  const aboveSMA50 = brStocks.filter(d=>d.price>d.sma50).length;
+  const breadth = brStocks.length>0 ? aboveSMA50/brStocks.length : null;
+
+  return { wtdAvg, median, mean, totalMC, exAramcoMC, buffettInd, buffettExAramco,
+           earningsYield, erp, wtdDY, wtdPB, breadth, breadthN: brStocks.length, count: r.count };
+}
+
+function _renderMarketConditions() {
+  const m = _marketConditions();
+  const tilesEl = document.getElementById('mkt-cond-tiles');
+  const bannerEl = document.getElementById('mkt-cond-banner');
+  if (!m || !tilesEl) return;
+
+  // ── Composite valuation thermometer (0 = cheap/fear, 100 = expensive/greed) ──
+  const sP   = _clamp01((m.wtdAvg - 12) / (28 - 12));
+  const sERP = m.erp != null ? _clamp01((0.04 - m.erp) / 0.05) : null;
+  const sBr  = m.breadth != null ? _clamp01((m.breadth - 0.30) / 0.50) : null;
+  const sDY  = m.wtdDY != null ? _clamp01((0.05 - m.wtdDY) / 0.03) : null;
+  const sPB  = m.wtdPB != null ? _clamp01((m.wtdPB - 1.5) / 1.5) : null;
+  const parts = [sP, sERP, sBr, sDY, sPB].filter(x=>x!=null);
+  const temp = parts.length ? Math.round(parts.reduce((a,b)=>a+b,0)/parts.length*100) : null;
+
+  if (temp != null && bannerEl) {
+    const label = temp < 25 ? 'CHEAP — Fear'
+      : temp < 45 ? 'Modestly Cheap'
+      : temp < 60 ? 'Fair Value'
+      : temp < 75 ? 'Modestly Expensive'
+      : 'EXPENSIVE — Greed';
+    const col = temp < 25 ? '#2ed573' : temp < 45 ? '#7bed9f'
+      : temp < 60 ? '#f5a623' : temp < 75 ? '#ff7f50' : '#e74c3c';
+    bannerEl.style.display = 'block';
+    bannerEl.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div style="min-width:120px">
+          <div style="font-size:8px;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em">Market Valuation</div>
+          <div style="font-size:20px;font-weight:700;color:${col};line-height:1.1">${label}</div>
+        </div>
+        <div style="flex:1;min-width:200px">
+          <div style="position:relative;height:10px;border-radius:5px;overflow:hidden;background:linear-gradient(to right,#2ed573 0%,#7bed9f 25%,#f5a623 50%,#ff7f50 75%,#e74c3c 100%)">
+            <div style="position:absolute;top:-3px;width:3px;height:16px;background:var(--tx);border-radius:1px;left:${temp}%;box-shadow:0 0 4px rgba(0,0,0,.6)"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--tx3);margin-top:3px">
+            <span>Fear / Cheap</span><span style="color:${col};font-weight:600">${temp}/100</span><span>Greed / Expensive</span>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // ── Indicator tiles ──
+  const tile = (label, val, sub, color, tip) =>
+    `<div title="${escapeHTML(tip)}" style="flex:1;min-width:118px;background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:8px 10px;cursor:help">
+       <div style="font-size:8px;color:var(--tx3);text-transform:uppercase;letter-spacing:.04em">${label}</div>
+       <div style="font-size:16px;font-weight:700;color:${color};line-height:1.1;margin-top:3px">${val}</div>
+       <div style="font-size:8px;color:var(--tx3);margin-top:3px">${sub}</div>
+     </div>`;
+
+  const tiles = [];
+
+  // 1. Buffett Indicator (ex-Aramco headline; Aramco's 2% float distorts the total)
+  if (m.buffettExAramco != null) {
+    const b = m.buffettExAramco;
+    const col = b < 0.75 ? '#2ed573' : b < 1.0 ? '#7bed9f' : b < 1.3 ? '#f5a623' : '#e74c3c';
+    const verdict = b < 0.75 ? 'Undervalued' : b < 1.0 ? 'Fair' : b < 1.3 ? 'Modestly rich' : 'Overvalued';
+    tiles.push(tile('Buffett Indicator', (b*100).toFixed(0)+'%',
+      `${verdict} · incl. Aramco ${(m.buffettInd*100).toFixed(0)}%`, col,
+      'Total market cap ÷ GDP (the "Buffett Indicator"). Shown ex-Aramco because Aramco\'s ~2% free float massively inflates the headline ratio. <0.75 undervalued, 0.75–1.0 fair, 1.0–1.3 modestly rich, >1.3 overvalued. Saudi GDP ≈ SAR 4.0T (2024).'));
+  }
+
+  // 2. Earnings Yield
+  if (m.earningsYield != null) {
+    const ey = m.earningsYield;
+    const col = ey > 0.07 ? '#2ed573' : ey > 0.05 ? '#f5a623' : '#e74c3c';
+    tiles.push(tile('Earnings Yield', (ey*100).toFixed(1)+'%',
+      `vs risk-free ${(SAUDI_RF*100).toFixed(1)}%`, col,
+      'Inverse of the market P/E (1 ÷ P/E) — the earnings the market generates per riyal invested. Compare to the risk-free rate: higher than bonds = equities attractive.'));
+  }
+
+  // 3. Equity Risk Premium
+  if (m.erp != null) {
+    const e = m.erp;
+    const col = e > 0.03 ? '#2ed573' : e > 0.01 ? '#7bed9f' : e > 0 ? '#f5a623' : '#e74c3c';
+    const verdict = e > 0.03 ? 'Stocks cheap vs bonds' : e > 0.01 ? 'Fair' : e > 0 ? 'Slightly rich' : 'Stocks rich vs bonds';
+    tiles.push(tile('Equity Risk Premium', (e>=0?'+':'')+(e*100).toFixed(1)+'%',
+      verdict, col,
+      'Earnings yield minus the risk-free rate. The extra return equities offer over Saudi government bonds. >3% = equities clearly cheap; negative = equities expensive vs bonds.'));
+  }
+
+  // 4. Market Dividend Yield
+  if (m.wtdDY != null) {
+    const dy = m.wtdDY;
+    const col = dy > 0.04 ? '#2ed573' : dy > 0.025 ? '#f5a623' : '#e74c3c';
+    tiles.push(tile('Market Div Yield', (dy*100).toFixed(2)+'%',
+      'cap-weighted', col,
+      'Market-cap weighted dividend yield across all dividend-paying stocks. Higher yields generally accompany cheaper markets. TASI long-run ≈ 3–4%.'));
+  }
+
+  // 5. Market P/B
+  if (m.wtdPB != null) {
+    const pb = m.wtdPB;
+    const col = pb < 1.8 ? '#2ed573' : pb < 2.5 ? '#f5a623' : '#e74c3c';
+    tiles.push(tile('Market P/B', pb.toFixed(2)+'x',
+      'cap-weighted', col,
+      'Market-cap weighted price-to-book. <1.8x is historically cheap for TASI, >2.5x rich. Less distorted by earnings cycles than P/E.'));
+  }
+
+  // 6. Breadth (% above SMA-50)
+  if (m.breadth != null) {
+    const br = m.breadth;
+    const col = br > 0.60 ? '#2ed573' : br > 0.40 ? '#f5a623' : '#e74c3c';
+    const verdict = br > 0.60 ? 'Broad uptrend' : br > 0.40 ? 'Mixed' : 'Weak / downtrend';
+    tiles.push(tile('Breadth >SMA-50', (br*100).toFixed(0)+'%',
+      `${verdict} · ${m.breadthN} stk`, col,
+      'Percentage of stocks trading above their 50-day moving average — measures how broadly the market is participating in the trend. >60% healthy, <40% weak.'));
+  }
+
+  tilesEl.innerHTML = tiles.join('');
+}
+
 function updateMarketPEStats() {
   const r = _mpeCalc();
   if (!r) return;
@@ -7608,7 +7764,7 @@ function updateMarketPEStats() {
     if (_mpeHistCache.length > 3650) _mpeHistCache.splice(0, _mpeHistCache.length - 3650);
     localStorage.setItem('tasi_mpe_hist', JSON.stringify(_mpeHistCache));
   } catch(e){}
-  if (marketPEChartVisible) _renderMPEChart();
+  if (marketPEChartVisible) { _renderMPEChart(); _renderMarketConditions(); }
 }
 
 function toggleMarketPEChart() {
@@ -7617,8 +7773,8 @@ function toggleMarketPEChart() {
   if (!wrap) return;
   marketPEChartVisible = !marketPEChartVisible;
   wrap.style.display = marketPEChartVisible ? 'block' : 'none';
-  if (hint) hint.textContent = marketPEChartVisible ? '▲ hide chart' : '▼ show chart';
-  if (marketPEChartVisible) { updateMarketPEStats(); setTimeout(_renderMPEChart, 30); }
+  if (hint) hint.textContent = marketPEChartVisible ? '▲ hide tools' : '▼ valuation tools';
+  if (marketPEChartVisible) { updateMarketPEStats(); _renderMarketConditions(); setTimeout(_renderMPEChart, 30); }
   else if (marketPEChartInst) { try { marketPEChartInst.destroy(); } catch(e){} marketPEChartInst = null; }
 }
 
