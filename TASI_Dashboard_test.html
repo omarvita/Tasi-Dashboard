@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260529a'; // bump this string on every deploy that matters
+  var V='20260529b'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -7101,24 +7101,29 @@ function drawTASIChart() {
 }
 
 async function fetchTASIIndexLong() {
-  try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/%5ETASI?interval=1d&range=2y`;
-    const data = await fetchWithProxy(url);
-    const res = data?.chart?.result?.[0];
-    if (!res) return;
-    const closes = (res.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
-    const timestamps = res.timestamp||[];
-    if (closes.length > tasiIndex.closes.length) {
-      tasiIndex.closes = closes;
-      tasiIndex.timestamps = timestamps;
-      // Recompute YTD
-      const yearStart = new Date(new Date().getFullYear(), 0, 1).getTime() / 1000;
-      let yi = 0; for(let i=0;i<timestamps.length;i++){if(timestamps[i]>=yearStart){yi=i;break;}}
-      tasiIndex.ytdReturn = closes[yi] > 0 ? (closes[closes.length-1]-closes[yi])/closes[yi] : null;
-      // Re-draw if modal is open
-      if (document.getElementById('tasi-modal-bg')?.style.display !== 'none') drawTASIChart();
-    }
-  } catch(e) {}
+  const urls2y = [
+    `https://query1.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=2y`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=2y`,
+  ];
+  for (const url of urls2y) {
+    try {
+      const data = await Promise.race([fetchWithProxy(url), new Promise(r=>setTimeout(()=>r(null),15000))]);
+      const res = data?.chart?.result?.[0];
+      if (!res) continue;
+      const closes = (res.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
+      const timestamps = res.timestamp||[];
+      if (closes.length > tasiIndex.closes.length) {
+        tasiIndex.closes = closes;
+        tasiIndex.timestamps = timestamps;
+        const yearStart = new Date(new Date().getFullYear(), 0, 1).getTime() / 1000;
+        let yi = 0; for(let i=0;i<timestamps.length;i++){if(timestamps[i]>=yearStart){yi=i;break;}}
+        tasiIndex.ytdReturn = closes[yi] > 0 ? (closes[closes.length-1]-closes[yi])/closes[yi] : null;
+        if (document.getElementById('tasi-modal-bg')?.style.display !== 'none') drawTASIChart();
+        if (marketPEChartVisible) _renderMPEChart();
+      }
+      return;
+    } catch(e) {}
+  }
 }
 
 // ── Change 5: TASI Index fetch ──
@@ -7126,8 +7131,13 @@ async function fetchTASIIndex() {
   let price = null, change = null, closes = [], timestamps = [], ytdReturn = null;
   try {
     // Primary: v7/quote (most reliable for live index price — same endpoint as stocks)
-    const q7url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=%5ETASI`;
-    const q7 = await Promise.race([fetchWithProxy(q7url), new Promise(r=>setTimeout(()=>r(null),8000))]);
+    // Use raw ^ (not %5E) — pre-encoded % gets double-encoded in proxy chain
+    const q7url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=^TASI`;
+    const q7b   = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=^TASI`;
+    let q7 = await Promise.race([fetchWithProxy(q7url), new Promise(r=>setTimeout(()=>r(null),10000))]);
+    if (!q7?.quoteResponse?.result?.[0]?.regularMarketPrice) {
+      q7 = await Promise.race([fetchWithProxy(q7b), new Promise(r=>setTimeout(()=>r(null),10000))]);
+    }
     const q = q7?.quoteResponse?.result?.[0];
     if (q?.regularMarketPrice) {
       price  = q.regularMarketPrice;
@@ -7137,13 +7147,13 @@ async function fetchTASIIndex() {
 
   try {
     // Chart fetch: needed for historical closes + YTD (try both query hosts)
-    const urls = [
-      `https://query1.finance.yahoo.com/v8/finance/chart/%5ETASI?interval=1d&range=1y`,
-      `https://query2.finance.yahoo.com/v8/finance/chart/%5ETASI?interval=1d&range=1y`,
+    const chartUrls = [
+      `https://query1.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=1y`,
+      `https://query2.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=1y`,
     ];
     let res = null;
-    for (const url of urls) {
-      const data = await Promise.race([fetchWithProxy(url), new Promise(r=>setTimeout(()=>r(null),8000))]);
+    for (const url of chartUrls) {
+      const data = await Promise.race([fetchWithProxy(url), new Promise(r=>setTimeout(()=>r(null),12000))]);
       res = data?.chart?.result?.[0];
       if (res) break;
     }
@@ -7168,7 +7178,21 @@ async function fetchTASIIndex() {
     }
   } catch(e) {}
 
-  if (!price) { console.warn('[TASI] Index fetch: no price returned'); return; }
+  // Stooq fallback — free index data, no auth needed
+  if (!price) {
+    try {
+      const sq = await Promise.race([
+        fetchWithProxy(`https://stooq.com/q/l/?s=^tasi&f=sd2t2ohlcvn&e=json`),
+        new Promise(r=>setTimeout(()=>r(null),10000))
+      ]);
+      const sym = sq?.symbols?.[0];
+      if (sym?.close > 0) {
+        price = sym.close;
+        change = sym.open > 0 ? ((sym.close - sym.open) / sym.open) * 100 : null;
+      }
+    } catch(e) {}
+  }
+  if (!price) { console.warn('[TASI] All index sources failed'); return; }
   tasiIndex = { price, change, closes, timestamps, ytdReturn };
 
   // Update market bar
@@ -7336,7 +7360,26 @@ function _renderMPEChart() {
   });
 
   const points = [...pointMap.values()].sort((a,b)=>a.t-b.t);
-  if (!points.length) return;
+  if (!points.length) {
+    // No historical data yet — just show gauge/current values, trigger TASI fetch
+    if (!tasiIndex.price) fetchTASIIndex();
+    return;
+  }
+  // Suppress chart when only 1 data point (single dot is misleading)
+  if (points.length < 5) {
+    // Show "building history" placeholder instead of a chart
+    const ctx2 = document.getElementById('market-pe-chart');
+    if (ctx2) {
+      const c2 = ctx2.getContext('2d');
+      c2.clearRect(0, 0, ctx2.width, ctx2.height);
+      c2.fillStyle = '#4a5568';
+      c2.font = "11px 'IBM Plex Mono'";
+      c2.textAlign = 'center';
+      c2.fillText('Historical P/E chart builds over time — reload daily for trend data.', ctx2.width/2, ctx2.height/2 - 10);
+      c2.fillText(`Today: ${wtdAvg.toFixed(1)}x  Median: ${median.toFixed(1)}x  (${points.length} session${points.length>1?'s':''}  stored)`, ctx2.width/2, ctx2.height/2 + 12);
+    }
+    return;
+  }
 
   const avgPE = points.reduce((s,p)=>s+p.pe,0)/points.length;
   const labels = points.map(p => new Date(p.t).toISOString().slice(0,10));
