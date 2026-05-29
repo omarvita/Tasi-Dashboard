@@ -3,24 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
 <title>TASI Stock Screener — Tadawul Full Market Dashboard</title>
-<script>
-// Auto-version check: forces a fresh load when a new version is deployed,
-// bypassing aggressive mobile browser caching.
-(function(){
-  var V='20260524n'; // bump this string on every deploy that matters
-  try{
-    var u=new URL(location.href);
-    if(u.searchParams.get('_v')!==V){
-      u.searchParams.set('_v',V);
-      location.replace(u.toString()); // hard redirect, clears old cached page
-    }
-  }catch(e){}
-})();
-</script>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://accounts.google.com/gsi/client" async></script>
@@ -260,7 +243,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 #tt{position:fixed;z-index:99999;max-width:270px;background:#05050f;border:1px solid #2d3748;border-radius:6px;padding:7px 11px;font-family:var(--mono);font-size:9px;line-height:1.65;color:#94a3b8;pointer-events:none;display:none;box-shadow:0 6px 24px rgba(0,0,0,.8);word-break:break-word}
 [data-tip]{cursor:help}
 /* ── PASSWORD LOCK SCREEN ── */
-#pw-lock{position:fixed;inset:0;background:#0a0a0f;z-index:99999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px}
+#pw-lock{position:fixed;inset:0;background:#0a0a0f;z-index:99999;display:flex;align-items:center;justify-content:center}
 #pw-lock .pw-box{background:var(--bg2);border:1px solid var(--b2);border-radius:12px;padding:32px 36px;width:320px;text-align:center}
 #pw-lock .pw-title{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--acc);margin-bottom:4px}
 #pw-lock .pw-sub{font-size:11px;color:var(--tx3);margin-bottom:20px}
@@ -271,7 +254,6 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 </style>
 </head>
 <body>
-<!-- ── PASSWORD LOCK SCREEN (hidden when no password set or already authed) ── -->
 <div id="pw-lock" style="display:none">
   <div class="pw-box">
     <div class="pw-title">TA TASI Dashboard</div>
@@ -281,6 +263,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
     <button onclick="checkPassword()">Unlock →</button>
   </div>
 </div>
+<body>
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
@@ -376,6 +359,13 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
       <option value="Hold">Hold</option>
       <option value="Watch">Watch</option>
     </select>
+    <select onchange="setCacheTTL(+this.value)">
+      <option value="4">Cache: 4h</option>
+      <option value="8">Cache: 8h</option>
+      <option value="24">Cache: 24h</option>
+      <option value="72">Cache: 3 days</option>
+      <option value="168">Cache: 1 week</option>
+    </select>
     <button class="rbtn" id="wl-btn" style="font-size:10px;padding:5px 10px;background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="toggleWatchlistFilter()" title="Show only watchlisted stocks">☆ Watchlist</button>
   </div>
 
@@ -425,61 +415,10 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 
 <script>
 // ── PASSWORD PROTECTION ──────────────────────────────────────────────────
-// Password is stored as SHA-256 hash in localStorage — raw password never saved.
-// Authentication is per-session (sessionStorage) — must re-enter on new tab/browser restart.
-async function _sha256(str) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
-}
-
-async function _pwCheck() {
-  const hash = localStorage.getItem('TASI_pw_hash');
-  if (!hash) return; // no password set — open access
-  if (sessionStorage.getItem('TASI_authed') === hash) return; // already unlocked this session
-  // Show lock screen and block page
-  document.getElementById('pw-lock').style.display = 'flex';
-  document.getElementById('pw-input').focus();
-}
-
-async function checkPassword() {
-  const val = document.getElementById('pw-input').value;
-  if (!val) return;
-  const hash = await _sha256(val);
-  if (hash === localStorage.getItem('TASI_pw_hash')) {
-    sessionStorage.setItem('TASI_authed', hash);
-    document.getElementById('pw-lock').style.display = 'none';
-    document.getElementById('pw-input').value = '';
-  } else {
-    document.getElementById('pw-err').textContent = '✗ Wrong password';
-    document.getElementById('pw-input').value = '';
-    document.getElementById('pw-input').focus();
-    setTimeout(() => { document.getElementById('pw-err').textContent = ''; }, 2000);
-  }
-}
-
-async function setDashboardPassword() {
-  const logEl = document.getElementById('td-log');
-  const pw = prompt('Enter new password (leave blank to remove password):');
-  if (pw === null) return; // cancelled
-  if (!pw) {
-    localStorage.removeItem('TASI_pw_hash');
-    sessionStorage.removeItem('TASI_authed');
-    if (logEl) logEl.innerHTML = '<span style="color:var(--grn)">✓ Password removed — dashboard is now open access</span>';
-    return;
-  }
-  const confirm = prompt('Confirm new password:');
-  if (pw !== confirm) {
-    if (logEl) logEl.innerHTML = '<span style="color:var(--red)">✗ Passwords do not match</span>';
-    return;
-  }
-  const hash = await _sha256(pw);
-  localStorage.setItem('TASI_pw_hash', hash);
-  sessionStorage.setItem('TASI_authed', hash); // keep current session unlocked
-  if (logEl) logEl.innerHTML = '<span style="color:var(--grn)">✓ Password set — required on next visit / new tab</span>';
-}
-
-// Run password check immediately (before any other JS)
-_pwCheck();
+async function _sha256(s){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('');}
+(async()=>{const h=localStorage.getItem('TASI_pw_hash');if(!h)return;if(sessionStorage.getItem('TASI_authed')===h)return;document.getElementById('pw-lock').style.display='flex';setTimeout(()=>document.getElementById('pw-input').focus(),50);})();
+async function checkPassword(){const v=document.getElementById('pw-input').value;if(!v)return;const h=await _sha256(v);if(h===localStorage.getItem('TASI_pw_hash')){sessionStorage.setItem('TASI_authed',h);document.getElementById('pw-lock').style.display='none';document.getElementById('pw-input').value='';}else{document.getElementById('pw-err').textContent='✗ Wrong password';document.getElementById('pw-input').value='';document.getElementById('pw-input').focus();setTimeout(()=>document.getElementById('pw-err').textContent='',2000);}}
+async function setDashboardPassword(){const logEl=document.getElementById('td-log');const pw=prompt('New password (blank = remove):');if(pw===null)return;if(!pw){localStorage.removeItem('TASI_pw_hash');sessionStorage.removeItem('TASI_authed');if(logEl)logEl.innerHTML='<span style="color:var(--grn)">✓ Password removed</span>';return;}const c=prompt('Confirm password:');if(pw!==c){if(logEl)logEl.innerHTML='<span style="color:var(--red)">✗ Passwords do not match</span>';return;}const h=await _sha256(pw);localStorage.setItem('TASI_pw_hash',h);sessionStorage.setItem('TASI_authed',h);if(logEl)logEl.innerHTML='<span style="color:var(--grn)">✓ Password set</span>';}
 
 // Data source: Yahoo Finance (primary) via CORS proxy rotation
 // Financial statements fetched lazily when you click a stock
@@ -1241,7 +1180,6 @@ function mergeStatements(primary, secondary) {
 // ── GOOGLE DRIVE STORAGE ──
 let GD_TOKEN = null;
 const GD_FUND_TTL  = 24 * 60 * 60 * 1000;       // 1 day TTL for fundamentals
-const GD_FUND_VER  = 3;                          // bump to invalidate old Drive caches (forces fresh PE/EPS fetch)
 const GD_STMT_TTL  = 30 * 24 * 60 * 60 * 1000;  // 30 days TTL for financial statements
 const GD_DCF_TTL   = 24 * 60 * 60 * 1000;       // 1 day TTL for DCF result
 const GD_TREND_TTL =  7 * 24 * 60 * 60 * 1000;  // 7 day TTL for earnings trend
@@ -1249,82 +1187,6 @@ const GD_OHLCV_TTL =  8 * 60 * 60 * 1000;       // 8 hours TTL for OHLCV chart d
 const _gdCache = {};                              // in-memory per-ticker Drive cache
 const _gdFileIdCache = {};                        // ticker → Drive file ID (avoids double list+fetch)
 const _gdInFlight = {};                           // in-flight promise map for coalescing concurrent reads
-
-// ── BULK PRICE CACHE (single Drive file for all 238 prices) ──────────────
-// Replaces the per-stock Drive prefetch loop (238 API calls → 2 API calls).
-let _gdBulkPriceFileId = null; // cached file ID for TASI_prices_bulk.json
-
-async function gdLoadBulkPrices(onProgress) {
-  if (!GD_TOKEN) return 0;
-  try {
-    // First: try the bulk file (2 API calls, instant)
-    const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name%3D%27TASI_prices_bulk.json%27+and+trashed%3Dfalse&fields=files(id)`;
-    const sr = await fetch(searchUrl, { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(8000) });
-    const sd = await _bodyJson(sr, 7000);
-    const bulkFile = sd?.files?.[0];
-    if (bulkFile) {
-      _gdBulkPriceFileId = bulkFile.id;
-      const fr = await fetch(`https://www.googleapis.com/drive/v3/files/${bulkFile.id}?alt=media`,
-        { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(15000) });
-      const bulk = await _bodyJson(fr, 14000);
-      if (bulk?.prices) {
-        let hits = 0;
-        for (const [ticker, entry] of Object.entries(bulk.prices)) {
-          if (entry?.priceData) {
-            _gdCache[ticker] = Object.assign(_gdCache[ticker] || {}, {
-              priceData: entry.priceData, priceUpdated: entry.priceUpdated,
-            });
-            hits++;
-          }
-        }
-        if (hits > 0) return hits;
-      }
-    }
-  } catch(e) { console.warn('gdLoadBulkPrices bulk file:', e); }
-
-  // Fallback: bulk file doesn't exist yet — read per-stock Drive files.
-  // Data IS there from previous individual fetches. Reads in batches of 12
-  // with body-read timeouts so this completes in ~30-40s max.
-  // After loading, gdSaveBulkPrices() will consolidate into bulk file for next time.
-  const DB = 12;
-  let hits = 0;
-  for (let i = 0; i < allData.length; i += DB) {
-    if (onProgress) onProgress(i, allData.length);
-    await Promise.all(allData.slice(i, i + DB).map(async d => {
-      const data = await gdReadStock(d.ticker).catch(() => null);
-      // gdReadStock already populates _gdCache[d.ticker]
-      if (data?.priceData?.price) hits++;
-    }));
-  }
-  return hits;
-}
-
-async function gdSaveBulkPrices() {
-  if (!GD_TOKEN) return;
-  try {
-    const prices = {};
-    for (const d of allData) {
-      const c = _gdCache[d.ticker];
-      if (c?.priceData && c.priceUpdated) {
-        prices[d.ticker] = { priceData: c.priceData, priceUpdated: c.priceUpdated };
-      }
-    }
-    if (!Object.keys(prices).length) return;
-    const body = JSON.stringify({ savedAt: Date.now(), prices });
-    const form = new FormData();
-    form.append('metadata', new Blob([JSON.stringify({ name: 'TASI_prices_bulk.json' })], { type: 'application/json' }));
-    form.append('file', new Blob([body], { type: 'application/json' }));
-    const method = _gdBulkPriceFileId ? 'PATCH' : 'POST';
-    const uploadUrl = _gdBulkPriceFileId
-      ? `https://www.googleapis.com/upload/drive/v3/files/${_gdBulkPriceFileId}?uploadType=multipart`
-      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-    const res = await fetch(uploadUrl, { method, headers: { Authorization: `Bearer ${GD_TOKEN}` }, body: form, signal: AbortSignal.timeout(20000) });
-    if (res.ok && !_gdBulkPriceFileId) {
-      const meta = await _bodyJson(res, 5000);
-      if (meta?.id) _gdBulkPriceFileId = meta.id;
-    }
-  } catch(e) { console.warn('gdSaveBulkPrices:', e); }
-}
 
 function getGDClientId() { return localStorage.getItem('TASI_gd_clientid') || ''; }
 function initGDToken() { const t = sessionStorage.getItem('TASI_gd_token'); if (t) GD_TOKEN = t; }
@@ -1383,7 +1245,7 @@ async function gdFindFile(ticker) {
       `https://www.googleapis.com/drive/v3/files?q=name%3D%27${encodeURIComponent(name)}%27+and+trashed%3Dfalse&fields=files(id,modifiedTime)`,
       { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(8000) }
     );
-    const d = await _bodyJson(r, 7000);
+    const d = await r.json();
     const file = d.files?.[0] || null;
     if (file) _gdFileIdCache[ticker] = file.id;
     return file;
@@ -1402,7 +1264,7 @@ async function gdReadStock(ticker) {
         `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
         { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(10000) }
       );
-      const data = await _bodyJson(r, 9000);
+      const data = await r.json();
       _gdCache[ticker] = data;
       return data;
     } catch(e) { return null; }
@@ -3396,52 +3258,23 @@ function bar(s){return`<div class="bw"><div class="bt"><div class="bfill" style=
 // YAHOO FINANCE DATA FETCH — with multi-proxy rotation
 // ═══════════════════════════════════════════════════
 
-// Multiple CORS proxies — direct fetch first, then 4 proxy fallbacks
-// Direct fetch (no proxy): Yahoo Finance often allows cross-origin GET
-// requests — try it first so we don't depend on third-party proxies at all.
+// Multiple CORS proxies — 4-proxy fallback for Yahoo chart endpoint
 const PROXIES = [
-  { fn: url => url,                                                                  raw: true, direct: true },
   { fn: url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,             raw: true  },
   { fn: url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,    raw: true  },
   { fn: url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`, raw: true },
   { fn: url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,    raw: false },
 ];
-let proxyIdx = 1; // start at index 1 (first proxy) — direct fetch is always attempt 0
-
-// Guard against Android Chrome bug: AbortSignal.timeout aborts the request headers
-// but NOT the response body stream — so resp.text()/resp.json() hang indefinitely.
-// This helper races the body-read against an explicit setTimeout.
-function _bodyText(resp, ms) {
-  return Promise.race([
-    resp.text(),
-    new Promise((_, rej) => setTimeout(() => rej(new Error('body-timeout')), ms))
-  ]);
-}
-function _bodyJson(resp, ms) {
-  return Promise.race([
-    resp.json(),
-    new Promise((_, rej) => setTimeout(() => rej(new Error('body-timeout')), ms))
-  ]);
-}
+let proxyIdx = 0;
 
 async function fetchWithProxy(url){
-  // Always try direct fetch first — no proxy needed when Yahoo allows CORS
-  try{
-    const resp = await fetch(url, {signal: AbortSignal.timeout(8000)});
-    if(resp.ok){
-      const text = await _bodyText(resp, 7000);
-      try{ const data = JSON.parse(text); if(data && Object.keys(data).length > 0) return data; }catch(e){}
-    }
-  }catch(e){}
-  // Fall back to rotating CORS proxies
   for(let attempt=0; attempt<PROXIES.length; attempt++){
     const pi = (proxyIdx + attempt) % PROXIES.length;
     const proxy = PROXIES[pi];
-    if(proxy.direct) continue; // skip direct-fetch entry in rotation
     try{
       const resp = await fetch(proxy.fn(url), {signal: AbortSignal.timeout(12000)});
       if(!resp.ok) continue;
-      const text = await _bodyText(resp, 10000);
+      const text = await resp.text();
       let data;
       try{
         if(proxy.raw){ data = JSON.parse(text); }
@@ -3469,7 +3302,7 @@ async function fetchWithProxyPost(url, body) {
         signal: AbortSignal.timeout(12000)
       });
       if (!resp.ok) continue;
-      const text = await _bodyText(resp, 10000);
+      const text = await resp.text();
       try { const d = JSON.parse(text); if (d && Object.keys(d).length) return d; } catch(e) {}
     } catch(e) { continue; }
   }
@@ -3677,12 +3510,9 @@ async function fetchYahooPrice(ticker){
     const meta = data?.chart?.result?.[0]?.meta;
     const closes = (data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
     const timestamps = data?.chart?.result?.[0]?.timestamp||[];
-    // regularMarketPreviousClose = yesterday's official close (correct for 1-day % change)
-    // chartPreviousClose = close before chart period starts (6 months ago for range=6mo → wrong for daily change)
-    const prev = meta?.regularMarketPreviousClose ?? null;
     return {
       price: meta?.regularMarketPrice??null,
-      prev,
+      prev:  meta?.chartPreviousClose??null,
       closes, timestamps,
       volume: meta?.regularMarketVolume??null,
       avgVolume3M: meta?.averageDailyVolume3Month??null,
@@ -3691,16 +3521,12 @@ async function fetchYahooPrice(ticker){
 }
 
 // ── PRICE-ONLY FETCH: used during main refresh (fast, 1 req per stock) ──
-const GD_PRICE_TTL = Infinity; // prices never expire — last known price is always valid; use Force to refresh
-// skipDriveNetwork=true during bulk refreshAll: use only in-memory cache, no Drive API calls
-// (prevents 238× Drive API calls which get throttled and cause hangs)
-async function fetchStockPrice(stock, skipDriveNetwork=false) {
+const GD_PRICE_TTL = 30 * 60 * 1000; // 30-minute price cache in Drive
+async function fetchStockPrice(stock) {
   const ticker = stock.ticker;
-  // Check Drive price cache — memory-only during bulk refresh, full Drive during modal open
+  // Check Drive price cache first — avoids a Yahoo round-trip on page reload
   if (GD_TOKEN) {
-    const driveData = skipDriveNetwork
-      ? (_gdCache[ticker] ?? null)                           // in-memory only, no network
-      : (_gdCache[ticker] || await gdReadStock(ticker));     // full Drive read (single modal)
+    const driveData = _gdCache[ticker] || await gdReadStock(ticker);
     if (driveData?.priceData && Date.now() - (driveData.priceUpdated || 0) < GD_PRICE_TTL) {
       const p = driveData.priceData;
       return {
@@ -3753,7 +3579,7 @@ async function fetchStockFull(stock) {
   const result = {
     pe:stock.pe, pb:stock.pb, roe:stock.roe, npm:stock.npm,
     de:stock.de, dy:stock.dy, fcf:stock.fcf, cr:stock.cr,
-    rg:stock.rg, eg:stock.eg, assets:stock.assets,
+    rg:stock.rg, eg:stock.eg,
     rawYahoo:null, dataDate:null, fullLoaded:true
   };
   try {
@@ -3776,8 +3602,6 @@ async function fetchStockFull(stock) {
       if(fd?.totalRevenue?.raw)  { result.ttmRev=fd.totalRevenue.raw; result.rev=fd.totalRevenue.raw/1e9; }
       if(fd?.netIncome?.raw)     { result.ttmNI=fd.netIncome.raw;     result.ni=fd.netIncome.raw/1e9; }
       if(fd?.totalCash?.raw)     result.ttmCash=fd.totalCash.raw;
-      // Recompute net margin from live TTM revenue/NI — stays consistent with live financials
-      if(result.ttmRev > 0 && result.ttmNI != null) result.npm = result.ttmNI / result.ttmRev;
       // Shares outstanding → needed for EPS fallback and DCF per-share
       if(dk?.sharesOutstanding?.raw) result.sharesOutstanding=dk.sharesOutstanding.raw;
       // Beta, 52W, market cap from Yahoo
@@ -3786,32 +3610,12 @@ async function fetchStockFull(stock) {
       if(sd?.fiftyTwoWeekHigh?.raw) result.w52high=sd.fiftyTwoWeekHigh.raw;
       if(sd?.fiftyTwoWeekLow?.raw) result.w52low=sd.fiftyTwoWeekLow.raw;
       if(sd?.marketCap?.raw) result.mktCap=sd.marketCap.raw;
-      // EPS — primary: Yahoo trailingEps; fallback: TTM from last 4 quarterly reports
-      if(dk?.trailingEps?.raw) result.eps = dk.trailingEps.raw;
-      if(dk?.forwardEps?.raw) result.fwdEps = dk.forwardEps.raw;
-      // TTM EPS fallback from quarterly income statements (works even when trailingEps is absent for .SR stocks)
-      if(!(result.eps > 0)) {
-        const qStmts = qs.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
-        const last4 = qStmts.slice(0, 4);
-        const shares = result.sharesOutstanding || dk?.sharesOutstanding?.raw;
-        if(last4.length >= 2 && shares > 0) {
-          // Try summing basicEps directly; fall back to NI/shares per quarter
-          const ttmEPS = last4.reduce((s, q) => {
-            const e = q.basicEps?.raw ?? (q.netIncome?.raw != null ? q.netIncome.raw / shares : null);
-            return e != null ? s + e : s;
-          }, 0);
-          if(ttmEPS > 0) result.eps = +ttmEPS.toFixed(4);
-        }
-      }
-      // Compute P/E from live price / trailing EPS — matches Yahoo Finance app exactly.
-      // Overrides API trailingPE which can be stale or absent for Saudi (.SR) stocks.
-      if(result.eps > 0 && stock.price > 0) result.pe = +(stock.price / result.eps).toFixed(2);
-      // Total assets from most recent balance sheet
-      const latestBS = qs.balanceSheetHistory?.balanceSheetStatements?.[0];
-      if(latestBS?.totalAssets?.raw) result.assets = latestBS.totalAssets.raw / 1e9;
-      // Earnings date from latest income statement — stored separately from dataDate (which is overwritten by price refresh)
+      // EPS
+      if(dk?.trailingEps?.raw) result.eps=dk.trailingEps.raw;
+      if(dk?.forwardEps?.raw) result.fwdEps=dk.forwardEps.raw;
+      // Earnings date from latest income statement
       const latestIS = qs.incomeStatementHistory?.incomeStatementHistory?.[0];
-      if(latestIS?.endDate?.fmt) { result.dataDate = latestIS.endDate.fmt; result.finPeriod = latestIS.endDate.fmt; }
+      if(latestIS?.endDate?.fmt) result.dataDate = latestIS.endDate.fmt;
       // Financial statements
       result.rawYahoo = {
         incomeStatementHistory:qs.incomeStatementHistory,
@@ -3844,13 +3648,10 @@ async function fetchStockFull(stock) {
           de: result.de, dy: result.dy, fcf: result.fcf, cr: result.cr,
           rg: result.rg, eg: result.eg, beta: result.beta,
           w52high: result.w52high, w52low: result.w52low, w52change: result.w52change,
-          mktCap: result.mktCap, eps: result.eps, fwdEps: result.fwdEps,
-          dataDate: result.dataDate, finPeriod: result.finPeriod,
+          mktCap: result.mktCap, eps: result.eps, fwdEps: result.fwdEps, dataDate: result.dataDate,
           ttmRev: result.ttmRev, ttmNI: result.ttmNI, sharesOutstanding: result.sharesOutstanding,
-          assets: result.assets,
         },
         fundUpdated: Date.now(),
-        fundVersion: GD_FUND_VER,
         ...(result.earningsTrend?.length ? { earningsTrend: result.earningsTrend, trendUpdated: Date.now() } : {}),
       });
     }
@@ -3992,7 +3793,7 @@ function buildSectors(){} // sector filtering handled by buildSectorPerf pills
 // INDEXEDDB CACHE (with localStorage fallback)
 // ═══════════════════════════════════════════════════
 const DB_NAME="TASIDash",DB_VER=3,STORE="cache",CACHE_KEY="stocks",META_KEY="meta";
-let CACHE_TTL=Infinity,db=null,dbReady=false; // prices never expire — use Force button to get fresh data
+let CACHE_TTL=4*60*60*1000,db=null,dbReady=false;
 
 function openDB(){
   return new Promise(res=>{
@@ -4194,19 +3995,15 @@ async function openModal(idx){
     let usedDriveCache = false;
     if (GD_TOKEN) {
       const driveStock = await gdReadStock(d.ticker);
-      if (driveStock?.fundamentals && driveStock.fundUpdated && (Date.now() - driveStock.fundUpdated < GD_FUND_TTL) && (driveStock.fundVersion >= GD_FUND_VER)) {
+      if (driveStock?.fundamentals && driveStock.fundUpdated && (Date.now() - driveStock.fundUpdated < GD_FUND_TTL)) {
         const f = driveStock.fundamentals;
         const realD = allData.find(a => a.ticker === d.ticker);
         if (realD && f) {
-          const keys = ['pe','pb','roe','npm','de','dy','fcf','cr','rg','eg','beta','w52high','w52low','w52change','mktCap','eps','fwdEps','dataDate','finPeriod','ttmRev','ttmNI','sharesOutstanding','assets'];
+          const keys = ['pe','pb','roe','npm','de','dy','fcf','cr','rg','eg','beta','w52high','w52low','w52change','mktCap','eps','fwdEps','dataDate','ttmRev','ttmNI','sharesOutstanding'];
           keys.forEach(k => { if (f[k] != null) realD[k] = f[k]; });
           // Update rev/ni from Yahoo TTM values (more accurate than hardcoded STOCKS data)
           if (f.ttmRev) realD.rev = f.ttmRev / 1e9;
           if (f.ttmNI)  realD.ni  = f.ttmNI  / 1e9;
-          // Recompute P/E from current live price + cached EPS — P/E shifts daily with price
-          if(realD.eps > 0 && realD.price > 0) realD.pe = +(realD.price / realD.eps).toFixed(2);
-          // Recompute net margin from cached TTM values — stays consistent with live rev/NI
-          if(f.ttmRev > 0 && f.ttmNI != null) realD.npm = f.ttmNI / f.ttmRev;
           // Restore earningsTrend and DCF result from Drive if available
           if (driveStock.earningsTrend?.length && (Date.now() - (driveStock.trendUpdated||0) < GD_TREND_TTL))
             realD.earningsTrend = driveStock.earningsTrend;
@@ -4232,7 +4029,6 @@ async function openModal(idx){
           realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
           realD.combined=calcCombined(realD);
           const _e=window._fd?.find(f=>f.ticker===realD.ticker);if(_e)Object.assign(_e,realD);
-          computeSectorMedianPE(); // refresh sector median now that PE is live
           usedDriveCache = true;
         }
       }
@@ -4251,8 +4047,6 @@ async function openModal(idx){
         if(full.rg!=null) realD.rg=full.rg;
         if(full.eg!=null) realD.eg=full.eg;
         if(full.fcf!=null) realD.fcf=full.fcf;
-        if(full.assets!=null) realD.assets=full.assets;
-        if(full.finPeriod) realD.finPeriod=full.finPeriod;
         if(full.w52high) realD.w52high=full.w52high;
         if(full.w52low) realD.w52low=full.w52low;
         if(full.mktCap) realD.mktCap=full.mktCap;
@@ -4277,7 +4071,6 @@ async function openModal(idx){
         realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
         realD.combined=calcCombined(realD);
         const _e2=window._fd?.find(f=>f.ticker===realD.ticker);if(_e2)Object.assign(_e2,realD);
-        computeSectorMedianPE(); // refresh sector median now that we have a live PE
       }
     }
   }catch(e){ console.warn('Full data fetch failed:', e); }
@@ -4472,7 +4265,7 @@ function buildOverview(d){
       return `<div class="mi"><div class="mil">vs TASI (1Y)</div><div class="miv" style="color:${col}">${vsIdx>=0?'+':''}${(vsIdx*100).toFixed(1)}% <span style="font-size:8px;color:var(--tx3)">(stk ${stockReturn>=0?'+':''}${(stockReturn*100).toFixed(1)}%)</span></div></div>`;
     })()}
   </div>
-  <div class="secl">Key Financials (SAR B, ${d.finPeriod?d.finPeriod.slice(0,4)+' latest':d.fullLoaded?'TTM':'est.'})</div>
+  <div class="secl">Key Financials (SAR B, FY2024)</div>
   <div class="mgrid">
     <div class="mi"><div class="mil" ${T('revenue')}>Revenue</div><div class="miv">${d.rev!=null?d.rev.toFixed(2)+"B":"—"}</div></div>
     <div class="mi"><div class="mil" ${T('net_income')}>Net Income</div><div class="miv ${d.ni!=null?(d.ni>=0?'pos':'neg'):''}">${d.ni!=null?d.ni.toFixed(2)+"B":"—"}</div></div>
@@ -6561,18 +6354,10 @@ function init(){
 }
 
 async function refreshAll(forceRefresh=false){
+  // Yahoo Finance primary data source
   const btn=document.getElementById("rbtn");
   if(btn){btn.disabled=true;btn.textContent="Loading...";}
   const pw=document.getElementById("pw");if(pw)pw.style.display="block";
-  // Hard timeout: if refresh takes >60 seconds, stop and show whatever we have
-  const _hardStop = setTimeout(()=>{
-    console.warn('[refreshAll] 60-second hard timeout — stopping fetch loop');
-    if(pw)pw.style.display="none";
-    if(btn){btn.disabled=false;btn.textContent="↻ Reload Data";}
-    const loaded=allData.filter(d=>d.priceLoaded).length;
-    document.getElementById("pl").textContent=`⚠ Timed out — ${loaded} stocks loaded. Click ↻ to retry.`;
-    setTimeout(()=>{ if(pw)pw.style.display="none"; },3000);
-  }, 60*1000);
 
   // Try cache first unless forced
   if(!forceRefresh){
@@ -6597,7 +6382,6 @@ async function refreshAll(forceRefresh=false){
         }
       });
       if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
-      clearTimeout(_hardStop); // cache hit — no need for failsafe
       fetchTASIIndex();
       doFilter();updateMetrics();
       return;
@@ -6608,131 +6392,46 @@ async function refreshAll(forceRefresh=false){
     document.getElementById("pl").textContent="Cache cleared — fetching fresh data...";
   }
 
-  // ── Phase 1: Bulk Drive price cache (2 API calls for all 238 stocks) ────
-  if (GD_TOKEN && !forceRefresh) {
-    document.getElementById("pl").textContent = "Loading prices from Google Drive...";
-    const driveHits = await gdLoadBulkPrices((done, total) => {
-      document.getElementById("pl").textContent = `Drive: loading ${done}–${Math.min(done+12,total)} of ${total}...`;
-      document.getElementById("pf").style.width = Math.round(done/total*50)+'%';
-    });
-    if (driveHits > 0) {
-      document.getElementById("pl").textContent = `Drive: ${driveHits} stocks loaded`;
-    }
-  }
-
-  // ── Phase 2: Bulk Yahoo v7/quote — 50 stocks per request (5 req total) ──
-  // This is the fast path: one round-trip gets price+change for all stocks.
-  // Only runs for stocks not already covered by Drive cache.
-  const _needsPrice = allData.filter(d => {
-    const c = _gdCache[d.ticker];
-    return !(c?.priceData?.price && c.priceUpdated);
-  });
-  if (_needsPrice.length > 0) {
-    document.getElementById("pl").textContent = `Fetching prices (${_needsPrice.length} stocks)...`;
-    const _QBATCH = 20; // smaller batch — more reliable across proxies
-    for (let qi = 0; qi < _needsPrice.length; qi += _QBATCH) {
-      const batch = _needsPrice.slice(qi, qi + _QBATCH);
-      // Do NOT encodeURIComponent the symbols — commas must stay as commas
-      const syms  = batch.map(d => d.ticker).join(',');
-      // Try Yahoo v7/quote first (batch endpoint), then v8/chart per-stock as fallback
-      const qurl  = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketPreviousClose,regularMarketVolume,averageDailyVolume3Month,fiftyTwoWeekHigh,fiftyTwoWeekLow,marketCap`;
-      // Also try Yahoo v6 as alternate batch endpoint
-      const qurl6 = `https://query2.finance.yahoo.com/v6/finance/quote?symbols=${syms}`;
-      let qdata = {};
-      try {
-        qdata = await Promise.race([fetchWithProxy(qurl), new Promise(r => setTimeout(() => r({}), 12000))]);
-        // If v7 returned no results, try v6
-        if (!(qdata?.quoteResponse?.result?.length)) {
-          qdata = await Promise.race([fetchWithProxy(qurl6), new Promise(r => setTimeout(() => r({}), 12000))]);
-        }
-      } catch(e) {}
-      const quotes = qdata?.quoteResponse?.result || qdata?.quote || [];
-        for (const q of quotes) {
-          if (!q.symbol || q.regularMarketPrice == null) continue;
-          const idx = allData.findIndex(d => d.ticker === q.symbol);
-          if (idx < 0) continue;
-          const price  = q.regularMarketPrice;
-          const change = q.regularMarketChangePercent ?? null;
-          // Preserve existing closes from Drive/memory; v7/quote has no closes
-          const existingCloses     = allData[idx].closes || [];
-          const existingTimestamps = allData[idx].timestamps || [];
-          const tRes = scoreTechnicalWithSteps(existingCloses.length > 5 ? existingCloses : []);
-          allData[idx] = {
-            ...allData[idx],
-            price, change,
-            priceLoaded: true,
-            dataSource: 'yahoo-quote',
-            dataDate: new Date().toISOString().slice(0,10),
-            volume:      q.regularMarketVolume     ?? allData[idx].volume,
-            avgVolume3M: q.averageDailyVolume3Month ?? allData[idx].avgVolume3M,
-            w52high:     q.fiftyTwoWeekHigh         ?? allData[idx].w52high,
-            w52low:      q.fiftyTwoWeekLow          ?? allData[idx].w52low,
-            mktCap:      q.marketCap               ?? allData[idx].mktCap,
-            technical: tRes.score, techSteps: tRes.steps,
-            rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
-            combined: calcCombined({...allData[idx], price, technical: tRes.score}),
-          };
-          // Update _gdCache so Drive save picks it up
-          _gdCache[q.symbol] = Object.assign(_gdCache[q.symbol] || {}, {
-            priceData: { price, change,
-              closes: existingCloses.slice(-252), timestamps: existingTimestamps.slice(-252),
-              volume: allData[idx].volume, avgVolume3M: allData[idx].avgVolume3M },
-            priceUpdated: Date.now(),
-          });
-        }
-      } catch(e) { console.warn('bulk quote batch failed', e); }
-      document.getElementById("pf").style.width = Math.round(((qi + _QBATCH) / _needsPrice.length) * 60) + '%';
-      doFilter(); updateMetrics();
-    }
-  }
-
-  // ── Phase 3: Per-stock chart fetch for historical closes (technical scores) ──
-  // Only fetch stocks missing closes — prices already loaded above.
-  const B = 6;
-  const _priceTimeout = () => new Promise(r => setTimeout(() => r({
-    price:null,change:null,closes:[],timestamps:[],dataSource:'timeout',
-    dataDate:'—',volume:null,avgVolume3M:null,volatility:null
-  }), 10000));
-  const _needsCloses = allData.filter(d => (d.closes||[]).length < 6);
-  for(let i = 0; i < _needsCloses.length; i += B){
-    const pct = 60 + Math.round((i / Math.max(_needsCloses.length,1)) * 40);
-    document.getElementById("pf").style.width = pct + "%";
-    document.getElementById("pl").textContent = `Loading chart data: ${i+1}–${Math.min(i+B,_needsCloses.length)} of ${_needsCloses.length}`;
-    await Promise.all(_needsCloses.slice(i, i+B).map(async d => {
-      const idx = allData.findIndex(x => x.ticker === d.ticker);
-      if (idx < 0) return;
-      try {
-        const fetched = await Promise.race([fetchStockPrice(allData[idx], true), _priceTimeout()]);
-        if ((fetched.closes||[]).length > 5) {
-          const tRes = scoreTechnicalWithSteps(fetched.closes);
-          allData[idx] = {
-            ...allData[idx],
-            // Only overwrite price if we didn't already get it from v7/quote
-            price:  allData[idx].priceLoaded ? allData[idx].price  : (fetched.price  ?? allData[idx].price),
-            change: allData[idx].priceLoaded ? allData[idx].change : (fetched.change ?? allData[idx].change),
-            priceLoaded: allData[idx].priceLoaded || fetched.price != null,
-            closes: fetched.closes, timestamps: fetched.timestamps,
-            dataSource: allData[idx].dataSource || fetched.dataSource,
-            technical: tRes.score, techSteps: tRes.steps,
-            rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
-            volatility: fetched.volatility ?? allData[idx].volatility,
-            volume: fetched.volume ?? allData[idx].volume,
-            avgVolume3M: fetched.avgVolume3M ?? allData[idx].avgVolume3M,
-            combined: calcCombined({...allData[idx], technical: tRes.score}),
-          };
-        }
-      } catch(e) {}
+  const B=6;
+  for(let i=0;i<allData.length;i+=B){
+    const pct=Math.round((i/allData.length)*100);
+    document.getElementById("pf").style.width=pct+"%";
+    document.getElementById("pl").textContent=`Fetching prices: ${i+1}–${Math.min(i+B,allData.length)} of ${allData.length}`;
+    const slice=allData.slice(i,i+B);
+    await Promise.all(slice.map(async(d,j)=>{
+      const idx=i+j;
+      try{
+        // ── Price-only fetch (1 request per stock, fast) ──
+        const fetched = await fetchStockPrice(allData[idx]);
+        const tRes = scoreTechnicalWithSteps(fetched.closes.length>5 ? fetched.closes : allData[idx].closes);
+        const price = fetched.price;
+        const change = fetched.change!=null ? parseFloat(fetched.change.toFixed(2)) : null;
+        allData[idx] = {
+          ...allData[idx],
+          price, change,
+          closes: fetched.closes.length>5 ? fetched.closes : allData[idx].closes,
+          timestamps: fetched.timestamps.length>5 ? fetched.timestamps : allData[idx].timestamps,
+          priceLoaded: price!=null,
+          dataSource: fetched.dataSource,
+          dataDate: fetched.dataDate || allData[idx].dataDate,
+          technical:tRes.score, techSteps:tRes.steps,
+          rsi:tRes.rsi, sma20:tRes.sma20, sma50:tRes.sma50, momentum:tRes.momentum,
+          combined: calcCombined({...allData[idx], technical:tRes.score}),
+          // Change 6: volatility and volume
+          volatility: fetched.volatility ?? allData[idx].volatility ?? null,
+          volume: fetched.volume ?? allData[idx].volume ?? null,
+          avgVolume3M: fetched.avgVolume3M ?? allData[idx].avgVolume3M ?? null,
+        };
+      }catch(e){allData[idx].priceLoaded=false;}
     }));
     if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
-    doFilter(); updateMetrics();
+    doFilter();updateMetrics();
   }
 
-  clearTimeout(_hardStop); // normal completion — cancel the 4-min failsafe
   document.getElementById("pf").style.width="100%";
   const loaded=allData.filter(d=>d.priceLoaded).length;
   document.getElementById("pl").textContent=`✓ Done: ${loaded}/${allData.length} stocks loaded. Saving to cache...`;
-  // Save to IndexedDB and Drive bulk file in parallel
-  await Promise.all([saveCache(), gdSaveBulkPrices()]);
+  await saveCache();
   document.getElementById("pl").textContent=`✓ ${loaded}/${allData.length} stocks saved to cache`;
   setTimeout(()=>{pw.style.display="none";},3000);
   btn.disabled=false;btn.textContent="↻ Reload Data";
@@ -6787,8 +6486,7 @@ async function fetchTASIIndex() {
     const closes = (res.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
     const timestamps = res.timestamp||[];
     const price = meta?.regularMarketPrice ?? null;
-    // Use regularMarketPreviousClose (yesterday's close) not chartPreviousClose (start of 1-year range)
-    const prev = meta?.regularMarketPreviousClose ?? null;
+    const prev = meta?.chartPreviousClose ?? null;
     const change = (price && prev) ? ((price-prev)/prev)*100 : null;
     // YTD return: find close at or after Jan 1 of current year
     let ytdReturn = null;
@@ -7045,7 +6743,7 @@ function buildSectorPerf() {
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
       <button class="sp-btn sp-btn-red" onclick="clearTwelveCache()">🗑 Clear Cache</button>
       <button class="sp-btn sp-btn-sec" onclick="validateTickers()" title="Check ALL tickers against Yahoo Finance — batches of 6, ~2-3 min total">⚡ Validate All Tickers</button>
-      <button class="sp-btn" onclick="setDashboardPassword()" title="Set a password so only you can open the dashboard">🔒 Set Password</button>
+      <button class="sp-btn" onclick="setDashboardPassword()">🔒 Set Password</button>
     </div>
     <div class="sp-log" id="td-log">Status will appear here after actions.</div>
 
