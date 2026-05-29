@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260529j'; // bump this string on every deploy that matters
+  var V='20260529k'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -396,6 +396,16 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
       <div id="mkt-cond-banner" style="display:none;margin-bottom:10px"></div>
       <div id="mkt-cond-tiles" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>
       <div style="height:180px"><canvas id="market-pe-chart"></canvas></div>
+      <!-- ── Buffett Indicator ──────────────────────────────────────────── -->
+      <div style="margin-top:14px;border-top:1px solid var(--b1);padding-top:10px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">
+          <span style="font-size:10px;font-weight:600;color:var(--tx2);font-family:var(--mono)">Buffett Indicator</span>
+          <span style="font-size:9px;color:var(--tx3)">Market Cap / Saudi GDP</span>
+          <span id="buffett-line-label" style="font-size:9px;font-family:var(--mono);font-weight:600;margin-left:4px"></span>
+        </div>
+        <div style="height:130px"><canvas id="buffett-chart"></canvas></div>
+        <div style="font-size:8px;color:var(--tx3);margin-top:4px">Ex-Aramco shown (Aramco has ~2% free float — total market cap/GDP misleading). Estimated from TASI price × current cap ratios.</div>
+      </div>
     </div>
   </div>
   <div class="pw" id="pw" style="display:none">
@@ -7381,7 +7391,7 @@ function _applyTASICloses(closes, timestamps) {
     ytdEl.innerHTML = `<span style="color:var(--tx3)">YTD: <span style="color:${col}">${tasiIndex.ytdReturn>=0?'+':''}${(tasiIndex.ytdReturn*100).toFixed(1)}%</span></span>`;
   }
   if (document.getElementById('tasi-modal-bg')?.style.display !== 'none') drawTASIChart();
-  if (marketPEChartVisible) _renderMPEChart();
+  if (marketPEChartVisible) { _renderMPEChart(); _renderBuffettChart(); }
   // Persist to Drive so next load is instant
   if (GD_TOKEN) gdSaveBulkPrices();
 }
@@ -7566,7 +7576,7 @@ async function fetchTASIIndex() {
   }
 
   // Refresh market P/E chart if open (uses tasiIndex.closes for historical line)
-  if (marketPEChartVisible) _renderMPEChart();
+  if (marketPEChartVisible) { _renderMPEChart(); _renderBuffettChart(); }
   // Queue long-range fetch for full 10Y closes (used by TASI modal chart)
   if (closes.length < 1000) fetchTASIIndexLong();
 }
@@ -7582,6 +7592,7 @@ function computeVolatility(closes) {
 
 // ── Market P/E Statistics ─────────────────────────────────────────────────
 let marketPEChartInst = null;
+let buffettChartInst  = null;
 let marketPEChartVisible = false;
 let _mpeRange = '1Y'; // active range button
 let _mpeCurve = 'wtd'; // 'wtd' | 'med' | 'mean'
@@ -7772,7 +7783,7 @@ function updateMarketPEStats() {
     if (_mpeHistCache.length > 3650) _mpeHistCache.splice(0, _mpeHistCache.length - 3650);
     localStorage.setItem('tasi_mpe_hist', JSON.stringify(_mpeHistCache));
   } catch(e){}
-  if (marketPEChartVisible) { _renderMPEChart(); _renderMarketConditions(); }
+  if (marketPEChartVisible) { _renderMPEChart(); _renderBuffettChart(); _renderMarketConditions(); }
 }
 
 function toggleMarketPEChart() {
@@ -7782,8 +7793,11 @@ function toggleMarketPEChart() {
   marketPEChartVisible = !marketPEChartVisible;
   wrap.style.display = marketPEChartVisible ? 'block' : 'none';
   if (hint) hint.textContent = marketPEChartVisible ? '▲ hide tools' : '▼ valuation tools';
-  if (marketPEChartVisible) { updateMarketPEStats(); _renderMarketConditions(); setTimeout(_renderMPEChart, 30); }
-  else if (marketPEChartInst) { try { marketPEChartInst.destroy(); } catch(e){} marketPEChartInst = null; }
+  if (marketPEChartVisible) { updateMarketPEStats(); _renderMarketConditions(); setTimeout(_renderMPEChart, 30); setTimeout(_renderBuffettChart, 60); }
+  else {
+    if (marketPEChartInst) { try { marketPEChartInst.destroy(); } catch(e){} marketPEChartInst = null; }
+    if (buffettChartInst)  { try { buffettChartInst.destroy();  } catch(e){} buffettChartInst  = null; }
+  }
 }
 
 function setMPERange(r) {
@@ -7795,6 +7809,7 @@ function setMPERange(r) {
     else { btn.style.background=''; btn.style.color=''; btn.style.borderColor=''; }
   });
   _renderMPEChart();
+  _renderBuffettChart();
 }
 
 function setMPECurve(c) {
@@ -7845,6 +7860,7 @@ function _renderMPEChart() {
   // Ratios for estimating historical median/mean from TASI price (when actual stored data unavailable)
   const medRatio  = wtdAvg > 0 ? median / wtdAvg : 1;
   const meanRatio = wtdAvg > 0 ? mean   / wtdAvg : 1;
+  void medRatio; void meanRatio; // kept for reference only — not used for estimation (would produce identical curves when ratios converge)
 
   const priceCloses  = tasiIndex.closes || [];
   const priceStamps  = tasiIndex.timestamps || [];
@@ -7865,10 +7881,9 @@ function _renderMPEChart() {
       if (estWtd <= 0 || estWtd > 40) continue;
       if (stored?.pe  > 0 && stored.pe  < 40) wtdMap.set(dateStr,  { t:tMs, pe:stored.pe  });
       else                                      wtdMap.set(dateStr,  { t:tMs, pe:estWtd, estimated:true });
-      if (stored?.med > 0 && stored.med < 40) medMap.set(dateStr,  { t:tMs, pe:stored.med });
-      else                                      medMap.set(dateStr,  { t:tMs, pe:+(estWtd*medRatio).toFixed(2), estimated:true });
-      if (stored?.mean> 0 && stored.mean< 40) meanMap.set(dateStr, { t:tMs, pe:stored.mean });
-      else                                      meanMap.set(dateStr, { t:tMs, pe:+(estWtd*meanRatio).toFixed(2), estimated:true });
+      // Median and mean: actual stored data only — estimation would produce identical shapes when ratios are close
+      if (stored?.med  > 0 && stored.med  < 40) medMap.set(dateStr,  { t:tMs, pe:stored.med  });
+      if (stored?.mean > 0 && stored.mean < 40) meanMap.set(dateStr, { t:tMs, pe:stored.mean });
     }
   }
   // Add stored entries not covered by TASI price timestamps
@@ -7910,9 +7925,9 @@ function _renderMPEChart() {
       labels: allDates,
       datasets: [
         { label:`Wtd Avg ${wtdAvg.toFixed(1)}x`,  data:wtdVals,  borderColor:'#4f9cf9', backgroundColor:'rgba(79,156,249,0.06)', fill:true,  pointRadius:0, borderWidth:2,   tension:0.2, spanGaps:true },
-        { label:`Median ${median.toFixed(1)}x`,    data:medVals,  borderColor:'#22c55e', backgroundColor:'transparent',           fill:false, pointRadius:0, borderWidth:1.5, tension:0.2, spanGaps:true },
-        { label:`Mean ${mean.toFixed(1)}x`,        data:meanVals, borderColor:'#f59e0b', backgroundColor:'transparent',           fill:false, pointRadius:0, borderWidth:1.5, tension:0.2, spanGaps:true, borderDash:[4,3] },
-        { label:`Period Avg ${avgPE.toFixed(1)}x`, data:new Array(allDates.length).fill(+avgPE.toFixed(2)), borderColor:'#4a5568', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:1, borderDash:[5,4], spanGaps:true }
+        { label:`Median ${median.toFixed(1)}x ●`,  data:medVals,  borderColor:'#22c55e', backgroundColor:'transparent',           fill:false, pointRadius:0, borderWidth:1.5, tension:0.2, spanGaps:false },
+        { label:`Mean ${mean.toFixed(1)}x ●`,      data:meanVals, borderColor:'#f59e0b', backgroundColor:'transparent',           fill:false, pointRadius:0, borderWidth:1.5, tension:0.2, spanGaps:false, borderDash:[4,3] },
+        { label:`Hist Avg ${avgPE.toFixed(1)}x`,   data:new Array(allDates.length).fill(+avgPE.toFixed(2)), borderColor:'#4a5568', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:1, borderDash:[5,4], spanGaps:true }
       ]
     },
     options: {
@@ -7932,6 +7947,91 @@ function _renderMPEChart() {
         y:{ title:{display:true, text:'P/E Ratio', color:'#4a5568', font:fontOpts},
             ticks:{font:fontOpts, color:'#4a5568', callback:v=>v+'x'},
             grid:{color:'rgba(255,255,255,0.03)'}, border:{color:'#232830'} }
+      }
+    }
+  });
+}
+
+function _renderBuffettChart() {
+  if (buffettChartInst) { try { buffettChartInst.destroy(); } catch(e){} buffettChartInst = null; }
+  const ctx = document.getElementById('buffett-chart');
+  if (!ctx) return;
+
+  const priceCloses  = tasiIndex.closes || [];
+  const priceStamps  = tasiIndex.timestamps || [];
+  const currentPrice = tasiIndex.price;
+  if (!currentPrice || priceCloses.length < 5) return;
+
+  const withMC       = allData.filter(d => d.mktCap > 0 && d.priceLoaded);
+  if (!withMC.length) return;
+  const totalMCbn    = withMC.reduce((s,d) => s + d.mktCap, 0);
+  const exAramcoMCbn = withMC.filter(d => d.ticker !== '2222.SR').reduce((s,d) => s + d.mktCap, 0);
+  const gdpBn        = SAUDI_GDP_SAR / 1e9; // 4,000 bn SAR
+
+  const rangeDays = { '3M':90, '6M':180, '1Y':365, '2Y':730, '5Y':1825 }[_mpeRange] || 365;
+  const cutoffMs  = Date.now() - rangeDays * 864e5;
+
+  const labels = [], exVals = [];
+  for (let i = 0; i < priceCloses.length; i++) {
+    if (!priceCloses[i] || !priceStamps[i]) continue;
+    const tMs = priceStamps[i] * 1000;
+    if (tMs < cutoffMs) continue;
+    const ratio = priceCloses[i] / currentPrice;
+    labels.push(new Date(tMs).toISOString().slice(0,10));
+    exVals.push(+(ratio * exAramcoMCbn / gdpBn * 100).toFixed(1));
+  }
+  if (labels.length < 2) return;
+
+  // Update inline label
+  const lblEl = document.getElementById('buffett-line-label');
+  if (lblEl) {
+    const curEx  = +(exAramcoMCbn / gdpBn * 100).toFixed(0);
+    const curTot = +(totalMCbn    / gdpBn * 100).toFixed(0);
+    const col = curEx < 60 ? 'var(--green)' : curEx < 80 ? 'var(--amb)' : 'var(--red)';
+    lblEl.textContent = `Ex-Aramco: ${curEx}% · Total: ${curTot}%`;
+    lblEl.style.color = col;
+  }
+
+  const fontOpts = { size:8, family:"'IBM Plex Mono'" };
+  const n = labels.length;
+  // Saudi ex-Aramco zone boundaries (calibrated for developing market)
+  const zoneFair = 60, zoneRich = 80;
+
+  buffettChartInst = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label:'Ex-Aramco MC/GDP', data:exVals, borderColor:'#4f9cf9', backgroundColor:'rgba(79,156,249,0.07)', fill:true, pointRadius:0, borderWidth:2, tension:0.2 },
+        { label:`Fair zone ${zoneFair}%`,  data:new Array(n).fill(zoneFair), borderColor:'#22c55e', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:1, borderDash:[4,3] },
+        { label:`Rich zone ${zoneRich}%`,  data:new Array(n).fill(zoneRich), borderColor:'#ef4444', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:1, borderDash:[4,3] },
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins: {
+        legend:{ display:true, labels:{ color:'#8a9ab5', font:fontOpts, boxWidth:10,
+          filter: item => item.text.startsWith('Ex-Aramco') }},
+        tooltip:{ backgroundColor:'rgba(24,28,34,0.97)', borderColor:'#2d3440', borderWidth:1,
+          titleColor:'#e8eaed', bodyColor:'#8a9ab5',
+          titleFont:{family:"'IBM Plex Mono'",size:9}, bodyFont:{family:"'IBM Plex Mono'",size:9},
+          callbacks:{
+            label: c => {
+              if (!c.dataset.label.startsWith('Ex-Aramco')) return null;
+              const v = c.raw;
+              const zone = v < zoneFair ? 'Undervalued' : v < zoneRich ? 'Fair Value' : 'Overvalued';
+              return `MC/GDP ex-Aramco: ${v}% (${zone})`;
+            }
+          }
+        }
+      },
+      scales: {
+        x:{ ticks:{font:fontOpts, color:'#4a5568', maxTicksLimit:6, maxRotation:0}, grid:{display:false}, border:{color:'#232830'} },
+        y:{ title:{display:true, text:'% of GDP', color:'#4a5568', font:fontOpts},
+            ticks:{font:fontOpts, color:'#4a5568', callback:v=>v+'%'},
+            grid:{color:'rgba(255,255,255,0.03)'}, border:{color:'#232830'},
+            suggestedMin: 0, suggestedMax: Math.max(100, Math.max(...exVals) + 10) }
       }
     }
   });
