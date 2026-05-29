@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260529k'; // bump this string on every deploy that matters
+  var V='20260529l'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -6911,12 +6911,20 @@ async function refreshAll(forceRefresh=false){
       document.getElementById("lu").textContent=`${loaded}/${allData.length} from cache`;
       // Compute sector medians and fetch TASI index even from cache
       computeSectorMedianPE();
+      const _CACHE_SFVPE = {'Banking':11,'Insurance':13,'Energy':18,'Petrochemicals':14,'Chemicals':13,'Materials':13,'Building Materials':14,'Real Estate':20,'REITs':16,'Telecom':20,'Technology':28,'Healthcare':25,'Consumer':18,'Utilities':16,'Transportation':14,'Industrial':16};
       allData.forEach(d => {
         if(d.pe != null) {
           const fRes = scoreFundamental(d);
           d.fundamental = d.noHardcodedData && !d.priceLoaded ? null : fRes.score;
           d.fundSteps = fRes.steps;
           d.combined = (d.noHardcodedData && !d.priceLoaded) ? null : calcCombined(d);
+        }
+        // Backfill FV estimate if not already set (e.g. cache from before FV feature)
+        if (!d.dcfPS && d.price > 0 && d.pe > 0) {
+          const sFVPE = _CACHE_SFVPE[d.sector] || 15;
+          d.dcfPS    = +(d.price / d.pe * sFVPE).toFixed(2);
+          d.dcfUpside = (d.dcfPS - d.price) / d.price;
+          d.dcfMethod = 'P/E Est.';
         }
       });
       if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
@@ -6971,7 +6979,16 @@ async function refreshAll(forceRefresh=false){
   document.getElementById("pl").textContent = `Fetching live prices (${allData.length} stocks)...`;
   const _QBATCH = 20;
   const _p2TickerIdx = new Map(allData.map((d,i) => [d.ticker, i]));
+  // Phase 2 uses a short 4-second timeout so Yahoo API failures don't eat the 4-min hard timeout
+  // (leaving Phase 3's v8/chart per-stock fetch enough time to succeed)
+  const _P2T = 4000;
+  let _p2totalLoaded = 0;
   for (let qi = 0; qi < allData.length; qi += _QBATCH) {
+    // Early abort: 3 batches tried, nothing loaded → Yahoo is blocked, jump to Phase 3
+    if (qi >= 3 * _QBATCH && _p2totalLoaded === 0) {
+      document.getElementById("pl").textContent = 'Yahoo batch API unavailable — switching to per-stock fetch...';
+      break;
+    }
     try {
       const batch = allData.slice(qi, qi + _QBATCH);
       const syms  = batch.map(d => d.ticker).join(',');
@@ -6979,9 +6996,9 @@ async function refreshAll(forceRefresh=false){
       const qurl  = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}`;
       const qurl6 = `https://query2.finance.yahoo.com/v6/finance/quote?symbols=${syms}`;
       let qdata = {};
-      qdata = await Promise.race([fetchWithProxy(qurl), new Promise(r => setTimeout(() => r({}), 12000))]);
+      qdata = await Promise.race([fetchWithProxy(qurl), new Promise(r => setTimeout(() => r({}), _P2T))]);
       if (!(qdata?.quoteResponse?.result?.length)) {
-        qdata = await Promise.race([fetchWithProxy(qurl6), new Promise(r => setTimeout(() => r({}), 12000))]);
+        qdata = await Promise.race([fetchWithProxy(qurl6), new Promise(r => setTimeout(() => r({}), _P2T))]);
       }
       const quotes = qdata?.quoteResponse?.result || qdata?.quote || [];
       for (const q of quotes) {
@@ -7039,6 +7056,7 @@ async function refreshAll(forceRefresh=false){
         });
       }
     } catch(e) { console.warn('bulk quote batch failed', e); }
+    _p2totalLoaded = allData.filter(d => d.priceLoaded).length;
     document.getElementById("pf").style.width = Math.round(((qi + _QBATCH) / allData.length) * 60) + '%';
     scheduleRender();
   }
@@ -7119,8 +7137,8 @@ async function refreshAll(forceRefresh=false){
   }
 
   // ── Phase 3: Per-stock chart fetch for historical closes (technical scores) ──
-  // Only fetch stocks missing closes — prices already loaded above.
-  const B = 6;
+  // Also loads prices for stocks Phase 2 missed (uses v8/chart — same endpoint as TASI index, works even when v7/quote is blocked).
+  const B = 12; // larger batch to finish faster; v8/chart is lighter than v7/quote
   const _priceTimeout = () => new Promise(r => setTimeout(() => r({
     price:null,change:null,closes:[],timestamps:[],dataSource:'timeout',
     dataDate:'—',volume:null,avgVolume3M:null,volatility:null
@@ -7147,10 +7165,11 @@ async function refreshAll(forceRefresh=false){
           if (currPx > 0 && lastClose > 0 && Math.abs(currPx - lastClose) / lastClose > 0.001) {
             validatedChange = +((currPx - lastClose) / lastClose * 100).toFixed(2);
           }
+          const p3price = allData[idx].priceLoaded ? allData[idx].price : (fetched.price ?? allData[idx].price);
+          const p3pe    = allData[idx].pe;
           allData[idx] = {
             ...allData[idx],
-            // Only overwrite price if we didn't already get it from v7/quote
-            price:  allData[idx].priceLoaded ? allData[idx].price  : (fetched.price  ?? allData[idx].price),
+            price:  p3price,
             change: validatedChange,
             priceLoaded: allData[idx].priceLoaded || fetched.price != null,
             closes: fetched.closes, timestamps: fetched.timestamps,
@@ -7162,6 +7181,14 @@ async function refreshAll(forceRefresh=false){
             avgVolume3M: fetched.avgVolume3M ?? allData[idx].avgVolume3M,
             combined: calcCombined({...allData[idx], technical: tRes.score}),
           };
+          // Apply P/E-relative FV estimate if Phase 2 missed this stock
+          if (!allData[idx].dcfPS && p3price > 0 && p3pe > 0) {
+            const _SFVPE = {'Banking':11,'Insurance':13,'Energy':18,'Petrochemicals':14,'Chemicals':13,'Materials':13,'Building Materials':14,'Real Estate':20,'REITs':16,'Telecom':20,'Technology':28,'Healthcare':25,'Consumer':18,'Utilities':16,'Transportation':14,'Industrial':16};
+            const sFVPE = _SFVPE[allData[idx].sector] || 15;
+            allData[idx].dcfPS    = +(p3price / p3pe * sFVPE).toFixed(2);
+            allData[idx].dcfUpside = (allData[idx].dcfPS - p3price) / p3price;
+            allData[idx].dcfMethod = 'P/E Est.';
+          }
         }
       } catch(e) {}
     }));
@@ -7962,11 +7989,20 @@ function _renderBuffettChart() {
   const currentPrice = tasiIndex.price;
   if (!currentPrice || priceCloses.length < 5) return;
 
-  const withMC       = allData.filter(d => d.mktCap > 0 && d.priceLoaded);
-  if (!withMC.length) return;
-  const totalMCbn    = withMC.reduce((s,d) => s + d.mktCap, 0);
-  const exAramcoMCbn = withMC.filter(d => d.ticker !== '2222.SR').reduce((s,d) => s + d.mktCap, 0);
-  const gdpBn        = SAUDI_GDP_SAR / 1e9; // 4,000 bn SAR
+  // Use priced stocks first; fall back to any stocks with mktCap, then hardcoded Saudi estimates
+  let withMC = allData.filter(d => d.mktCap > 0 && d.priceLoaded);
+  if (!withMC.length) withMC = allData.filter(d => d.mktCap > 0);
+  let totalMCbn, exAramcoMCbn;
+  if (withMC.length > 10) {
+    totalMCbn    = withMC.reduce((s,d) => s + d.mktCap, 0);
+    exAramcoMCbn = withMC.filter(d => d.ticker !== '2222.SR').reduce((s,d) => s + d.mktCap, 0);
+  } else {
+    // Hardcoded Saudi market cap estimates (SAR billions, 2025):
+    // Total TASI ≈ 10,200 bn  |  Ex-Aramco ≈ 3,000 bn
+    totalMCbn    = 10200;
+    exAramcoMCbn = 3000;
+  }
+  const gdpBn = SAUDI_GDP_SAR / 1e9; // 4,000 bn SAR
 
   const rangeDays = { '3M':90, '6M':180, '1Y':365, '2Y':730, '5Y':1825 }[_mpeRange] || 365;
   const cutoffMs  = Date.now() - rangeDays * 864e5;
