@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260529l'; // bump this string on every deploy that matters
+  var V='20260529m'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -6911,7 +6911,6 @@ async function refreshAll(forceRefresh=false){
       document.getElementById("lu").textContent=`${loaded}/${allData.length} from cache`;
       // Compute sector medians and fetch TASI index even from cache
       computeSectorMedianPE();
-      const _CACHE_SFVPE = {'Banking':11,'Insurance':13,'Energy':18,'Petrochemicals':14,'Chemicals':13,'Materials':13,'Building Materials':14,'Real Estate':20,'REITs':16,'Telecom':20,'Technology':28,'Healthcare':25,'Consumer':18,'Utilities':16,'Transportation':14,'Industrial':16};
       allData.forEach(d => {
         if(d.pe != null) {
           const fRes = scoreFundamental(d);
@@ -6921,7 +6920,7 @@ async function refreshAll(forceRefresh=false){
         }
         // Backfill FV estimate if not already set (e.g. cache from before FV feature)
         if (!d.dcfPS && d.price > 0 && d.pe > 0) {
-          const sFVPE = _CACHE_SFVPE[d.sector] || 15;
+          const sFVPE = SECTOR_FV_PE[d.sector] || 15;
           d.dcfPS    = +(d.price / d.pe * sFVPE).toFixed(2);
           d.dcfUpside = (d.dcfPS - d.price) / d.price;
           d.dcfMethod = 'P/E Est.';
@@ -7041,8 +7040,7 @@ async function refreshAll(forceRefresh=false){
         };
         // Quick P/E-relative fair value — shows in main table without needing full DCF
         if (!allData[idx].dcfPS && livePE > 0 && price > 0) {
-          const _SFVPE = {'Banking':11,'Insurance':13,'Energy':18,'Petrochemicals':14,'Chemicals':13,'Materials':13,'Building Materials':14,'Real Estate':20,'REITs':16,'Telecom':20,'Technology':28,'Healthcare':25,'Consumer':18,'Utilities':16,'Transportation':14,'Industrial':16};
-          const sFVPE = _SFVPE[allData[idx].sector] || 15;
+          const sFVPE = SECTOR_FV_PE[allData[idx].sector] || 15;
           allData[idx].dcfPS = +(price / livePE * sFVPE).toFixed(2);
           allData[idx].dcfUpside = (allData[idx].dcfPS - price) / price;
           allData[idx].dcfMethod = 'P/E Est.';
@@ -7183,8 +7181,7 @@ async function refreshAll(forceRefresh=false){
           };
           // Apply P/E-relative FV estimate if Phase 2 missed this stock
           if (!allData[idx].dcfPS && p3price > 0 && p3pe > 0) {
-            const _SFVPE = {'Banking':11,'Insurance':13,'Energy':18,'Petrochemicals':14,'Chemicals':13,'Materials':13,'Building Materials':14,'Real Estate':20,'REITs':16,'Telecom':20,'Technology':28,'Healthcare':25,'Consumer':18,'Utilities':16,'Transportation':14,'Industrial':16};
-            const sFVPE = _SFVPE[allData[idx].sector] || 15;
+            const sFVPE = SECTOR_FV_PE[allData[idx].sector] || 15;
             allData[idx].dcfPS    = +(p3price / p3pe * sFVPE).toFixed(2);
             allData[idx].dcfUpside = (allData[idx].dcfPS - p3price) / p3price;
             allData[idx].dcfMethod = 'P/E Est.';
@@ -7645,6 +7642,16 @@ const SAUDI_GDP_SAR = 4.0e12;
 const SAUDI_RF = 0.05;
 const _clamp01 = x => Math.max(0, Math.min(1, x));
 
+// Sector fair-value P/E multiples — calibrated for TASI 2025.
+// Used for the quick P/E-relative Fair Value estimate shown in the main table.
+// Tech/Healthcare trimmed from earlier 28/25 (Saudi growth names rarely sustain >22x amid
+// Vision 2030 execution + global rate headwinds); REITs nudged up to reflect distribution-based pricing.
+const SECTOR_FV_PE = {
+  'Banking':11,'Insurance':13,'Energy':18,'Petrochemicals':14,'Chemicals':13,
+  'Materials':13,'Building Materials':14,'Real Estate':19,'REITs':17,'Telecom':18,
+  'Technology':22,'Healthcare':20,'Consumer':18,'Utilities':16,'Transportation':14,'Industrial':16
+};
+
 function _marketConditions() {
   const r = _mpeCalc();
   if (!r) return null;
@@ -7688,13 +7695,16 @@ function _renderMarketConditions() {
   if (!m || !tilesEl) return;
 
   // ── Composite valuation thermometer (0 = cheap/fear, 100 = expensive/greed) ──
+  // ERP baseline 3.5% (Saudi long-run equity risk premium); sP and sERP both proxy
+  // valuation, so weight P/E heaviest (30%) and ERP lighter (20%) to avoid double-counting.
   const sP   = _clamp01((m.wtdAvg - 12) / (28 - 12));
-  const sERP = m.erp != null ? _clamp01((0.04 - m.erp) / 0.05) : null;
+  const sERP = m.erp != null ? _clamp01((0.035 - m.erp) / 0.05) : null;
   const sBr  = m.breadth != null ? _clamp01((m.breadth - 0.30) / 0.50) : null;
   const sDY  = m.wtdDY != null ? _clamp01((0.05 - m.wtdDY) / 0.03) : null;
   const sPB  = m.wtdPB != null ? _clamp01((m.wtdPB - 1.5) / 1.5) : null;
-  const parts = [sP, sERP, sBr, sDY, sPB].filter(x=>x!=null);
-  const temp = parts.length ? Math.round(parts.reduce((a,b)=>a+b,0)/parts.length*100) : null;
+  const _wcomp = [[sP,0.30],[sERP,0.20],[sBr,0.20],[sDY,0.20],[sPB,0.10]].filter(([v])=>v!=null);
+  const _wsum  = _wcomp.reduce((s,[,w])=>s+w,0);
+  const temp = _wcomp.length ? Math.round(_wcomp.reduce((s,[v,w])=>s+v*w,0)/_wsum*100) : null;
 
   if (temp != null && bannerEl) {
     const label = temp < 25 ? 'CHEAP — Fear'
@@ -7735,11 +7745,11 @@ function _renderMarketConditions() {
   // 1. Buffett Indicator (ex-Aramco headline; Aramco's 2% float distorts the total)
   if (m.buffettExAramco != null) {
     const b = m.buffettExAramco;
-    const col = b < 0.75 ? '#2ed573' : b < 1.0 ? '#7bed9f' : b < 1.3 ? '#f5a623' : '#e74c3c';
-    const verdict = b < 0.75 ? 'Undervalued' : b < 1.0 ? 'Fair' : b < 1.3 ? 'Modestly rich' : 'Overvalued';
+    const col = b < 0.70 ? '#2ed573' : b < 1.0 ? '#7bed9f' : b < 1.3 ? '#f5a623' : '#e74c3c';
+    const verdict = b < 0.70 ? 'Undervalued' : b < 1.0 ? 'Fair' : b < 1.3 ? 'Modestly rich' : 'Overvalued';
     tiles.push(tile('Buffett Indicator', (b*100).toFixed(0)+'%',
       `${verdict} · incl. Aramco ${(m.buffettInd*100).toFixed(0)}%`, col,
-      'Total market cap ÷ GDP (the "Buffett Indicator"). Shown ex-Aramco because Aramco\'s ~2% free float massively inflates the headline ratio. <0.75 undervalued, 0.75–1.0 fair, 1.0–1.3 modestly rich, >1.3 overvalued. Saudi GDP ≈ SAR 4.0T (2024).'));
+      'Total market cap ÷ GDP (the "Buffett Indicator"). Shown ex-Aramco because Aramco\'s ~2% free float massively inflates the headline ratio. Saudi zones (Vision 2030 re-rating premium): <0.70 undervalued, 0.70–1.0 fair, 1.0–1.3 modestly rich, >1.3 overvalued. Saudi GDP ≈ SAR 4.0T (2024).'));
   }
 
   // 2. Earnings Yield
@@ -7758,7 +7768,7 @@ function _renderMarketConditions() {
     const verdict = e > 0.03 ? 'Stocks cheap vs bonds' : e > 0.01 ? 'Fair' : e > 0 ? 'Slightly rich' : 'Stocks rich vs bonds';
     tiles.push(tile('Equity Risk Premium', (e>=0?'+':'')+(e*100).toFixed(1)+'%',
       verdict, col,
-      'Earnings yield minus the risk-free rate. The extra return equities offer over Saudi government bonds. >3% = equities clearly cheap; negative = equities expensive vs bonds.'));
+      'Earnings yield minus the risk-free rate. The extra return equities offer over Saudi government bonds. >3% = equities clearly cheap; negative = equities expensive vs bonds. Note: earnings yield is a rough ERP proxy — Aramco (~17% of market earnings) ties it to oil prices, and it ignores differing payout/growth across sectors.'));
   }
 
   // 4. Market Dividend Yield
@@ -7883,11 +7893,6 @@ function _renderMPEChart() {
   const rawHist   = _mpeHistCache || JSON.parse(localStorage.getItem('tasi_mpe_hist')||'[]');
   const validHist = rawHist.filter(e => e.pe > 0 && e.pe < 40);
   const storedMap = new Map(validHist.map(e=>[e.d, e]));
-
-  // Ratios for estimating historical median/mean from TASI price (when actual stored data unavailable)
-  const medRatio  = wtdAvg > 0 ? median / wtdAvg : 1;
-  const meanRatio = wtdAvg > 0 ? mean   / wtdAvg : 1;
-  void medRatio; void meanRatio; // kept for reference only — not used for estimation (would produce identical curves when ratios converge)
 
   const priceCloses  = tasiIndex.closes || [];
   const priceStamps  = tasiIndex.timestamps || [];
@@ -8023,15 +8028,16 @@ function _renderBuffettChart() {
   if (lblEl) {
     const curEx  = +(exAramcoMCbn / gdpBn * 100).toFixed(0);
     const curTot = +(totalMCbn    / gdpBn * 100).toFixed(0);
-    const col = curEx < 60 ? 'var(--green)' : curEx < 80 ? 'var(--amb)' : 'var(--red)';
+    const col = curEx < 70 ? 'var(--green)' : curEx < 100 ? 'var(--amb)' : 'var(--red)';
     lblEl.textContent = `Ex-Aramco: ${curEx}% · Total: ${curTot}%`;
     lblEl.style.color = col;
   }
 
   const fontOpts = { size:8, family:"'IBM Plex Mono'" };
   const n = labels.length;
-  // Saudi ex-Aramco zone boundaries (calibrated for developing market)
-  const zoneFair = 60, zoneRich = 80;
+  // Saudi ex-Aramco zone boundaries: Vision 2030 re-rating + low equity penetration
+  // justify a higher baseline than a developed market — ex-Aramco sits naturally ~75%.
+  const zoneFair = 70, zoneRich = 100;
 
   buffettChartInst = new Chart(ctx, {
     type: 'line',
