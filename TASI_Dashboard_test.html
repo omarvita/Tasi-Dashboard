@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260530c'; // bump this string on every deploy that matters
+  var V='20260530d'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -4359,6 +4359,10 @@ async function loadCache(){
   if(meta.ttl!=null&&Date.now()-meta.savedAt>meta.ttl)return false;
   const cached=await dbGet(CACHE_KEY);
   if(!cached?.length)return false;
+  // Only accept the cache as a real hit if it actually contains loaded prices.
+  // A cache saved during a failed fetch (0 prices) must NOT short-circuit a fresh load.
+  const loadedInCache=cached.filter(c=>c.priceLoaded&&c.price!=null).length;
+  if(loadedInCache < cached.length*0.5)return false; // <50% priced → re-fetch fresh
   const tickerIdx = new Map(allData.map((d, i) => [d.ticker, i]));
   cached.forEach(c=>{const idx=tickerIdx.get(c.ticker);if(idx!=null&&idx>=0)allData[idx]={...allData[idx],...c};});
   updateCacheUI(meta);
@@ -4760,6 +4764,16 @@ function buildOverview(d){
     <div class="mi"><div class="mil" ${T('eps_growth')}>Earnings Growth</div><div class="miv ${d.eg!=null?(d.eg>=0?'pos':'neg'):''}">${d.eg!=null?(d.eg>=0?"+":"")+(d.eg*100).toFixed(1)+"%":"—"}</div></div>
     <div class="mi"><div class="mil" ${T('dy')}>Div. Yield</div><div class="miv">${d.dy!=null?(d.dy*100).toFixed(2)+"%":"—"}</div></div>
     <div class="mi"><div class="mil" ${T('roe')}>ROE</div><div class="miv ${d.roe!=null?(d.roe>0.12?"pos":d.roe<0?"neg":""):''}">${d.roe!=null?(d.roe*100).toFixed(1)+"%":"—"}</div></div>
+    ${(()=>{
+      const mc = d.mktCap || (d.price!=null && d.sharesOutstanding!=null ? d.price*d.sharesOutstanding : null);
+      const mcStr = mc!=null ? (mc>=1e12?(mc/1e12).toFixed(2)+'T':mc>=1e9?(mc/1e9).toFixed(2)+'B':mc>=1e6?(mc/1e6).toFixed(1)+'M':mc.toFixed(0))+' SAR' : '—';
+      return `<div class="mi"><div class="mil" title="Market capitalisation = share price × shares outstanding">Market Cap</div><div class="miv" style="font-size:11px">${mcStr}</div></div>`;
+    })()}
+    ${(()=>{
+      const sh = d.sharesOutstanding || (d.mktCap!=null && d.price>0 ? d.mktCap/d.price : null);
+      const shStr = sh!=null ? (sh>=1e9?(sh/1e9).toFixed(2)+'B':sh>=1e6?(sh/1e6).toFixed(1)+'M':sh.toFixed(0)) : '—';
+      return `<div class="mi"><div class="mil" title="Total shares outstanding (number of shares issued)">Shares Out.</div><div class="miv" style="font-size:11px">${shStr}</div></div>`;
+    })()}
     ${d.dcfPS!=null&&d.price?`<div class="mi"><div class="mil" ${T('intrinsic')}>${d.dcfMethod||'DCF'} Fair Value</div><div class="miv" style="color:${d.dcfUpside>0.10?'var(--green)':d.dcfUpside>-0.10?'var(--amb)':'var(--red)'}"><span style="font-weight:600">${d.dcfPS.toFixed(2)} SAR</span> <span style="font-size:9px;font-family:var(--mono)">${d.dcfUpside>=0?'+':''}${(d.dcfUpside*100).toFixed(1)}%</span></div></div>`:`<div class="mi"><div class="mil" ${T('intrinsic')}>DCF Fair Value</div><div class="miv" style="font-size:9px;color:var(--tx3)">Open Fair Value tab ↗</div></div>`}
     ${(()=>{
       if(d.volatility==null) return '';
@@ -6927,6 +6941,8 @@ async function refreshAll(forceRefresh=false){
       // Compute sector medians and fetch TASI index even from cache
       computeSectorMedianPE();
       allData.forEach(d => {
+        // Keep P/E live: recompute from cached EPS × current price
+        if(d.eps > 0 && d.price > 0) d.pe = +(d.price / d.eps).toFixed(2);
         if(d.pe != null) {
           const fRes = scoreFundamental(d);
           d.fundamental = d.noHardcodedData && !d.priceLoaded ? null : fRes.score;
@@ -7079,8 +7095,10 @@ async function refreshAll(forceRefresh=false){
         }
       } catch(e) {}
     }));
-    if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
-    scheduleRender();
+    // Render directly each batch (not rAF-coalesced) — requestAnimationFrame is throttled
+    // when the mobile browser is backgrounded during the multi-minute load, which would
+    // otherwise leave the table stuck showing no prices. doFilter rebuilds filtData from allData.
+    try{ doFilter(); }catch(e){ console.warn('batch render failed', e); }
   }
 
   clearTimeout(_hardStop); // normal completion — cancel the 4-min failsafe
@@ -7096,16 +7114,21 @@ async function refreshAll(forceRefresh=false){
   // ── Change 7: Compute sector-relative P/E medians after all prices loaded ──
   computeSectorMedianPE();
   updateMarketPEStats();
-  // Re-score fundamentals with sector-relative P/E now available
+  // Re-score fundamentals with sector-relative P/E now available.
+  // Wrapped per-stock so one bad stock can't throw and skip the final render below.
   allData.forEach(d => {
-    if(d.pe != null) {
-      const fRes = scoreFundamental(d);
-      d.fundamental = d.noHardcodedData && !d.priceLoaded ? null : fRes.score;
-      d.fundSteps = fRes.steps;
-      d.combined = (d.noHardcodedData && !d.priceLoaded) ? null : calcCombined(d);
-    }
+    try {
+      // Keep P/E live: recompute from EPS (from financial statements) × current price.
+      // This updates the P/E with the latest price even when we don't re-fetch a live P/E.
+      if(d.eps > 0 && d.price > 0) d.pe = +(d.price / d.eps).toFixed(2);
+      if(d.pe != null) {
+        const fRes = scoreFundamental(d);
+        d.fundamental = d.noHardcodedData && !d.priceLoaded ? null : fRes.score;
+        d.fundSteps = fRes.steps;
+        d.combined = (d.noHardcodedData && !d.priceLoaded) ? null : calcCombined(d);
+      }
+    } catch(e){}
   });
-  if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
 
   doFilter();updateMetrics();
   checkAlerts();
