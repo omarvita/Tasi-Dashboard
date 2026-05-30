@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260530d'; // bump this string on every deploy that matters
+  var V='20260530e'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -361,7 +361,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
       <span style="color:var(--tx3)">Median: <span id="mpe-median" style="color:var(--tx);font-weight:600">—</span></span>
       <span style="color:var(--tx3)">Mean: <span id="mpe-mean" style="color:var(--tx);font-weight:600">—</span></span>
       <span id="mpe-count" style="color:var(--tx3)"></span>
-      <span style="margin-left:auto;color:var(--tx3);font-size:9px" id="mpe-toggle-hint">▼ valuation tools</span>
+      <span style="margin-left:auto;color:var(--tx3);font-size:9px" id="mpe-toggle-hint">▼ show chart</span>
     </div>
     <!-- Market P/E time-series chart (hidden by default) -->
     <div id="market-pe-chart-wrap" style="display:none;margin-top:10px">
@@ -392,20 +392,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
           <button class="tasi-rng-btn" id="mpe-r-5y"  onclick="setMPERange('5Y')">5Y</button>
         </div>
       </div>
-      <!-- Market valuation thermometer + indicator tiles -->
-      <div id="mkt-cond-banner" style="display:none;margin-bottom:10px"></div>
-      <div id="mkt-cond-tiles" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>
       <div style="height:180px"><canvas id="market-pe-chart"></canvas></div>
-      <!-- ── Buffett Indicator ──────────────────────────────────────────── -->
-      <div style="margin-top:14px;border-top:1px solid var(--b1);padding-top:10px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">
-          <span style="font-size:10px;font-weight:600;color:var(--tx2);font-family:var(--mono)">Buffett Indicator</span>
-          <span style="font-size:9px;color:var(--tx3)">Market Cap / Saudi GDP</span>
-          <span id="buffett-line-label" style="font-size:9px;font-family:var(--mono);font-weight:600;margin-left:4px"></span>
-        </div>
-        <div style="height:130px"><canvas id="buffett-chart"></canvas></div>
-        <div style="font-size:8px;color:var(--tx3);margin-top:4px">Ex-Aramco shown (Aramco has ~2% free float — total market cap/GDP misleading). Estimated from TASI price × current cap ratios.</div>
-      </div>
     </div>
   </div>
   <div class="pw" id="pw" style="display:none">
@@ -503,8 +490,8 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
       <button onclick="tasiChartRange=90;drawTASIChart()" class="tasi-rng-btn" id="tr-90">3M</button>
       <button onclick="tasiChartRange=180;drawTASIChart()" class="tasi-rng-btn" id="tr-180">6M</button>
       <button onclick="tasiChartRange=365;drawTASIChart()" class="tasi-rng-btn" id="tr-365" style="background:var(--acc);color:#000">1Y</button>
-      <button onclick="tasiChartRange=1825;drawTASIChart();if((tasiIndex.closes||[]).length<1000)fetchTASIIndexLong();" class="tasi-rng-btn" id="tr-1825">5Y</button>
-      <button onclick="tasiChartRange=9999;drawTASIChart();if((tasiIndex.closes||[]).length<1000)fetchTASIIndexLong();" class="tasi-rng-btn" id="tr-all">All</button>
+      <button onclick="tasiChartRange=1825;drawTASIChart()" class="tasi-rng-btn" id="tr-1825">5Y</button>
+      <button onclick="tasiChartRange=9999;drawTASIChart()" class="tasi-rng-btn" id="tr-all">All</button>
       <span style="border-left:1px solid var(--b1);padding-left:8px;display:flex;gap:5px;flex-wrap:wrap">
         <button onclick="tasiShowSMA20=!tasiShowSMA20;drawTASIChart()" id="tasi-ov-sma20" class="tasi-rng-btn">SMA-20</button>
         <button onclick="tasiShowSMA50=!tasiShowSMA50;drawTASIChart()" id="tasi-ov-sma50" class="tasi-rng-btn">SMA-50</button>
@@ -1400,12 +1387,6 @@ async function gdLoadBulkPrices(onProgress) {
               fundUpdated: entry.fundUpdated,
             });
           }
-          // Load DCF fair value results so they appear in the main table
-          if (entry?.dcfResult && entry.dcfUpdated && Date.now() - entry.dcfUpdated < GD_DCF_TTL) {
-            _gdCache[ticker] = Object.assign(_gdCache[ticker] || {}, {
-              dcfResult: entry.dcfResult, dcfUpdated: entry.dcfUpdated,
-            });
-          }
         }
         if (hits > 0) return hits;
       }
@@ -1440,7 +1421,8 @@ async function gdSaveBulkPrices() {
       }
     }
     if (!Object.keys(prices).length) return;
-    // Also include latest P/E/PB/EPS and DCF results from per-stock Drive cache
+    // Also include latest P/E/PB/EPS from per-stock Drive cache so next load
+    // doesn't need Phase 2.5 for stocks already in cache
     for (const d of allData) {
       const c = _gdCache[d.ticker];
       if (c?.fundamentals && c.fundUpdated && (c.fundamentals.pe > 0 || c.fundamentals.roe != null)) {
@@ -1452,12 +1434,6 @@ async function gdSaveBulkPrices() {
                   assets:F.assets??null, beta:F.beta??null,
                   ttmRev:F.ttmRev??null, ttmNI:F.ttmNI??null },
           fundUpdated: c.fundUpdated,
-        });
-      }
-      // Include DCF fair value so it shows in the main table without requiring a modal open
-      if (c?.dcfResult && c.dcfUpdated && (Date.now() - c.dcfUpdated < GD_DCF_TTL)) {
-        prices[d.ticker] = Object.assign(prices[d.ticker] || {}, {
-          dcfResult: c.dcfResult, dcfUpdated: c.dcfUpdated,
         });
       }
     }
@@ -3963,22 +3939,21 @@ async function fetchYahooPrice(ticker){
     const timestamps = data?.chart?.result?.[0]?.timestamp||[];
     // regularMarketPreviousClose = yesterday's official close (correct for 1-day % change)
     // chartPreviousClose = close before chart period starts (6 months ago for range=6mo → wrong for daily change)
-    const prev  = meta?.regularMarketPreviousClose ?? null;
-    const price = meta?.regularMarketPrice ?? null;
-    const change = (price != null && prev != null && prev > 0)
-      ? +((price - prev) / prev * 100).toFixed(2)
-      : null;
+    const prev = meta?.regularMarketPreviousClose ?? null;
     return {
-      price, prev, change,
+      price: meta?.regularMarketPrice??null,
+      prev,
       closes, timestamps,
       volume: meta?.regularMarketVolume??null,
       avgVolume3M: meta?.averageDailyVolume3Month??null,
     };
-  }catch(e){ return {price:null,prev:null,change:null,closes:[],timestamps:[],volume:null,avgVolume3M:null}; }
+  }catch(e){ return {price:null,prev:null,closes:[],timestamps:[],volume:null,avgVolume3M:null}; }
 }
 
 // ── PRICE-ONLY FETCH: used during main refresh (fast, 1 req per stock) ──
-const GD_PRICE_TTL = 4 * 60 * 60 * 1000; // 4 hours — refresh from Yahoo when stale; Drive always used as first check
+const GD_PRICE_TTL = Infinity; // prices never expire — last known price is always valid; use Force to refresh
+// skipDriveNetwork=true during bulk refreshAll: use only in-memory cache, no Drive API calls
+// (prevents 238× Drive API calls which get throttled and cause hangs)
 async function fetchStockPrice(stock, skipDriveNetwork=false) {
   const ticker = stock.ticker;
   // Check Drive price cache — memory-only during bulk refresh, full Drive during modal open
@@ -4221,9 +4196,8 @@ function renderTable(){
   tb.innerHTML=page.map((d,i)=>{
     const sig=getSig(d.combined,d.buffett);
     const hasPx=d.price!=null;
-    const hasChg=d.change!=null;
-    const cc=hasPx&&hasChg?(d.change>=0?"pos":"neg"):"nav";
-    const cs=hasPx&&hasChg?((d.change>=0?"+":"")+d.change.toFixed(2)+"%"):"—";
+    const cc=hasPx?(d.change>=0?"pos":"neg"):"nav";
+    const cs=hasPx?((d.change>=0?"+":"")+d.change.toFixed(2)+"%"):"—";
     const moat=d.criteria?.hasMoat?`<span class="badge b-moat">Moat</span>`:"";
     const reit=d.isReit?`<span class="badge b-reit">REIT</span>`:"";
     const lv=d.priceLoaded?`<span class="badge b-live" style="margin-left:2px">LIVE</span>`:`<span class="badge b-est" style="margin-left:2px">EST</span>`;
@@ -4300,7 +4274,7 @@ function buildSectors(){} // sector filtering handled by buildSectorPerf pills
 // INDEXEDDB CACHE (with localStorage fallback)
 // ═══════════════════════════════════════════════════
 const DB_NAME="TASIDash",DB_VER=3,STORE="cache",CACHE_KEY="stocks",META_KEY="meta";
-let CACHE_TTL=730*24*60*60*1000,db=null,dbReady=false; // 2 years — effectively permanent; Force button clears it
+let CACHE_TTL=Infinity,db=null,dbReady=false; // prices never expire — use Force button to get fresh data
 
 function openDB(){
   return new Promise(res=>{
@@ -4354,15 +4328,9 @@ async function saveCache(){
 
 async function loadCache(){
   const meta=await dbGet(META_KEY);
-  if(!meta)return false;
-  // meta.ttl=null means it was stored as Infinity (JSON.stringify(Infinity)→null) — treat as never-expire
-  if(meta.ttl!=null&&Date.now()-meta.savedAt>meta.ttl)return false;
+  if(!meta||Date.now()-meta.savedAt>meta.ttl)return false;
   const cached=await dbGet(CACHE_KEY);
   if(!cached?.length)return false;
-  // Only accept the cache as a real hit if it actually contains loaded prices.
-  // A cache saved during a failed fetch (0 prices) must NOT short-circuit a fresh load.
-  const loadedInCache=cached.filter(c=>c.priceLoaded&&c.price!=null).length;
-  if(loadedInCache < cached.length*0.5)return false; // <50% priced → re-fetch fresh
   const tickerIdx = new Map(allData.map((d, i) => [d.ticker, i]));
   cached.forEach(c=>{const idx=tickerIdx.get(c.ticker);if(idx!=null&&idx>=0)allData[idx]={...allData[idx],...c};});
   updateCacheUI(meta);
@@ -4764,16 +4732,6 @@ function buildOverview(d){
     <div class="mi"><div class="mil" ${T('eps_growth')}>Earnings Growth</div><div class="miv ${d.eg!=null?(d.eg>=0?'pos':'neg'):''}">${d.eg!=null?(d.eg>=0?"+":"")+(d.eg*100).toFixed(1)+"%":"—"}</div></div>
     <div class="mi"><div class="mil" ${T('dy')}>Div. Yield</div><div class="miv">${d.dy!=null?(d.dy*100).toFixed(2)+"%":"—"}</div></div>
     <div class="mi"><div class="mil" ${T('roe')}>ROE</div><div class="miv ${d.roe!=null?(d.roe>0.12?"pos":d.roe<0?"neg":""):''}">${d.roe!=null?(d.roe*100).toFixed(1)+"%":"—"}</div></div>
-    ${(()=>{
-      const mc = d.mktCap || (d.price!=null && d.sharesOutstanding!=null ? d.price*d.sharesOutstanding : null);
-      const mcStr = mc!=null ? (mc>=1e12?(mc/1e12).toFixed(2)+'T':mc>=1e9?(mc/1e9).toFixed(2)+'B':mc>=1e6?(mc/1e6).toFixed(1)+'M':mc.toFixed(0))+' SAR' : '—';
-      return `<div class="mi"><div class="mil" title="Market capitalisation = share price × shares outstanding">Market Cap</div><div class="miv" style="font-size:11px">${mcStr}</div></div>`;
-    })()}
-    ${(()=>{
-      const sh = d.sharesOutstanding || (d.mktCap!=null && d.price>0 ? d.mktCap/d.price : null);
-      const shStr = sh!=null ? (sh>=1e9?(sh/1e9).toFixed(2)+'B':sh>=1e6?(sh/1e6).toFixed(1)+'M':sh.toFixed(0)) : '—';
-      return `<div class="mi"><div class="mil" title="Total shares outstanding (number of shares issued)">Shares Out.</div><div class="miv" style="font-size:11px">${shStr}</div></div>`;
-    })()}
     ${d.dcfPS!=null&&d.price?`<div class="mi"><div class="mil" ${T('intrinsic')}>${d.dcfMethod||'DCF'} Fair Value</div><div class="miv" style="color:${d.dcfUpside>0.10?'var(--green)':d.dcfUpside>-0.10?'var(--amb)':'var(--red)'}"><span style="font-weight:600">${d.dcfPS.toFixed(2)} SAR</span> <span style="font-size:9px;font-family:var(--mono)">${d.dcfUpside>=0?'+':''}${(d.dcfUpside*100).toFixed(1)}%</span></div></div>`:`<div class="mi"><div class="mil" ${T('intrinsic')}>DCF Fair Value</div><div class="miv" style="font-size:9px;color:var(--tx3)">Open Fair Value tab ↗</div></div>`}
     ${(()=>{
       if(d.volatility==null) return '';
@@ -6941,20 +6899,11 @@ async function refreshAll(forceRefresh=false){
       // Compute sector medians and fetch TASI index even from cache
       computeSectorMedianPE();
       allData.forEach(d => {
-        // Keep P/E live: recompute from cached EPS × current price
-        if(d.eps > 0 && d.price > 0) d.pe = +(d.price / d.eps).toFixed(2);
         if(d.pe != null) {
           const fRes = scoreFundamental(d);
           d.fundamental = d.noHardcodedData && !d.priceLoaded ? null : fRes.score;
           d.fundSteps = fRes.steps;
           d.combined = (d.noHardcodedData && !d.priceLoaded) ? null : calcCombined(d);
-        }
-        // Backfill FV estimate if not already set (e.g. cache from before FV feature)
-        if (!d.dcfPS && d.price > 0 && d.pe > 0) {
-          const sFVPE = SECTOR_FV_PE[d.sector] || 15;
-          d.dcfPS    = +(d.price / d.pe * sFVPE).toFixed(2);
-          d.dcfUpside = (d.dcfPS - d.price) / d.price;
-          d.dcfMethod = 'P/E Est.';
         }
       });
       if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
@@ -7000,83 +6949,190 @@ async function refreshAll(forceRefresh=false){
       }
     }
     if (peFromDrive > 0) console.log(`[Fundamentals] Loaded ${peFromDrive} stocks' metrics from Drive cache`);
-    // Apply Drive-cached prices directly to allData now — no need to wait for Phase 3
-    let priceFromDrive = 0;
-    for (let i = 0; i < allData.length; i++) {
-      const c = _gdCache[allData[i].ticker];
-      if (c?.priceData?.price && !allData[i].priceLoaded) {
-        const p = c.priceData;
-        allData[i] = {
-          ...allData[i],
-          price:  p.price,
-          change: p.change ?? null,
+  }
+
+  // ── Phase 2: Bulk Yahoo v7/quote — all 238 stocks, 20 per request ───────
+  // Always fetches ALL stocks for fresh price + change%.
+  // No `fields=` parameter — default response includes trailingPE for many stocks.
+  // Drive Phase 1 is still useful for closes (chart/technical data).
+  document.getElementById("pl").textContent = `Fetching live prices (${allData.length} stocks)...`;
+  const _QBATCH = 20;
+  const _p2TickerIdx = new Map(allData.map((d,i) => [d.ticker, i]));
+  for (let qi = 0; qi < allData.length; qi += _QBATCH) {
+    try {
+      const batch = allData.slice(qi, qi + _QBATCH);
+      const syms  = batch.map(d => d.ticker).join(',');
+      // No fields= filter — let Yahoo return the full default set (includes trailingPE, epsTrailingTwelveMonths)
+      const qurl  = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}`;
+      const qurl6 = `https://query2.finance.yahoo.com/v6/finance/quote?symbols=${syms}`;
+      let qdata = {};
+      qdata = await Promise.race([fetchWithProxy(qurl), new Promise(r => setTimeout(() => r({}), 12000))]);
+      if (!(qdata?.quoteResponse?.result?.length)) {
+        qdata = await Promise.race([fetchWithProxy(qurl6), new Promise(r => setTimeout(() => r({}), 12000))]);
+      }
+      const quotes = qdata?.quoteResponse?.result || qdata?.quote || [];
+      for (const q of quotes) {
+        if (!q.symbol || q.regularMarketPrice == null) continue;
+        const idx = _p2TickerIdx.get(q.symbol) ?? -1;
+        if (idx < 0) continue;
+        const price  = q.regularMarketPrice;
+        const change = q.regularMarketChangePercent ?? null;
+        // Try P/E from v7/quote (may be null for Saudi .SR — Phase 2.5 will fill the gaps)
+        let livePE = allData[idx].pe; // hardcoded fallback
+        let livepeLoaded = false;
+        if (q.trailingPE > 0) {
+          livePE = +q.trailingPE.toFixed(2);
+          livepeLoaded = true;
+        } else if (q.epsTrailingTwelveMonths > 0 && price > 0) {
+          livePE = +(price / q.epsTrailingTwelveMonths).toFixed(2);
+          livepeLoaded = true;
+        }
+        const livePB = q.priceToBook > 0 ? +q.priceToBook.toFixed(2) : allData[idx].pb;
+        // Preserve existing closes from Drive/memory; v7/quote has no closes
+        const existingCloses     = allData[idx].closes || [];
+        const existingTimestamps = allData[idx].timestamps || [];
+        const tRes = scoreTechnicalWithSteps(existingCloses.length > 5 ? existingCloses : []);
+        allData[idx] = {
+          ...allData[idx],
+          price, change,
+          pe: livePE, pb: livePB,
+          livepeLoaded,
           priceLoaded: true,
-          closes:     (p.closes?.length > 5) ? p.closes     : allData[i].closes,
-          timestamps: (p.closes?.length > 5) ? p.timestamps : allData[i].timestamps,
-          volume:     p.volume     ?? allData[i].volume,
-          avgVolume3M:p.avgVolume3M ?? allData[i].avgVolume3M,
+          dataSource: 'yahoo-quote',
+          dataDate: new Date().toISOString().slice(0,10),
+          volume:      q.regularMarketVolume      ?? allData[idx].volume,
+          avgVolume3M: q.averageDailyVolume3Month  ?? allData[idx].avgVolume3M,
+          w52high:     q.fiftyTwoWeekHigh          ?? allData[idx].w52high,
+          w52low:      q.fiftyTwoWeekLow           ?? allData[idx].w52low,
+          mktCap:      q.marketCap                ?? allData[idx].mktCap,
+          technical: tRes.score, techSteps: tRes.steps,
+          rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
+          combined: calcCombined({...allData[idx], price, pe: livePE, technical: tRes.score}),
         };
-        priceFromDrive++;
+        // Update Drive cache entry
+        _gdCache[q.symbol] = Object.assign(_gdCache[q.symbol] || {}, {
+          priceData: { price, change,
+            closes: existingCloses.slice(-252), timestamps: existingTimestamps.slice(-252),
+            volume: allData[idx].volume, avgVolume3M: allData[idx].avgVolume3M },
+          priceUpdated: Date.now(),
+        });
       }
-      // Apply DCF fair value from Drive so it shows in main table
-      const c2 = _gdCache[allData[i].ticker];
-      if (c2?.dcfResult && !allData[i].dcfPS) {
-        allData[i].dcfPS    = c2.dcfResult.dcfPS;
-        allData[i].dcfUpside = c2.dcfResult.dcfUpside;
-        allData[i].dcfMethod = c2.dcfResult.dcfMethod;
-      }
-    }
-    if (priceFromDrive > 0) {
-      document.getElementById("pl").textContent = `Drive: ${priceFromDrive} prices loaded`;
+    } catch(e) { console.warn('bulk quote batch failed', e); }
+    document.getElementById("pf").style.width = Math.round(((qi + _QBATCH) / allData.length) * 60) + '%';
+    scheduleRender();
+  }
+  // Show market P/E stats with whatever P/E values we have so far (Phase 2.5 will refine them)
+  updateMarketPEStats();
+
+  // ── Phase 2.5: quoteSummary P/E — limited to top 80 stocks by market cap ──
+  // Saudi .SR stocks have trailingPE=null in v7/quote AND trailingEps often absent.
+  // The reliable source is TTM EPS from quarterly income statements (same as the stock modal).
+  // We limit to 80 stocks to avoid Yahoo rate limiting; smaller stocks keep hardcoded P/E until modal open.
+  const _allNeedsPE = allData.filter(d => d.priceLoaded && !d.livepeLoaded);
+  // Sort by market cap descending — prioritise largest stocks for accurate P/E
+  const _needsPE = _allNeedsPE
+    .slice()
+    .sort((a, b) => (b.mktCap || 0) - (a.mktCap || 0))
+    .slice(0, 80);
+  if (_needsPE.length > 0) {
+    document.getElementById("pl").textContent = `Fetching P/E ratios (top ${_needsPE.length} stocks by market cap)...`;
+    const _PE_BATCH = 8; // conservative concurrency — avoid Yahoo rate limiting
+    for (let pi = 0; pi < _needsPE.length; pi += _PE_BATCH) {
+      await Promise.all(_needsPE.slice(pi, pi + _PE_BATCH).map(async d => {
+        const idx = allData.findIndex(x => x.ticker === d.ticker);
+        if (idx < 0) return;
+        try {
+          // Quarterly income statements for TTM EPS — same logic as the stock modal (fetchStockFull)
+          const qsUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${d.ticker}?modules=summaryDetail,defaultKeyStatistics,incomeStatementHistoryQuarterly`;
+          const qsData = await Promise.race([
+            fetchWithProxy(qsUrl),
+            new Promise(r => setTimeout(() => r(null), 10000))
+          ]);
+          const qsResult = qsData?.quoteSummary?.result?.[0];
+          if (!qsResult) return;
+          const sd = qsResult.summaryDetail, dk = qsResult.defaultKeyStatistics;
+          const livePrice = allData[idx].price;
+          let pe = allData[idx].pe; // keep hardcoded as absolute fallback
+          // Step 1: trailingEps from defaultKeyStatistics
+          let eps = dk?.trailingEps?.raw;
+          // Step 2: TTM EPS from last 4 quarterly income statements (works when trailingEps absent)
+          if (!(eps > 0)) {
+            const qStmts = qsResult.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
+            const last4 = qStmts.slice(0, 4);
+            const shares = dk?.sharesOutstanding?.raw;
+            if (last4.length >= 2 && shares > 0) {
+              const ttmEPS = last4.reduce((s, q) => {
+                const e = q.basicEps?.raw ?? (q.netIncome?.raw != null ? q.netIncome.raw / shares : null);
+                return e != null ? s + e : s;
+              }, 0);
+              if (ttmEPS > 0) eps = +ttmEPS.toFixed(4);
+            }
+          }
+          // Compute P/E as live price / TTM EPS — matches Yahoo Finance app exactly
+          if (eps > 0 && livePrice > 0) {
+            pe = +(livePrice / eps).toFixed(2);
+          } else if (sd?.trailingPE?.raw > 0) {
+            pe = +sd.trailingPE.raw.toFixed(2);
+          }
+          const pb = (sd?.priceToBook?.raw > 0) ? +sd.priceToBook.raw.toFixed(2) : allData[idx].pb;
+          allData[idx] = {
+            ...allData[idx],
+            pe, pb,
+            livepeLoaded: true,
+            combined: calcCombined({...allData[idx], pe, pb}),
+          };
+          // Persist P/E to Drive cache so next page load doesn't need Phase 2.5
+          _gdCache[d.ticker] = Object.assign(_gdCache[d.ticker] || {}, {
+            fundamentals: Object.assign((_gdCache[d.ticker]?.fundamentals || {}), {
+              pe, pb: pb || null, eps: eps || null
+            }),
+            fundUpdated: Date.now(),
+          });
+        } catch(e) {}
+      }));
+      const pcPE = 60 + Math.round(((pi + _PE_BATCH) / _needsPE.length) * 20);
+      document.getElementById("pf").style.width = Math.min(pcPE, 80) + '%';
+      document.getElementById("pl").textContent = `P/E: ${Math.min(pi + _PE_BATCH, _needsPE.length)}/${_needsPE.length} large caps updated`;
       scheduleRender();
     }
   }
 
-  updateMarketPEStats();
-
-  // ── Phase 2: Per-stock price + closes via Yahoo v8/chart ─────────────────────────────
-  // Drive _gdCache (populated by Phase 1 bulk load) is checked first — returns instantly.
-  // Falls through to Yahoo v8/chart for stocks not yet in Drive. P/E from Drive fundamentals
-  // or hardcoded data; live P/E refreshes when user opens a stock modal (fetchStockFull).
-  const B = 10;
+  // ── Phase 3: Per-stock chart fetch for historical closes (technical scores) ──
+  // Only fetch stocks missing closes — prices already loaded above.
+  const B = 6;
   const _priceTimeout = () => new Promise(r => setTimeout(() => r({
     price:null,change:null,closes:[],timestamps:[],dataSource:'timeout',
     dataDate:'—',volume:null,avgVolume3M:null,volatility:null
   }), 10000));
-  const _needsCloses = allData.filter(d => (d.closes||[]).length < 6 || !d.priceLoaded);
+  const _needsCloses = allData.filter(d => (d.closes||[]).length < 6);
   const _tickerIdx = new Map(allData.map((d,i) => [d.ticker, i]));
   for(let i = 0; i < _needsCloses.length; i += B){
-    const pct = 30 + Math.round((i / Math.max(_needsCloses.length,1)) * 70);
+    const pct = 60 + Math.round((i / Math.max(_needsCloses.length,1)) * 40);
     document.getElementById("pf").style.width = pct + "%";
-    document.getElementById("pl").textContent = `Loading prices & charts: ${i+1}–${Math.min(i+B,_needsCloses.length)} of ${_needsCloses.length}`;
+    document.getElementById("pl").textContent = `Loading chart data: ${i+1}–${Math.min(i+B,_needsCloses.length)} of ${_needsCloses.length}`;
     await Promise.all(_needsCloses.slice(i, i+B).map(async d => {
       const idx = _tickerIdx.get(d.ticker) ?? -1;
       if (idx < 0) return;
       try {
         const fetched = await Promise.race([fetchStockPrice(allData[idx], true), _priceTimeout()]);
-        const gotCloses = (fetched.closes||[]).length > 5;
-        const gotPrice  = fetched.price != null && fetched.price > 0;
-        if (gotCloses || gotPrice) {
-          const tRes = gotCloses ? scoreTechnicalWithSteps(fetched.closes) : { score: allData[idx].technical, steps: allData[idx].techSteps, rsi: allData[idx].rsi, sma20: allData[idx].sma20, sma50: allData[idx].sma50, momentum: allData[idx].momentum };
+        if ((fetched.closes||[]).length > 5) {
+          const tRes = scoreTechnicalWithSteps(fetched.closes);
           // Recompute daily change from fresh closes when market appears open.
           // closes[-1] = last completed day's close; if price differs meaningfully,
           // market is intraday-open and closes-based change is more reliable.
           let validatedChange = allData[idx].priceLoaded ? allData[idx].change : (fetched.change ?? allData[idx].change);
           const currPx = allData[idx].price;
-          const lastClose = gotCloses ? fetched.closes[fetched.closes.length - 1] : null;
+          const lastClose = fetched.closes[fetched.closes.length - 1];
           if (currPx > 0 && lastClose > 0 && Math.abs(currPx - lastClose) / lastClose > 0.001) {
             validatedChange = +((currPx - lastClose) / lastClose * 100).toFixed(2);
           }
-          const p3price = allData[idx].priceLoaded ? allData[idx].price : (fetched.price ?? allData[idx].price);
-          const p3pe    = allData[idx].pe;
           allData[idx] = {
             ...allData[idx],
-            price:  p3price,
+            // Only overwrite price if we didn't already get it from v7/quote
+            price:  allData[idx].priceLoaded ? allData[idx].price  : (fetched.price  ?? allData[idx].price),
             change: validatedChange,
-            priceLoaded: allData[idx].priceLoaded || gotPrice,
-            // Preserve existing closes if this fetch only returned a price
-            closes:     gotCloses ? fetched.closes     : allData[idx].closes,
-            timestamps: gotCloses ? fetched.timestamps : allData[idx].timestamps,
+            priceLoaded: allData[idx].priceLoaded || fetched.price != null,
+            closes: fetched.closes, timestamps: fetched.timestamps,
             dataSource: allData[idx].dataSource || fetched.dataSource,
             technical: tRes.score, techSteps: tRes.steps,
             rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
@@ -7085,20 +7141,11 @@ async function refreshAll(forceRefresh=false){
             avgVolume3M: fetched.avgVolume3M ?? allData[idx].avgVolume3M,
             combined: calcCombined({...allData[idx], technical: tRes.score}),
           };
-          // Apply P/E-relative FV estimate if Phase 2 missed this stock
-          if (!allData[idx].dcfPS && p3price > 0 && p3pe > 0) {
-            const sFVPE = SECTOR_FV_PE[allData[idx].sector] || 15;
-            allData[idx].dcfPS    = +(p3price / p3pe * sFVPE).toFixed(2);
-            allData[idx].dcfUpside = (allData[idx].dcfPS - p3price) / p3price;
-            allData[idx].dcfMethod = 'P/E Est.';
-          }
         }
       } catch(e) {}
     }));
-    // Render directly each batch (not rAF-coalesced) — requestAnimationFrame is throttled
-    // when the mobile browser is backgrounded during the multi-minute load, which would
-    // otherwise leave the table stuck showing no prices. doFilter rebuilds filtData from allData.
-    try{ doFilter(); }catch(e){ console.warn('batch render failed', e); }
+    if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
+    scheduleRender();
   }
 
   clearTimeout(_hardStop); // normal completion — cancel the 4-min failsafe
@@ -7114,21 +7161,16 @@ async function refreshAll(forceRefresh=false){
   // ── Change 7: Compute sector-relative P/E medians after all prices loaded ──
   computeSectorMedianPE();
   updateMarketPEStats();
-  // Re-score fundamentals with sector-relative P/E now available.
-  // Wrapped per-stock so one bad stock can't throw and skip the final render below.
+  // Re-score fundamentals with sector-relative P/E now available
   allData.forEach(d => {
-    try {
-      // Keep P/E live: recompute from EPS (from financial statements) × current price.
-      // This updates the P/E with the latest price even when we don't re-fetch a live P/E.
-      if(d.eps > 0 && d.price > 0) d.pe = +(d.price / d.eps).toFixed(2);
-      if(d.pe != null) {
-        const fRes = scoreFundamental(d);
-        d.fundamental = d.noHardcodedData && !d.priceLoaded ? null : fRes.score;
-        d.fundSteps = fRes.steps;
-        d.combined = (d.noHardcodedData && !d.priceLoaded) ? null : calcCombined(d);
-      }
-    } catch(e){}
+    if(d.pe != null) {
+      const fRes = scoreFundamental(d);
+      d.fundamental = d.noHardcodedData && !d.priceLoaded ? null : fRes.score;
+      d.fundSteps = fRes.steps;
+      d.combined = (d.noHardcodedData && !d.priceLoaded) ? null : calcCombined(d);
+    }
   });
+  if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
 
   doFilter();updateMetrics();
   checkAlerts();
@@ -7185,8 +7227,8 @@ function openTASIModal() {
   bg.style.display = 'block';
   document.body.style.overflow = 'hidden';
   setTimeout(() => drawTASIChart(), 50);
-  // If we have less than 1000 closes, fetch full 10y data for richer chart
-  if (closes.length < 1000) fetchTASIIndexLong();
+  // If we have less than 200 closes, try to fetch 2y data for a richer chart
+  if (closes.length < 200) fetchTASIIndexLong();
 }
 
 function closeTASIModal() {
@@ -7328,7 +7370,7 @@ function _applyTASICloses(closes, timestamps) {
     ytdEl.innerHTML = `<span style="color:var(--tx3)">YTD: <span style="color:${col}">${tasiIndex.ytdReturn>=0?'+':''}${(tasiIndex.ytdReturn*100).toFixed(1)}%</span></span>`;
   }
   if (document.getElementById('tasi-modal-bg')?.style.display !== 'none') drawTASIChart();
-  if (marketPEChartVisible) { _renderMPEChart(); _renderBuffettChart(); }
+  if (marketPEChartVisible) _renderMPEChart();
   // Persist to Drive so next load is instant
   if (GD_TOKEN) gdSaveBulkPrices();
 }
@@ -7513,9 +7555,9 @@ async function fetchTASIIndex() {
   }
 
   // Refresh market P/E chart if open (uses tasiIndex.closes for historical line)
-  if (marketPEChartVisible) { _renderMPEChart(); _renderBuffettChart(); }
-  // Queue long-range fetch for full 10Y closes (used by TASI modal chart)
-  if (closes.length < 1000) fetchTASIIndexLong();
+  if (marketPEChartVisible) _renderMPEChart();
+  // Queue long-range fetch for full 2Y closes (used by TASI modal chart)
+  if (closes.length < 200) fetchTASIIndexLong();
 }
 
 // ── Change 6: Compute annualized historical volatility from daily closes ──
@@ -7529,7 +7571,6 @@ function computeVolatility(closes) {
 
 // ── Market P/E Statistics ─────────────────────────────────────────────────
 let marketPEChartInst = null;
-let buffettChartInst  = null;
 let marketPEChartVisible = false;
 let _mpeRange = '1Y'; // active range button
 let _mpeCurve = 'wtd'; // 'wtd' | 'med' | 'mean'
@@ -7547,172 +7588,6 @@ function _mpeCalc() {
   const totalMC = hasMC.reduce((s,d)=>s+d.mktCap,0);
   const wtdAvg = totalMC > 0 ? hasMC.reduce((s,d)=>s+d.pe*(d.mktCap/totalMC),0) : mean;
   return { valid, mean, median, wtdAvg, count: valid.length };
-}
-
-// ── Macro / whole-market valuation context ────────────────────────────────
-// Saudi nominal GDP ≈ SAR 4.0 trillion (2024). Risk-free ≈ 5.0% (Saudi 10Y).
-const SAUDI_GDP_SAR = 4.0e12;
-const SAUDI_RF = 0.05;
-const _clamp01 = x => Math.max(0, Math.min(1, x));
-
-// Sector fair-value P/E multiples — calibrated for TASI 2025.
-// Used for the quick P/E-relative Fair Value estimate shown in the main table.
-// Tech/Healthcare trimmed from earlier 28/25 (Saudi growth names rarely sustain >22x amid
-// Vision 2030 execution + global rate headwinds); REITs nudged up to reflect distribution-based pricing.
-const SECTOR_FV_PE = {
-  'Banking':11,'Insurance':13,'Energy':18,'Petrochemicals':14,'Chemicals':13,
-  'Materials':13,'Building Materials':14,'Real Estate':19,'REITs':17,'Telecom':18,
-  'Technology':22,'Healthcare':20,'Consumer':18,'Utilities':16,'Transportation':14,'Industrial':16
-};
-
-function _marketConditions() {
-  const r = _mpeCalc();
-  if (!r) return null;
-  const { wtdAvg, median, mean } = r;
-
-  // Whole-market cap (include REITs here — this is a market-wide aggregate)
-  const withMC = allData.filter(d => d.mktCap > 0 && d.priceLoaded);
-  const totalMC = withMC.reduce((s,d)=>s+d.mktCap, 0);
-  // Aramco (2222.SR) has ~2% free float and dominates cap — show an ex-Aramco view too
-  const exAramcoMC = withMC.filter(d=>d.ticker!=='2222.SR').reduce((s,d)=>s+d.mktCap,0);
-  const buffettInd = totalMC > 0 ? totalMC / SAUDI_GDP_SAR : null;
-  const buffettExAramco = exAramcoMC > 0 ? exAramcoMC / SAUDI_GDP_SAR : null;
-
-  // Earnings yield + equity risk premium (vs Saudi risk-free)
-  const earningsYield = wtdAvg > 0 ? 1/wtdAvg : null;
-  const erp = earningsYield != null ? earningsYield - SAUDI_RF : null;
-
-  // Cap-weighted dividend yield
-  const dyStocks = withMC.filter(d=>d.dy>0);
-  const dyMC = dyStocks.reduce((s,d)=>s+d.mktCap,0);
-  const wtdDY = dyMC>0 ? dyStocks.reduce((s,d)=>s+d.dy*(d.mktCap/dyMC),0) : null;
-
-  // Cap-weighted price-to-book
-  const pbStocks = withMC.filter(d=>d.pb>0 && d.pb<30);
-  const pbMC = pbStocks.reduce((s,d)=>s+d.mktCap,0);
-  const wtdPB = pbMC>0 ? pbStocks.reduce((s,d)=>s+d.pb*(d.mktCap/pbMC),0) : null;
-
-  // Breadth — % of stocks trading above their 50-day SMA (trend participation)
-  const brStocks = allData.filter(d=>d.priceLoaded && d.price>0 && d.sma50>0);
-  const aboveSMA50 = brStocks.filter(d=>d.price>d.sma50).length;
-  const breadth = brStocks.length>0 ? aboveSMA50/brStocks.length : null;
-
-  return { wtdAvg, median, mean, totalMC, exAramcoMC, buffettInd, buffettExAramco,
-           earningsYield, erp, wtdDY, wtdPB, breadth, breadthN: brStocks.length, count: r.count };
-}
-
-function _renderMarketConditions() {
-  const m = _marketConditions();
-  const tilesEl = document.getElementById('mkt-cond-tiles');
-  const bannerEl = document.getElementById('mkt-cond-banner');
-  if (!m || !tilesEl) return;
-
-  // ── Composite valuation thermometer (0 = cheap/fear, 100 = expensive/greed) ──
-  // ERP baseline 3.5% (Saudi long-run equity risk premium); sP and sERP both proxy
-  // valuation, so weight P/E heaviest (30%) and ERP lighter (20%) to avoid double-counting.
-  const sP   = _clamp01((m.wtdAvg - 12) / (28 - 12));
-  const sERP = m.erp != null ? _clamp01((0.035 - m.erp) / 0.05) : null;
-  const sBr  = m.breadth != null ? _clamp01((m.breadth - 0.30) / 0.50) : null;
-  const sDY  = m.wtdDY != null ? _clamp01((0.05 - m.wtdDY) / 0.03) : null;
-  const sPB  = m.wtdPB != null ? _clamp01((m.wtdPB - 1.5) / 1.5) : null;
-  const _wcomp = [[sP,0.30],[sERP,0.20],[sBr,0.20],[sDY,0.20],[sPB,0.10]].filter(([v])=>v!=null);
-  const _wsum  = _wcomp.reduce((s,[,w])=>s+w,0);
-  const temp = _wcomp.length ? Math.round(_wcomp.reduce((s,[v,w])=>s+v*w,0)/_wsum*100) : null;
-
-  if (temp != null && bannerEl) {
-    const label = temp < 25 ? 'CHEAP — Fear'
-      : temp < 45 ? 'Modestly Cheap'
-      : temp < 60 ? 'Fair Value'
-      : temp < 75 ? 'Modestly Expensive'
-      : 'EXPENSIVE — Greed';
-    const col = temp < 25 ? '#2ed573' : temp < 45 ? '#7bed9f'
-      : temp < 60 ? '#f5a623' : temp < 75 ? '#ff7f50' : '#e74c3c';
-    bannerEl.style.display = 'block';
-    bannerEl.innerHTML = `
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <div style="min-width:120px">
-          <div style="font-size:8px;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em">Market Valuation</div>
-          <div style="font-size:20px;font-weight:700;color:${col};line-height:1.1">${label}</div>
-        </div>
-        <div style="flex:1;min-width:200px">
-          <div style="position:relative;height:10px;border-radius:5px;overflow:hidden;background:linear-gradient(to right,#2ed573 0%,#7bed9f 25%,#f5a623 50%,#ff7f50 75%,#e74c3c 100%)">
-            <div style="position:absolute;top:-3px;width:3px;height:16px;background:var(--tx);border-radius:1px;left:${temp}%;box-shadow:0 0 4px rgba(0,0,0,.6)"></div>
-          </div>
-          <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--tx3);margin-top:3px">
-            <span>Fear / Cheap</span><span style="color:${col};font-weight:600">${temp}/100</span><span>Greed / Expensive</span>
-          </div>
-        </div>
-      </div>`;
-  }
-
-  // ── Indicator tiles ──
-  const tile = (label, val, sub, color, tip) =>
-    `<div title="${escapeHTML(tip)}" style="flex:1;min-width:118px;background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:8px 10px;cursor:help">
-       <div style="font-size:8px;color:var(--tx3);text-transform:uppercase;letter-spacing:.04em">${label}</div>
-       <div style="font-size:16px;font-weight:700;color:${color};line-height:1.1;margin-top:3px">${val}</div>
-       <div style="font-size:8px;color:var(--tx3);margin-top:3px">${sub}</div>
-     </div>`;
-
-  const tiles = [];
-
-  // 1. Buffett Indicator (ex-Aramco headline; Aramco's 2% float distorts the total)
-  if (m.buffettExAramco != null) {
-    const b = m.buffettExAramco;
-    const col = b < 0.70 ? '#2ed573' : b < 1.0 ? '#7bed9f' : b < 1.3 ? '#f5a623' : '#e74c3c';
-    const verdict = b < 0.70 ? 'Undervalued' : b < 1.0 ? 'Fair' : b < 1.3 ? 'Modestly rich' : 'Overvalued';
-    tiles.push(tile('Buffett Indicator', (b*100).toFixed(0)+'%',
-      `${verdict} · incl. Aramco ${(m.buffettInd*100).toFixed(0)}%`, col,
-      'Total market cap ÷ GDP (the "Buffett Indicator"). Shown ex-Aramco because Aramco\'s ~2% free float massively inflates the headline ratio. Saudi zones (Vision 2030 re-rating premium): <0.70 undervalued, 0.70–1.0 fair, 1.0–1.3 modestly rich, >1.3 overvalued. Saudi GDP ≈ SAR 4.0T (2024).'));
-  }
-
-  // 2. Earnings Yield
-  if (m.earningsYield != null) {
-    const ey = m.earningsYield;
-    const col = ey > 0.07 ? '#2ed573' : ey > 0.05 ? '#f5a623' : '#e74c3c';
-    tiles.push(tile('Earnings Yield', (ey*100).toFixed(1)+'%',
-      `vs risk-free ${(SAUDI_RF*100).toFixed(1)}%`, col,
-      'Inverse of the market P/E (1 ÷ P/E) — the earnings the market generates per riyal invested. Compare to the risk-free rate: higher than bonds = equities attractive.'));
-  }
-
-  // 3. Equity Risk Premium
-  if (m.erp != null) {
-    const e = m.erp;
-    const col = e > 0.03 ? '#2ed573' : e > 0.01 ? '#7bed9f' : e > 0 ? '#f5a623' : '#e74c3c';
-    const verdict = e > 0.03 ? 'Stocks cheap vs bonds' : e > 0.01 ? 'Fair' : e > 0 ? 'Slightly rich' : 'Stocks rich vs bonds';
-    tiles.push(tile('Equity Risk Premium', (e>=0?'+':'')+(e*100).toFixed(1)+'%',
-      verdict, col,
-      'Earnings yield minus the risk-free rate. The extra return equities offer over Saudi government bonds. >3% = equities clearly cheap; negative = equities expensive vs bonds. Note: earnings yield is a rough ERP proxy — Aramco (~17% of market earnings) ties it to oil prices, and it ignores differing payout/growth across sectors.'));
-  }
-
-  // 4. Market Dividend Yield
-  if (m.wtdDY != null) {
-    const dy = m.wtdDY;
-    const col = dy > 0.04 ? '#2ed573' : dy > 0.025 ? '#f5a623' : '#e74c3c';
-    tiles.push(tile('Market Div Yield', (dy*100).toFixed(2)+'%',
-      'cap-weighted', col,
-      'Market-cap weighted dividend yield across all dividend-paying stocks. Higher yields generally accompany cheaper markets. TASI long-run ≈ 3–4%.'));
-  }
-
-  // 5. Market P/B
-  if (m.wtdPB != null) {
-    const pb = m.wtdPB;
-    const col = pb < 1.8 ? '#2ed573' : pb < 2.5 ? '#f5a623' : '#e74c3c';
-    tiles.push(tile('Market P/B', pb.toFixed(2)+'x',
-      'cap-weighted', col,
-      'Market-cap weighted price-to-book. <1.8x is historically cheap for TASI, >2.5x rich. Less distorted by earnings cycles than P/E.'));
-  }
-
-  // 6. Breadth (% above SMA-50)
-  if (m.breadth != null) {
-    const br = m.breadth;
-    const col = br > 0.60 ? '#2ed573' : br > 0.40 ? '#f5a623' : '#e74c3c';
-    const verdict = br > 0.60 ? 'Broad uptrend' : br > 0.40 ? 'Mixed' : 'Weak / downtrend';
-    tiles.push(tile('Breadth >SMA-50', (br*100).toFixed(0)+'%',
-      `${verdict} · ${m.breadthN} stk`, col,
-      'Percentage of stocks trading above their 50-day moving average — measures how broadly the market is participating in the trend. >60% healthy, <40% weak.'));
-  }
-
-  tilesEl.innerHTML = tiles.join('');
 }
 
 function updateMarketPEStats() {
@@ -7733,7 +7608,7 @@ function updateMarketPEStats() {
     if (_mpeHistCache.length > 3650) _mpeHistCache.splice(0, _mpeHistCache.length - 3650);
     localStorage.setItem('tasi_mpe_hist', JSON.stringify(_mpeHistCache));
   } catch(e){}
-  if (marketPEChartVisible) { _renderMPEChart(); _renderBuffettChart(); _renderMarketConditions(); }
+  if (marketPEChartVisible) _renderMPEChart();
 }
 
 function toggleMarketPEChart() {
@@ -7742,12 +7617,9 @@ function toggleMarketPEChart() {
   if (!wrap) return;
   marketPEChartVisible = !marketPEChartVisible;
   wrap.style.display = marketPEChartVisible ? 'block' : 'none';
-  if (hint) hint.textContent = marketPEChartVisible ? '▲ hide tools' : '▼ valuation tools';
-  if (marketPEChartVisible) { updateMarketPEStats(); _renderMarketConditions(); setTimeout(_renderMPEChart, 30); setTimeout(_renderBuffettChart, 60); }
-  else {
-    if (marketPEChartInst) { try { marketPEChartInst.destroy(); } catch(e){} marketPEChartInst = null; }
-    if (buffettChartInst)  { try { buffettChartInst.destroy();  } catch(e){} buffettChartInst  = null; }
-  }
+  if (hint) hint.textContent = marketPEChartVisible ? '▲ hide chart' : '▼ show chart';
+  if (marketPEChartVisible) { updateMarketPEStats(); setTimeout(_renderMPEChart, 30); }
+  else if (marketPEChartInst) { try { marketPEChartInst.destroy(); } catch(e){} marketPEChartInst = null; }
 }
 
 function setMPERange(r) {
@@ -7759,7 +7631,6 @@ function setMPERange(r) {
     else { btn.style.background=''; btn.style.color=''; btn.style.borderColor=''; }
   });
   _renderMPEChart();
-  _renderBuffettChart();
 }
 
 function setMPECurve(c) {
@@ -7779,12 +7650,13 @@ function _renderMPEChart() {
   if (!ctx) return;
   const r = _mpeCalc();
   if (!r) return;
-  const { wtdAvg, median, mean } = r;
+  const { wtdAvg, median } = r;
 
-  // Gauge/big-number uses the curve selected by the buttons
-  const curveVal   = _mpeCurve === 'med' ? median : _mpeCurve === 'mean' ? mean : wtdAvg;
+  // Determine which curve value to display in gauge / big number
+  const curveVal = _mpeCurve === 'med' ? median : _mpeCurve === 'mean' ? r.mean : wtdAvg;
   const curveLabel = _mpeCurve === 'med' ? 'Median' : _mpeCurve === 'mean' ? 'Mean' : 'Wtd Avg';
 
+  // Update big value display + gauge pointer
   const bigEl = document.getElementById('mpe-big-val');
   const lblEl = document.getElementById('mpe-val-label');
   const ptr   = document.getElementById('mpe-gauge-ptr');
@@ -7795,129 +7667,90 @@ function _renderMPEChart() {
     lblEl.textContent = label; lblEl.style.color = col;
   }
   if (ptr) {
+    // Gauge goes 0→30+ mapped to 0→100% width; clamp at 5 and 95
     const pct = Math.min(95, Math.max(5, ((curveVal - 5) / 25) * 100));
     ptr.style.left = pct + '%';
   }
 
+  // Build time-series data points
   const rangeDays = { '3M':90, '6M':180, '1Y':365, '2Y':730, '5Y':1825 }[_mpeRange] || 365;
   const cutoffMs  = Date.now() - rangeDays * 864e5;
 
-  // Filter out pre-REIT-exclusion data (inflated entries with pe > 40)
-  const rawHist   = _mpeHistCache || JSON.parse(localStorage.getItem('tasi_mpe_hist')||'[]');
-  const validHist = rawHist.filter(e => e.pe > 0 && e.pe < 40);
-  const storedMap = new Map(validHist.map(e=>[e.d, e]));
+  // Stored actual daily P/E (in-memory cache; parsed once in updateMarketPEStats)
+  const storedHist = _mpeHistCache || JSON.parse(localStorage.getItem('tasi_mpe_hist')||'[]');
+  const storedMap  = new Map(storedHist.map(e=>[e.d, e]));
 
-  const priceCloses  = tasiIndex.closes || [];
-  const priceStamps  = tasiIndex.timestamps || [];
+  // Key to read from stored history based on selected curve
+  const curveKey = _mpeCurve === 'med' ? 'med' : _mpeCurve === 'mean' ? 'mean' : 'pe';
+  // Current ratio between selected curve and wtdAvg (for estimating historical curve from price data)
+  const curveRatio = wtdAvg > 0 ? curveVal / wtdAvg : 1;
+
+  // Estimated P/E from TASI price history (immediate historical context)
+  const priceCloses = tasiIndex.closes || [];
+  const priceStamps = tasiIndex.timestamps || [];
   const currentPrice = tasiIndex.price;
-
-  // Three separate point maps — one per curve
-  const wtdMap = new Map(), medMap = new Map(), meanMap = new Map();
-
-  // ── Build per-stock P/E time series from actual closes ──────────────────────
-  // Stocks with closes+price+pe give real daily P/E = close(t) × (pe/price).
-  // This makes median and mean genuinely diverge from wtdAvg because different
-  // sectors have different price trajectories.
-  const stocksForPE = allData.filter(d =>
-    d.pe > 0 && d.pe < 200 && !d.isReit && d.sector !== 'REITs' &&
-    d.price > 0 && d.closes?.length > 5 && d.timestamps?.length > 5
-  );
-
-  if (stocksForPE.length >= 5) {
-    // Build date → { ticker: pe } map from per-stock closes
-    const dateStockPE = new Map(); // dateStr → Array<{pe, mktCap}>
-    for (const d of stocksForPE) {
-      const eps = d.price / d.pe; // current-year EPS proxy
-      for (let i = 0; i < d.closes.length; i++) {
-        if (!d.closes[i] || !d.timestamps[i]) continue;
-        const tMs = d.timestamps[i] * 1000;
-        if (tMs < cutoffMs) continue;
-        const dateStr = new Date(tMs).toISOString().slice(0, 10);
-        const pe = +(d.closes[i] / eps).toFixed(2);
-        if (pe <= 0 || pe > 200) continue;
-        if (!dateStockPE.has(dateStr)) dateStockPE.set(dateStr, []);
-        dateStockPE.get(dateStr).push({ pe, mktCap: d.mktCap || 1 });
-      }
-    }
-    // Aggregate per date: wtdAvg, median, mean
-    for (const [dateStr, entries] of dateStockPE) {
-      if (entries.length < 3) continue;
-      const tMs = new Date(dateStr).getTime();
-      const stored = storedMap.get(dateStr);
-      const totalMC = entries.reduce((s, e) => s + e.mktCap, 0);
-      const computedWtd  = totalMC > 0 ? entries.reduce((s, e) => s + e.pe * (e.mktCap / totalMC), 0) : entries.reduce((s,e)=>s+e.pe,0)/entries.length;
-      const sortedPEs    = entries.map(e => e.pe).sort((a, b) => a - b);
-      const mid          = Math.floor(sortedPEs.length / 2);
-      const computedMed  = sortedPEs.length % 2 ? sortedPEs[mid] : (sortedPEs[mid-1]+sortedPEs[mid])/2;
-      const computedMean = entries.reduce((s,e)=>s+e.pe,0)/entries.length;
-      if (computedWtd <= 0 || computedWtd > 40) continue;
-      wtdMap.set(dateStr,  { t:tMs, pe: stored?.pe   > 0 && stored.pe   < 40 ? stored.pe   : +computedWtd.toFixed(2)  });
-      medMap.set(dateStr,  { t:tMs, pe: stored?.med  > 0 && stored.med  < 40 ? stored.med  : +computedMed.toFixed(2)  });
-      meanMap.set(dateStr, { t:tMs, pe: stored?.mean > 0 && stored.mean < 40 ? stored.mean : +computedMean.toFixed(2) });
-    }
-  }
-
-  // ── Fall back to TASI-index ratio scaling for dates with no per-stock data ──
+  const pointMap = new Map(); // date string → { t, pe, estimated }
   if (priceCloses.length > 5 && currentPrice > 0 && wtdAvg > 0) {
-    const mktEPS    = currentPrice / wtdAvg;
-    const medRatio  = wtdAvg > 0 ? median / wtdAvg : 1;
-    const meanRatio = wtdAvg > 0 ? mean   / wtdAvg : 1;
+    const mktEPS = currentPrice / wtdAvg; // estimated market earnings per index unit
     for (let i = 0; i < priceCloses.length; i++) {
       if (!priceCloses[i] || !priceStamps[i]) continue;
       const tMs = priceStamps[i] * 1000;
       if (tMs < cutoffMs) continue;
       const dateStr = new Date(tMs).toISOString().slice(0,10);
-      if (wtdMap.has(dateStr)) continue; // already have actual data for this date
-      const stored  = storedMap.get(dateStr);
-      const estWtd  = +(priceCloses[i] / mktEPS).toFixed(2);
-      if (estWtd <= 0 || estWtd > 40) continue;
-      wtdMap.set(dateStr,  { t:tMs, pe: stored?.pe   > 0 && stored.pe   < 40 ? stored.pe   : estWtd,                              estimated:true });
-      medMap.set(dateStr,  { t:tMs, pe: stored?.med  > 0 && stored.med  < 40 ? stored.med  : +(estWtd*medRatio).toFixed(2),  estimated:true });
-      meanMap.set(dateStr, { t:tMs, pe: stored?.mean > 0 && stored.mean < 40 ? stored.mean : +(estWtd*meanRatio).toFixed(2), estimated:true });
+      if (storedMap.has(dateStr) && storedMap.get(dateStr)[curveKey] != null) {
+        pointMap.set(dateStr, { t:tMs, pe: storedMap.get(dateStr)[curveKey], estimated:false });
+      } else {
+        // Scale estimated wtd-avg by curve ratio for median/mean curves
+        pointMap.set(dateStr, { t:tMs, pe: +(priceCloses[i]/mktEPS*curveRatio).toFixed(2), estimated:true });
+      }
     }
   }
-  // Add stored entries not covered by TASI price timestamps
-  validHist.forEach(e => {
+  // Add any stored points not yet covered (older than TASI history)
+  storedHist.forEach(e => {
     const tMs = new Date(e.d).getTime();
-    if (tMs < cutoffMs) return;
-    if (!wtdMap.has(e.d)  && e.pe   > 0) wtdMap.set(e.d,  { t:tMs, pe:e.pe   });
-    if (!medMap.has(e.d)  && e.med  > 0) medMap.set(e.d,  { t:tMs, pe:e.med  });
-    if (!meanMap.has(e.d) && e.mean > 0) meanMap.set(e.d, { t:tMs, pe:e.mean });
+    if (tMs >= cutoffMs && !pointMap.has(e.d) && e[curveKey] != null) {
+      pointMap.set(e.d, { t:tMs, pe:e[curveKey], estimated:false });
+    }
   });
 
-  const allDates = [...new Set([...wtdMap.keys(), ...medMap.keys(), ...meanMap.keys()])]
-    .filter(d => { const e = wtdMap.get(d)||medMap.get(d)||meanMap.get(d); return e && e.t >= cutoffMs; })
-    .sort();
-
-  if (!allDates.length) {
+  const points = [...pointMap.values()].sort((a,b)=>a.t-b.t);
+  if (!points.length) {
+    // No historical data yet — just show gauge/current values, trigger TASI fetch
     if (!tasiIndex.price) fetchTASIIndex();
     return;
   }
-  if (allDates.length < 5) {
-    const c2 = ctx.getContext('2d');
-    c2.clearRect(0, 0, ctx.width, ctx.height);
-    c2.fillStyle = '#4a5568'; c2.font = "11px 'IBM Plex Mono'"; c2.textAlign = 'center';
-    c2.fillText('Historical P/E chart builds over time — reload daily for trend data.', ctx.width/2, ctx.height/2 - 10);
-    c2.fillText(`Wtd ${wtdAvg.toFixed(1)}x  Median ${median.toFixed(1)}x  Mean ${mean.toFixed(1)}x`, ctx.width/2, ctx.height/2 + 12);
+  // Suppress chart when only 1 data point (single dot is misleading)
+  if (points.length < 5) {
+    // Show "building history" placeholder instead of a chart
+    const ctx2 = document.getElementById('market-pe-chart');
+    if (ctx2) {
+      const c2 = ctx2.getContext('2d');
+      c2.clearRect(0, 0, ctx2.width, ctx2.height);
+      c2.fillStyle = '#4a5568';
+      c2.font = "11px 'IBM Plex Mono'";
+      c2.textAlign = 'center';
+      c2.fillText('Historical P/E chart builds over time — reload daily for trend data.', ctx2.width/2, ctx2.height/2 - 10);
+      c2.fillText(`Today: ${wtdAvg.toFixed(1)}x  Median: ${median.toFixed(1)}x  (${points.length} session${points.length>1?'s':''}  stored)`, ctx2.width/2, ctx2.height/2 + 12);
+    }
     return;
   }
 
-  const wtdVals  = allDates.map(d => wtdMap.get(d)?.pe  ?? null);
-  const medVals  = allDates.map(d => medMap.get(d)?.pe  ?? null);
-  const meanVals = allDates.map(d => meanMap.get(d)?.pe ?? null);
-  const validWtd = wtdVals.filter(v => v != null);
-  const avgPE    = validWtd.length ? validWtd.reduce((s,v)=>s+v,0)/validWtd.length : wtdAvg;
+  const avgPE = points.reduce((s,p)=>s+p.pe,0)/points.length;
+  const labels = points.map(p => new Date(p.t).toISOString().slice(0,10));
+  const peVals = points.map(p => p.pe);
   const fontOpts = { size:8, family:"'IBM Plex Mono'" };
 
   marketPEChartInst = new Chart(ctx, {
     type: 'line',
     data: {
-      labels: allDates,
+      labels,
       datasets: [
-        { label:`Wtd Avg ${wtdAvg.toFixed(1)}x`,  data:wtdVals,  borderColor:'#4f9cf9', backgroundColor:'rgba(79,156,249,0.06)', fill:true,  pointRadius:0, borderWidth:2,   tension:0.2, spanGaps:true },
-        { label:`Median ${median.toFixed(1)}x`,    data:medVals,  borderColor:'#22c55e', backgroundColor:'transparent',           fill:false, pointRadius:0, borderWidth:1.5, tension:0.2, spanGaps:true },
-        { label:`Mean ${mean.toFixed(1)}x`,        data:meanVals, borderColor:'#f59e0b', backgroundColor:'transparent',           fill:false, pointRadius:0, borderWidth:1.5, tension:0.2, spanGaps:true, borderDash:[4,3] },
-        { label:`Hist Avg ${avgPE.toFixed(1)}x`,   data:new Array(allDates.length).fill(+avgPE.toFixed(2)), borderColor:'#4a5568', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:1, borderDash:[5,4], spanGaps:true }
+        { label:`Market P/E (${curveLabel})`, data:peVals,
+          borderColor:'#4f9cf9', backgroundColor:'rgba(79,156,249,0.08)',
+          fill:true, pointRadius:0, borderWidth:2, tension:0.2 },
+        { label:`Avg ${avgPE.toFixed(1)}x`, data:new Array(labels.length).fill(+avgPE.toFixed(2)),
+          borderColor:'#f5a623', backgroundColor:'transparent',
+          borderDash:[5,4], pointRadius:0, borderWidth:1.5 }
       ]
     },
     options: {
@@ -7928,7 +7761,7 @@ function _renderMPEChart() {
         tooltip:{ backgroundColor:'rgba(24,28,34,0.97)', borderColor:'#2d3440', borderWidth:1,
           titleColor:'#e8eaed', bodyColor:'#8a9ab5',
           titleFont:{family:"'IBM Plex Mono'",size:9}, bodyFont:{family:"'IBM Plex Mono'",size:9},
-          callbacks:{ label: c => c.raw != null ? `${c.dataset.label}: ${c.raw}x` : null }
+          callbacks:{ label: c=>`${c.dataset.label}: ${c.raw}x` }
         }
       },
       scales: {
@@ -7937,100 +7770,6 @@ function _renderMPEChart() {
         y:{ title:{display:true, text:'P/E Ratio', color:'#4a5568', font:fontOpts},
             ticks:{font:fontOpts, color:'#4a5568', callback:v=>v+'x'},
             grid:{color:'rgba(255,255,255,0.03)'}, border:{color:'#232830'} }
-      }
-    }
-  });
-}
-
-function _renderBuffettChart() {
-  if (buffettChartInst) { try { buffettChartInst.destroy(); } catch(e){} buffettChartInst = null; }
-  const ctx = document.getElementById('buffett-chart');
-  if (!ctx) return;
-
-  const priceCloses  = tasiIndex.closes || [];
-  const priceStamps  = tasiIndex.timestamps || [];
-  const currentPrice = tasiIndex.price;
-  if (!currentPrice || priceCloses.length < 5) return;
-
-  // All market caps in raw SAR (Yahoo marketCap), consistent with SAUDI_GDP_SAR (4.0e12 raw SAR).
-  // Use priced stocks first; fall back to any stocks with mktCap, then hardcoded Saudi estimates.
-  let withMC = allData.filter(d => d.mktCap > 0 && d.priceLoaded);
-  if (!withMC.length) withMC = allData.filter(d => d.mktCap > 0);
-  let totalMC, exAramcoMC;
-  if (withMC.length > 10) {
-    totalMC    = withMC.reduce((s,d) => s + d.mktCap, 0);
-    exAramcoMC = withMC.filter(d => d.ticker !== '2222.SR').reduce((s,d) => s + d.mktCap, 0);
-  } else {
-    // Hardcoded Saudi market cap estimates 2025: Total TASI ≈ SAR 10.2T, Ex-Aramco ≈ SAR 3.0T
-    totalMC    = 10.2e12;
-    exAramcoMC = 3.0e12;
-  }
-
-  const rangeDays = { '3M':90, '6M':180, '1Y':365, '2Y':730, '5Y':1825 }[_mpeRange] || 365;
-  const cutoffMs  = Date.now() - rangeDays * 864e5;
-
-  const labels = [], exVals = [];
-  for (let i = 0; i < priceCloses.length; i++) {
-    if (!priceCloses[i] || !priceStamps[i]) continue;
-    const tMs = priceStamps[i] * 1000;
-    if (tMs < cutoffMs) continue;
-    const ratio = priceCloses[i] / currentPrice; // scale current cap back through the index
-    labels.push(new Date(tMs).toISOString().slice(0,10));
-    exVals.push(+(ratio * exAramcoMC / SAUDI_GDP_SAR * 100).toFixed(1));
-  }
-  if (labels.length < 2) return;
-
-  // Update inline label
-  const lblEl = document.getElementById('buffett-line-label');
-  if (lblEl) {
-    const curEx  = +(exAramcoMC / SAUDI_GDP_SAR * 100).toFixed(0);
-    const curTot = +(totalMC / SAUDI_GDP_SAR * 100).toFixed(0);
-    const col = curEx < 70 ? 'var(--green)' : curEx < 100 ? 'var(--amb)' : 'var(--red)';
-    lblEl.textContent = `Ex-Aramco: ${curEx}% · Total: ${curTot}%`;
-    lblEl.style.color = col;
-  }
-
-  const fontOpts = { size:8, family:"'IBM Plex Mono'" };
-  const n = labels.length;
-  // Saudi ex-Aramco zone boundaries: Vision 2030 re-rating + low equity penetration
-  // justify a higher baseline than a developed market — ex-Aramco sits naturally ~75%.
-  const zoneFair = 70, zoneRich = 100;
-
-  buffettChartInst = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        { label:'Ex-Aramco MC/GDP', data:exVals, borderColor:'#4f9cf9', backgroundColor:'rgba(79,156,249,0.07)', fill:true, pointRadius:0, borderWidth:2, tension:0.2 },
-        { label:`Fair zone ${zoneFair}%`,  data:new Array(n).fill(zoneFair), borderColor:'#22c55e', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:1, borderDash:[4,3] },
-        { label:`Rich zone ${zoneRich}%`,  data:new Array(n).fill(zoneRich), borderColor:'#ef4444', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:1, borderDash:[4,3] },
-      ]
-    },
-    options: {
-      responsive:true, maintainAspectRatio:false,
-      interaction:{ mode:'index', intersect:false },
-      plugins: {
-        legend:{ display:true, labels:{ color:'#8a9ab5', font:fontOpts, boxWidth:10,
-          filter: item => item.text.startsWith('Ex-Aramco') }},
-        tooltip:{ backgroundColor:'rgba(24,28,34,0.97)', borderColor:'#2d3440', borderWidth:1,
-          titleColor:'#e8eaed', bodyColor:'#8a9ab5',
-          titleFont:{family:"'IBM Plex Mono'",size:9}, bodyFont:{family:"'IBM Plex Mono'",size:9},
-          callbacks:{
-            label: c => {
-              if (!c.dataset.label.startsWith('Ex-Aramco')) return null;
-              const v = c.raw;
-              const zone = v < zoneFair ? 'Undervalued' : v < zoneRich ? 'Fair Value' : 'Overvalued';
-              return `MC/GDP ex-Aramco: ${v}% (${zone})`;
-            }
-          }
-        }
-      },
-      scales: {
-        x:{ ticks:{font:fontOpts, color:'#4a5568', maxTicksLimit:6, maxRotation:0}, grid:{display:false}, border:{color:'#232830'} },
-        y:{ title:{display:true, text:'% of GDP', color:'#4a5568', font:fontOpts},
-            ticks:{font:fontOpts, color:'#4a5568', callback:v=>v+'%'},
-            grid:{color:'rgba(255,255,255,0.03)'}, border:{color:'#232830'},
-            suggestedMin: 0, suggestedMax: Math.max(100, Math.max(...exVals) + 10) }
       }
     }
   });
