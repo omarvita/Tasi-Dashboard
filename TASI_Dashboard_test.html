@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260530e'; // bump this string on every deploy that matters
+  var V='20260530f'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -376,20 +376,14 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
             <div id="mpe-gauge-ptr" style="position:absolute;top:-3px;width:2px;height:14px;background:var(--tx);border-radius:1px;transition:left 0.4s;left:50%"></div>
           </div>
           <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--tx3);margin-top:2px">
-            <span>Cheap &lt;15</span><span>Fair 15–25</span><span>Expensive &gt;25</span>
+            <span>Cheap &lt;12</span><span>Fair 12–22</span><span>Expensive &gt;22</span>
           </div>
         </div>
-        <div style="display:flex;gap:4px;margin-left:auto;align-items:center;flex-wrap:wrap">
-          <span style="color:var(--tx3);font-size:8px;margin-right:2px">Curve:</span>
-          <button class="tasi-rng-btn" id="mpe-c-wtd"  onclick="setMPECurve('wtd')"  style="background:var(--acc);color:#000;border-color:var(--acc)">Wtd Avg</button>
-          <button class="tasi-rng-btn" id="mpe-c-med"  onclick="setMPECurve('med')">Median</button>
-          <button class="tasi-rng-btn" id="mpe-c-mean" onclick="setMPECurve('mean')">Mean</button>
-          <span style="border-left:1px solid var(--b2);height:12px;margin:0 4px"></span>
+        <div style="display:flex;gap:4px;margin-left:auto">
           <button class="tasi-rng-btn" id="mpe-r-3m"  onclick="setMPERange('3M')">3M</button>
           <button class="tasi-rng-btn" id="mpe-r-6m"  onclick="setMPERange('6M')">6M</button>
           <button class="tasi-rng-btn" id="mpe-r-1y"  onclick="setMPERange('1Y')" style="background:var(--acc);color:#000;border-color:var(--acc)">1Y</button>
           <button class="tasi-rng-btn" id="mpe-r-2y"  onclick="setMPERange('2Y')">2Y</button>
-          <button class="tasi-rng-btn" id="mpe-r-5y"  onclick="setMPERange('5Y')">5Y</button>
         </div>
       </div>
       <div style="height:180px"><canvas id="market-pe-chart"></canvas></div>
@@ -411,7 +405,6 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
       <option value="peg">Sort: PEG (low→high)</option>
       <option value="change">Sort: Daily Chg%</option>
       <option value="vsTasi">Sort: vs TASI</option>
-      <option value="dcfUpside">Sort: Fair Value Upside</option>
     </select>
     <select id="vs" onchange="doFilter()">
       <option value="all">All securities</option>
@@ -443,7 +436,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
         <th class="col-bu" style="width:82px" onclick="sk('buffett')">Buffett↕</th>
         <th style="width:82px" onclick="sk('combined')">Score↕</th>
         <th style="width:48px">Signal</th>
-        <th class="col-tr" style="width:66px" onclick="sk('dcfUpside')" title="DCF Fair Value vs current price↕">Fair Val↕</th>
+        <th class="col-tr" style="width:50px">Trend</th>
         <th class="col-vs" style="width:52px" onclick="sk('vsTasi')" title="6-month return vs TASI index">vs TASI↕</th>
         <th class="col-st" style="width:32px">★</th>
         <th class="col-cp" style="width:32px">⊕</th>
@@ -490,7 +483,6 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
       <button onclick="tasiChartRange=90;drawTASIChart()" class="tasi-rng-btn" id="tr-90">3M</button>
       <button onclick="tasiChartRange=180;drawTASIChart()" class="tasi-rng-btn" id="tr-180">6M</button>
       <button onclick="tasiChartRange=365;drawTASIChart()" class="tasi-rng-btn" id="tr-365" style="background:var(--acc);color:#000">1Y</button>
-      <button onclick="tasiChartRange=1825;drawTASIChart()" class="tasi-rng-btn" id="tr-1825">5Y</button>
       <button onclick="tasiChartRange=9999;drawTASIChart()" class="tasi-rng-btn" id="tr-all">All</button>
       <span style="border-left:1px solid var(--b1);padding-left:8px;display:flex;gap:5px;flex-wrap:wrap">
         <button onclick="tasiShowSMA20=!tasiShowSMA20;drawTASIChart()" id="tasi-ov-sma20" class="tasi-rng-btn">SMA-20</button>
@@ -1440,8 +1432,8 @@ async function gdSaveBulkPrices() {
     // Include TASI index historical closes in bulk file so next load is instant
     if (tasiIndex.closes?.length > 10) {
       prices['_tasi'] = {
-        closes: tasiIndex.closes.slice(-3000),
-        timestamps: tasiIndex.timestamps.slice(-3000),
+        closes: tasiIndex.closes.slice(-750),
+        timestamps: tasiIndex.timestamps.slice(-750),
         price: tasiIndex.price,
         change: tasiIndex.change,
         ytdReturn: tasiIndex.ytdReturn,
@@ -2147,6 +2139,20 @@ function getStockName(d) {
 }
 
 // ── SPARKLINE (inline 8-week price trend) ──
+function makeSparkline(closes, width=60, height=20) {
+  if(!closes || closes.length < 5) return '<span style="color:var(--tx3);font-size:9px">—</span>';
+  const data = closes.slice(-40); // last 40 data points
+  const min = Math.min(...data), max = Math.max(...data);
+  const range = max - min || 1;
+  const pts = data.map((v,i) => {
+    const x = (i/(data.length-1))*width;
+    const y = height - ((v-min)/range)*height;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const color = data[data.length-1] >= data[0] ? '#22c55e' : '#ef4444';
+  return `<svg width="${width}" height="${height}" style="vertical-align:middle"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.2"/></svg>`;
+}
+
 // ── PEER COMPARISON (sector stats) ──
 function getSectorStats(sector) {
   const peers = allData.filter(d => d.sector === sector && d.combined > 0);
@@ -2460,7 +2466,7 @@ function _portFilter(q) {
       onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
       <div>
         <span style="font-family:var(--mono);font-size:10px;color:var(--acc);font-weight:600">${d.ticker.replace('.SR','')}</span>
-        <span style="font-family:var(--mono);font-size:9px;color:var(--tx2);margin-left:6px">${escapeHTML(d.name.split(' ').slice(0,4).join(' '))}</span>
+        <span style="font-family:var(--mono);font-size:9px;color:var(--tx2);margin-left:6px">${d.name.split(' ').slice(0,4).join(' ')}</span>
       </div>
       <div style="text-align:right;flex-shrink:0;margin-left:8px">
         <span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">${priceStr}</span>
@@ -3489,21 +3495,16 @@ function scorePEG(pe,eg,annIS){
       pegGrowthRate = Math.pow(eps0 / eps2, 1/2) - 1; // 2-year CAGR
     }
   }
-  // Cap growth at 25% — Saudi banks/telecoms rarely sustain above this;
-  // uncapped inputs from one-off earnings spikes produce misleadingly low PEGs.
-  if (pegGrowthRate != null) pegGrowthRate = Math.min(pegGrowthRate, 0.25);
   const peg = (pe != null && pegGrowthRate != null && pegGrowthRate > 0)
     ? pe / (pegGrowthRate * 100) : null;
   if(!pe||!pegGrowthRate||pegGrowthRate<=0||peg==null)return{score:50,peg:null,steps:[{label:"PEG Ratio",raw:"N/A",delta:0,why:"Cannot calculate — need positive P/E and EG"}]};
-  // Saudi market thresholds — wider "fair" band than US norms:
-  // TASI growth stocks (Healthcare, Tech, Vision 2030 plays) trade at PEG 1.5–2.5
   let p=50,delta=0,why="";
   if(peg<0.5){delta=+25;why="Exceptional: PEG < 0.5 — very undervalued vs growth";}
   else if(peg<1.0){delta=+18;why="Undervalued: PEG 0.5–1.0 — Buffett sweet spot";}
-  else if(peg<2.0){delta=+8;why="Fair: PEG 1.0–2.0 — reasonable for Saudi market growth premium";}
-  else if(peg<3.0){delta=-8;why="Slightly expensive: PEG 2.0–3.0 — growth priced in";}
-  else if(peg<4.0){delta=-18;why="Expensive: PEG 3.0–4.0 — significant growth premium";}
-  else{delta=-25;why="Very expensive: PEG > 4.0 — speculative growth priced in";}
+  else if(peg<1.5){delta=+8;why="Fair: PEG 1.0–1.5 — reasonably priced for growth";}
+  else if(peg<2.0){delta=-5;why="Slightly expensive: PEG 1.5–2.0";}
+  else if(peg<3.0){delta=-15;why="Expensive: PEG 2.0–3.0 — growth priced in";}
+  else{delta=-25;why="Very expensive: PEG > 3.0 — significant growth premium";}
   p+=delta;
   return{score:Math.min(100,Math.max(0,Math.round(p))),peg:parseFloat(peg.toFixed(2)),steps:[{label:"PEG Ratio",raw:peg.toFixed(2),delta,why}]};
 }
@@ -4203,31 +4204,22 @@ function renderTable(){
     const lv=d.priceLoaded?`<span class="badge b-live" style="margin-left:2px">LIVE</span>`:`<span class="badge b-est" style="margin-left:2px">EST</span>`;
     const pegStr=d.peg!=null?`<span style="font-family:var(--mono);font-size:10px;color:${d.peg<1?"var(--green)":d.peg<2?"var(--amb)":"var(--red)"}">${d.peg.toFixed(2)}</span>`:`<span class="nav">—</span>`;
     const egStr=d.eg!=null?`<span class="${d.eg>=0?'pos':'neg'}">${d.eg>=0?"+":""}${(d.eg*100).toFixed(0)}%</span>`:`<span class="nav">—</span>`;
-    const unscored = d.noHardcodedData && !d.priceLoaded;
     const shortName = d.name.split(' ').slice(0,3).join(' ') + (d.name.split(' ').length > 3 ? '…' : '');
     return`<tr class="data-row" onclick="openModal(${start+i})" onmouseenter="gdPrefetch(${start+i})">
       <td class="rk">${start+i+1}</td>
       <td class="tk" style="white-space:normal;min-width:54px">${d.ticker.replace(".SR","")}<span class="mob-company" style="display:none">${shortName}${moat}${reit}</span></td>
-      <td class="col-co" title="${escapeHTML(d.name)}" style="color:var(--tx)">${escapeHTML(getStockName(d))}${moat}${reit}</td>
+      <td class="col-co" title="${d.name}" style="color:var(--tx)">${getStockName(d)}${moat}${reit}</td>
       <td style="min-width:52px"><span class="pv">${hasPx?d.price.toFixed(2):'—'}</span>${lv}</td>
       <td class="${cc}" style="min-width:44px">${cs}</td>
       <td class="col-pe"><span style="font-family:var(--mono);font-size:10px;color:var(--tx)">${d.pe!=null?d.pe.toFixed(1):'<span class="nav">—</span>'}</span></td>
       <td class="col-eg">${egStr}</td>
       <td class="col-peg">${pegStr}</td>
-      <td class="col-fu">${unscored?'<span class="nav">—</span>':bar(d.fundamental??50)}</td>
+      <td class="col-fu">${(d.noHardcodedData&&!d.priceLoaded)?'<span class="nav">—</span>':bar(d.fundamental??50)}</td>
       <td class="col-te">${bar(d.technical)}</td>
-      <td class="col-bu">${unscored?'<span class="nav">—</span>':bar(d.buffett??50)}</td>
-      <td style="min-width:60px">${unscored?'<span class="nav" style="font-size:11px">Unscored</span>':bar(d.combined??50)}</td>
-      <td style="min-width:40px"><span class="badge ${sig.cls}">${unscored?'—':sig.label}</span></td>
-      <td class="col-tr">${(()=>{
-        if (d.dcfPS != null && d.price) {
-          const up = d.dcfUpside ?? 0;
-          const col = up > 0.15 ? 'var(--green)' : up > -0.10 ? 'var(--amb)' : 'var(--red)';
-          const sign = up >= 0 ? '+' : '';
-          return `<div style="line-height:1.3"><div style="font-family:var(--mono);font-size:10px;font-weight:600;color:${col}">${d.dcfPS.toFixed(1)}</div><div style="font-family:var(--mono);font-size:8px;color:${col}">${sign}${(up*100).toFixed(1)}%</div></div>`;
-        }
-        return '<span class="nav" style="font-size:9px">—</span>';
-      })()}</td>
+      <td class="col-bu">${(d.noHardcodedData&&!d.priceLoaded)?'<span class="nav">—</span>':bar(d.buffett??50)}</td>
+      <td style="min-width:60px">${(d.noHardcodedData&&!d.priceLoaded)?'<span class="nav" style="font-size:11px">Unscored</span>':bar(d.combined??50)}</td>
+      <td style="min-width:40px"><span class="badge ${sig.cls}">${(d.noHardcodedData&&!d.priceLoaded)?'—':sig.label}</span></td>
+      <td class="col-tr">${makeSparkline(d.closes)}</td>
       <td class="col-vs">${(()=>{
         const v=d.vsTasi;
         if(v==null)return'<span class="nav" style="font-size:9px">—</span>';
@@ -4397,7 +4389,7 @@ function saveUIState(){
   }catch(e){}
 }
 
-const VALID_SORT_KEYS = new Set(['combined','fundamental','technical','buffett','pegScore','pe','peg','dy','roe','npm','rg','eg','price','change','mktCap','dcfUpside']);
+const VALID_SORT_KEYS = new Set(['combined','fundamental','technical','buffett','pegScore','pe','peg','dy','roe','npm','rg','eg','price','change','mktCap']);
 function restoreUIState(){
   try{
     const raw=localStorage.getItem('TASI_ui_state');
@@ -4432,8 +4424,8 @@ function _renderModalShell(d) {
   <div class="mhead">
     <div class="mhtop">
       <div>
-        <div class="mtitle">${escapeHTML(d.name)} ${moat}${reit}${_capTier?` <span style="color:${_capTier.color};font-size:8px;font-family:var(--mono)">${_capTier.label}</span>`:''}</div>
-        <div class="msub">${escapeHTML(d.ticker)} · ${escapeHTML(d.sector)} · Signal: <span class="badge ${sig.cls}">${sig.label}</span> &nbsp;<span style="font-family:var(--mono);font-size:9px;font-weight:600;padding:2px 7px;border-radius:3px;background:${_risk.color}22;color:${_risk.color};border:1px solid ${_risk.color}55" title="Risk factors: ${_risk.flags.join(', ')||'None identified'}">Risk: ${_risk.level}</span> · ${d.priceLoaded?'<span style="color:var(--acc)">● Live data</span>':'<span style="color:var(--tx3)">○ Loading…</span>'}</div>
+        <div class="mtitle">${d.name} ${moat}${reit}${_capTier?` <span style="color:${_capTier.color};font-size:8px;font-family:var(--mono)">${_capTier.label}</span>`:''}</div>
+        <div class="msub">${d.ticker} · ${d.sector} · Signal: <span class="badge ${sig.cls}">${sig.label}</span> &nbsp;<span style="font-family:var(--mono);font-size:9px;font-weight:600;padding:2px 7px;border-radius:3px;background:${_risk.color}22;color:${_risk.color};border:1px solid ${_risk.color}55" title="Risk factors: ${_risk.flags.join(', ')||'None identified'}">Risk: ${_risk.level}</span> · ${d.priceLoaded?'<span style="color:var(--acc)">● Live data</span>':'<span style="color:var(--tx3)">○ Loading…</span>'}</div>
       </div>
       <div style="display:flex;gap:4px;align-items:center">
         <button id="fs-btn" onclick="toggleModalFS()" title="Toggle fullscreen" style="width:22px;height:22px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;cursor:pointer;color:var(--tx2);font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .12s;padding:0" onmouseover="this.style.borderColor='var(--acc)';this.style.color='var(--acc)'" onmouseout="this.style.borderColor='var(--b2)';this.style.color='var(--tx2)'">⛶</button>
@@ -5649,16 +5641,7 @@ async function buildDCF(d) {
   }
 
   // ── WACC ──
-  const rfRate=0.055, erp=0.065, kd=0.055;
-  // Sector-aware terminal growth — Vision 2030 tailwinds lift domestic sectors;
-  // commodities/petrochem mean-revert to global cycle; banking/consumer = TASI long-run.
-  const TERM_GROWTH_BY_SECTOR = {
-    'Technology':0.035,'Healthcare':0.035,'Real Estate':0.035,
-    'Banking':0.030,'Insurance':0.030,'Consumer':0.030,'Telecom':0.030,'Utilities':0.030,
-    'Industrial':0.025,'Transportation':0.025,'Building Materials':0.025,'Materials':0.025,
-    'Energy':0.020,'Petrochemicals':0.020,'Chemicals':0.020,
-  };
-  const termGrowth = TERM_GROWTH_BY_SECTOR[d.sector] ?? 0.025;
+  const rfRate=0.055, erp=0.065, kd=0.055, termGrowth=0.025;
   const _energyTaxTickers = ['2222.SR','2010.SR'];
   const taxRate = _energyTaxTickers.includes(d.ticker) ? 0.20 : 0.05;
   // Sector-specific beta defaults — used when Yahoo Finance has not provided a measured beta.
@@ -5754,24 +5737,19 @@ async function buildDCF(d) {
     upside = (intrinsicPS && d.price) ? (intrinsicPS - d.price) / d.price : null;
   }
 
-  // ── DDM FOR BANKS AND REITs ──
-  // Banks: D/E 400–600% (deposits) → FCF-DCF useless. REITs: must distribute ≥90% of income.
-  // Both use Gordon Growth DDM: Fair Value = DPS / (ke − g_sustainable)
+  // ── DDM FOR BANKING STOCKS ──
+  // Banks have D/E 400–600% (deposits = liabilities) → EV − Net Debt ≈ 0 → FCF-DCF useless.
+  // Use Gordon Growth DDM: Fair Value = DPS / (ke − g_sustainable)
   const isBanking = d.sector === 'Banking';
-  const isReitDCF = d.isReit ?? (d.sector === 'REITs');
   let ddmPS=null, ddmUpside=null, ddmNotes='';
-  if ((isBanking || isReitDCF) && d.dy && d.price && d.price > 0) {
+  if (isBanking && d.dy && d.price && d.price > 0) {
     const dps = d.dy * d.price;
-    // REITs distribute ≥90% by regulation; banks modeled from ROE × retention
-    const payoutRatio = isReitDCF ? 0.90 : Math.min(d.dy * (d.pe||15), 0.95);
-    // REIT NOI growth capped at 3.5% (rental inflation + new assets); bank = ROE × retention
-    const gSustain = isReitDCF
-      ? Math.min(0.035, ke - 0.005)
-      : Math.min((d.roe||0.12) * (1-payoutRatio), ke - 0.005);
+    const payoutRatio = Math.min(d.dy * (d.pe||15), 0.95);
+    const gSustain = Math.min((d.roe||0.12) * (1-payoutRatio), ke - 0.005);
     if (ke > gSustain + 0.003 && dps > 0) {
       ddmPS = dps / (ke - gSustain);
       ddmUpside = (ddmPS - d.price) / d.price;
-      ddmNotes = `DPS ≈ ${dps.toFixed(3)} SAR · payout ${isReitDCF?'90%':((payoutRatio*100).toFixed(0)+'%')} · g = ${(gSustain*100).toFixed(2)}% · ke = ${(ke*100).toFixed(1)}%`;
+      ddmNotes = `DPS ≈ ${dps.toFixed(3)} SAR · payout ≈ ${(payoutRatio*100).toFixed(0)}% · g = ${(gSustain*100).toFixed(2)}% · ke = ${(ke*100).toFixed(1)}%`;
     }
   }
 
@@ -5833,7 +5811,7 @@ async function buildDCF(d) {
     {name:'P/E',     w:_W[1], fv:peFairValue},
     {name:'EV/EBITDA',w:_W[2],fv:evFairValue},
     {name:'P/B',     w:_W[3], fv:pbFairValue},
-    {name:'DDM',     w:_W[4], fv:(isBanking||isReitDCF)?ddmPS:null},
+    {name:'DDM',     w:_W[4], fv:isBanking?ddmPS:null},
   ].filter(m => m.fv != null && m.fv > 0 && m.w > 0);
   let compositeFV = null, compositeUpside = null;
   if (_methods.length > 0) {
@@ -5843,11 +5821,11 @@ async function buildDCF(d) {
   }
 
   // ── PRIMARY VALUATION ──
-  const primaryPS = compositeFV ?? ((isBanking || isReitDCF) ? (ddmPS ?? intrinsicPS) : intrinsicPS);
-  const primaryUpside = compositeUpside ?? ((isBanking || isReitDCF) ? (ddmUpside ?? upside) : upside);
+  const primaryPS = compositeFV ?? (isBanking ? (ddmPS ?? intrinsicPS) : intrinsicPS);
+  const primaryUpside = compositeUpside ?? (isBanking ? (ddmUpside ?? upside) : upside);
   const primaryMethod = compositeFV
     ? `Composite (${_methods.map(m=>m.name).join('+')})`
-    : ((isBanking || isReitDCF) && ddmPS ? 'DDM' : 'FCF-DCF');
+    : (isBanking && ddmPS ? 'DDM' : 'FCF-DCF');
   if (primaryPS != null) {
     d.dcfPS = primaryPS; d.dcfUpside = primaryUpside; d.dcfMethod = primaryMethod;
     gdWriteStock(d.ticker, { dcfResult: { dcfPS: primaryPS, dcfUpside: primaryUpside, dcfMethod: primaryMethod }, dcfUpdated: Date.now() });
@@ -6957,7 +6935,6 @@ async function refreshAll(forceRefresh=false){
   // Drive Phase 1 is still useful for closes (chart/technical data).
   document.getElementById("pl").textContent = `Fetching live prices (${allData.length} stocks)...`;
   const _QBATCH = 20;
-  const _p2TickerIdx = new Map(allData.map((d,i) => [d.ticker, i]));
   for (let qi = 0; qi < allData.length; qi += _QBATCH) {
     try {
       const batch = allData.slice(qi, qi + _QBATCH);
@@ -6973,7 +6950,7 @@ async function refreshAll(forceRefresh=false){
       const quotes = qdata?.quoteResponse?.result || qdata?.quote || [];
       for (const q of quotes) {
         if (!q.symbol || q.regularMarketPrice == null) continue;
-        const idx = _p2TickerIdx.get(q.symbol) ?? -1;
+        const idx = allData.findIndex(d => d.ticker === q.symbol);
         if (idx < 0) continue;
         const price  = q.regularMarketPrice;
         const change = q.regularMarketChangePercent ?? null;
@@ -7105,32 +7082,22 @@ async function refreshAll(forceRefresh=false){
     dataDate:'—',volume:null,avgVolume3M:null,volatility:null
   }), 10000));
   const _needsCloses = allData.filter(d => (d.closes||[]).length < 6);
-  const _tickerIdx = new Map(allData.map((d,i) => [d.ticker, i]));
   for(let i = 0; i < _needsCloses.length; i += B){
     const pct = 60 + Math.round((i / Math.max(_needsCloses.length,1)) * 40);
     document.getElementById("pf").style.width = pct + "%";
     document.getElementById("pl").textContent = `Loading chart data: ${i+1}–${Math.min(i+B,_needsCloses.length)} of ${_needsCloses.length}`;
     await Promise.all(_needsCloses.slice(i, i+B).map(async d => {
-      const idx = _tickerIdx.get(d.ticker) ?? -1;
+      const idx = allData.findIndex(x => x.ticker === d.ticker);
       if (idx < 0) return;
       try {
         const fetched = await Promise.race([fetchStockPrice(allData[idx], true), _priceTimeout()]);
         if ((fetched.closes||[]).length > 5) {
           const tRes = scoreTechnicalWithSteps(fetched.closes);
-          // Recompute daily change from fresh closes when market appears open.
-          // closes[-1] = last completed day's close; if price differs meaningfully,
-          // market is intraday-open and closes-based change is more reliable.
-          let validatedChange = allData[idx].priceLoaded ? allData[idx].change : (fetched.change ?? allData[idx].change);
-          const currPx = allData[idx].price;
-          const lastClose = fetched.closes[fetched.closes.length - 1];
-          if (currPx > 0 && lastClose > 0 && Math.abs(currPx - lastClose) / lastClose > 0.001) {
-            validatedChange = +((currPx - lastClose) / lastClose * 100).toFixed(2);
-          }
           allData[idx] = {
             ...allData[idx],
             // Only overwrite price if we didn't already get it from v7/quote
             price:  allData[idx].priceLoaded ? allData[idx].price  : (fetched.price  ?? allData[idx].price),
-            change: validatedChange,
+            change: allData[idx].priceLoaded ? allData[idx].change : (fetched.change ?? allData[idx].change),
             priceLoaded: allData[idx].priceLoaded || fetched.price != null,
             closes: fetched.closes, timestamps: fetched.timestamps,
             dataSource: allData[idx].dataSource || fetched.dataSource,
@@ -7309,12 +7276,12 @@ function drawTASIChart() {
 }
 
 async function fetchTASIIndexLong() {
-  // Yahoo Finance v8/chart — try 10y first, fall back to 5y then 2y
+  // Yahoo Finance v8/chart (try both hosts)
   const urls2y = [
-    `https://query1.finance.yahoo.com/v8/finance/chart/^TASI.SR?interval=1d&range=10y`,
-    `https://query2.finance.yahoo.com/v8/finance/chart/^TASI.SR?interval=1d&range=10y`,
-    `https://query1.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=10y`,
-    `https://query2.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=10y`,
+    `https://query1.finance.yahoo.com/v8/finance/chart/^TASI.SR?interval=1d&range=2y`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/^TASI.SR?interval=1d&range=2y`,
+    `https://query1.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=2y`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=2y`,
   ];
   for (const url of urls2y) {
     try {
@@ -7351,7 +7318,7 @@ async function fetchTASIIndexLong() {
         closes.reverse(); timestamps.reverse();
       }
       if (closes.length > tasiIndex.closes.length) {
-        _applyTASICloses(closes.slice(-3000), timestamps.slice(-3000));
+        _applyTASICloses(closes.slice(-750), timestamps.slice(-750));
       }
     }
   } catch(e) {}
@@ -7527,31 +7494,17 @@ async function fetchTASIIndex() {
     ytdEl.innerHTML = `<span style="color:var(--tx3)">YTD: <span style="color:${col}">${ytdReturn>=0?'+':''}${(ytdReturn*100).toFixed(1)}%</span></span>`;
   }
 
-  // Compute vsTASI — align TASI window to each stock's price history start date
-  // so both returns cover the same calendar period (fixes window-mismatch bias).
-  const tasiTS = tasiIndex.timestamps || [];
-  const tasiCL = tasiIndex.closes || [];
-  if (tasiCL.length > 0) {
+  // Compute vsTASI for all stocks (stock return over same window vs TASI)
+  const tasiRet = closes.length > 0 ? (closes[closes.length-1] - closes[0]) / closes[0] : null;
+  if (tasiRet != null) {
     allData.forEach(d => {
-      if (!d.closes || d.closes.length < 10) return;
-      const stockStartTS = (d.timestamps || [])[0];
-      let alignedTasiRet;
-      if (stockStartTS && tasiTS.length > 0) {
-        // Find earliest TASI close on or after the stock's first timestamp
-        const ti = tasiTS.findIndex(ts => ts >= stockStartTS);
-        if (ti >= 0 && ti < tasiCL.length - 1) {
-          alignedTasiRet = (tasiCL[tasiCL.length-1] - tasiCL[ti]) / tasiCL[ti];
-        }
+      if (d.closes && d.closes.length >= 10) {
+        const sr = (d.closes[d.closes.length-1] - d.closes[0]) / d.closes[0];
+        d.vsTasi = parseFloat(((sr - tasiRet)*100).toFixed(1));
       }
-      if (alignedTasiRet == null) {
-        // Fallback: same full-window ratio as before
-        alignedTasiRet = (tasiCL[tasiCL.length-1] - tasiCL[0]) / tasiCL[0];
-      }
-      const sr = (d.closes[d.closes.length-1] - d.closes[0]) / d.closes[0];
-      d.vsTasi = parseFloat(((sr - alignedTasiRet)*100).toFixed(1));
     });
     if (window._fd) { const _m=new Map(allData.map(d=>[d.ticker,d])); window._fd=window._fd.map(d=>_m.get(d.ticker)||d); }
-    scheduleRender();
+    renderTable();
   }
 
   // Refresh market P/E chart if open (uses tasiIndex.closes for historical line)
@@ -7573,12 +7526,10 @@ function computeVolatility(closes) {
 let marketPEChartInst = null;
 let marketPEChartVisible = false;
 let _mpeRange = '1Y'; // active range button
-let _mpeCurve = 'wtd'; // 'wtd' | 'med' | 'mean'
-let _mpeHistCache = null; // in-memory cache to avoid repeated localStorage parse
+let _mpeLastWtd = null, _mpeLastMed = null, _mpeLastMean = null;
 
 function _mpeCalc() {
-  // Exclude REITs — their P/E is structurally incomparable to equities
-  const valid = allData.filter(d => d.pe > 0 && d.pe < 200 && d.priceLoaded && !d.isReit && d.sector !== 'REITs');
+  const valid = allData.filter(d => d.pe > 0 && d.pe < 200 && d.priceLoaded);
   if (!valid.length) return null;
   const mean = valid.reduce((s,d)=>s+d.pe,0)/valid.length;
   const sorted = valid.map(d=>d.pe).sort((a,b)=>a-b);
@@ -7594,6 +7545,7 @@ function updateMarketPEStats() {
   const r = _mpeCalc();
   if (!r) return;
   const { mean, median, wtdAvg, count } = r;
+  _mpeLastWtd = wtdAvg; _mpeLastMed = median; _mpeLastMean = mean;
   document.getElementById('mpe-mean').textContent   = mean.toFixed(1)+'x';
   document.getElementById('mpe-median').textContent = median.toFixed(1)+'x';
   document.getElementById('mpe-wtd').textContent    = wtdAvg.toFixed(1)+'x';
@@ -7601,12 +7553,12 @@ function updateMarketPEStats() {
   // Store today's calculated P/E in localStorage for historical chart
   try {
     const today = new Date().toISOString().slice(0,10);
-    if (!_mpeHistCache) _mpeHistCache = JSON.parse(localStorage.getItem('tasi_mpe_hist')||'[]');
-    const existing = _mpeHistCache.findIndex(e=>e.d===today);
+    const hist = JSON.parse(localStorage.getItem('tasi_mpe_hist')||'[]');
+    const existing = hist.findIndex(e=>e.d===today);
     const entry = { d:today, pe:+wtdAvg.toFixed(2), med:+median.toFixed(2), mean:+mean.toFixed(2) };
-    if (existing >= 0) _mpeHistCache[existing] = entry; else _mpeHistCache.push(entry);
-    if (_mpeHistCache.length > 3650) _mpeHistCache.splice(0, _mpeHistCache.length - 3650);
-    localStorage.setItem('tasi_mpe_hist', JSON.stringify(_mpeHistCache));
+    if (existing >= 0) hist[existing] = entry; else hist.push(entry);
+    if (hist.length > 730) hist.splice(0, hist.length - 730); // keep 2 years
+    localStorage.setItem('tasi_mpe_hist', JSON.stringify(hist));
   } catch(e){}
   if (marketPEChartVisible) _renderMPEChart();
 }
@@ -7624,21 +7576,10 @@ function toggleMarketPEChart() {
 
 function setMPERange(r) {
   _mpeRange = r;
-  ['3M','6M','1Y','2Y','5Y'].forEach(x => {
+  ['3M','6M','1Y','2Y'].forEach(x => {
     const btn = document.getElementById('mpe-r-'+x.toLowerCase());
     if (!btn) return;
     if (x === r) { btn.style.background='var(--acc)'; btn.style.color='#000'; btn.style.borderColor='var(--acc)'; }
-    else { btn.style.background=''; btn.style.color=''; btn.style.borderColor=''; }
-  });
-  _renderMPEChart();
-}
-
-function setMPECurve(c) {
-  _mpeCurve = c;
-  ['wtd','med','mean'].forEach(x => {
-    const btn = document.getElementById('mpe-c-'+x);
-    if (!btn) return;
-    if (x === c) { btn.style.background='var(--acc)'; btn.style.color='#000'; btn.style.borderColor='var(--acc)'; }
     else { btn.style.background=''; btn.style.color=''; btn.style.borderColor=''; }
   });
   _renderMPEChart();
@@ -7652,38 +7593,29 @@ function _renderMPEChart() {
   if (!r) return;
   const { wtdAvg, median } = r;
 
-  // Determine which curve value to display in gauge / big number
-  const curveVal = _mpeCurve === 'med' ? median : _mpeCurve === 'mean' ? r.mean : wtdAvg;
-  const curveLabel = _mpeCurve === 'med' ? 'Median' : _mpeCurve === 'mean' ? 'Mean' : 'Wtd Avg';
-
   // Update big value display + gauge pointer
   const bigEl = document.getElementById('mpe-big-val');
   const lblEl = document.getElementById('mpe-val-label');
   const ptr   = document.getElementById('mpe-gauge-ptr');
-  if (bigEl) bigEl.textContent = curveVal.toFixed(1)+'x';
+  if (bigEl) bigEl.textContent = wtdAvg.toFixed(1)+'x';
   if (lblEl) {
-    const label = curveVal < 15 ? `(${curveLabel} — Undervalued)` : curveVal < 25 ? `(${curveLabel} — Fair Value)` : curveVal < 32 ? `(${curveLabel} — Overvalued)` : `(${curveLabel} — Expensive)`;
-    const col   = curveVal < 15 ? 'var(--green)' : curveVal < 25 ? '#f5a623' : 'var(--red)';
+    const label = wtdAvg < 12 ? '(Undervalued)' : wtdAvg < 22 ? '(Fair Value)' : wtdAvg < 30 ? '(Overvalued)' : '(Expensive)';
+    const col   = wtdAvg < 12 ? 'var(--green)' : wtdAvg < 22 ? '#f5a623' : 'var(--red)';
     lblEl.textContent = label; lblEl.style.color = col;
   }
   if (ptr) {
     // Gauge goes 0→30+ mapped to 0→100% width; clamp at 5 and 95
-    const pct = Math.min(95, Math.max(5, ((curveVal - 5) / 25) * 100));
+    const pct = Math.min(95, Math.max(5, ((wtdAvg - 5) / 25) * 100));
     ptr.style.left = pct + '%';
   }
 
   // Build time-series data points
-  const rangeDays = { '3M':90, '6M':180, '1Y':365, '2Y':730, '5Y':1825 }[_mpeRange] || 365;
+  const rangeDays = { '3M':90, '6M':180, '1Y':365, '2Y':730 }[_mpeRange] || 365;
   const cutoffMs  = Date.now() - rangeDays * 864e5;
 
-  // Stored actual daily P/E (in-memory cache; parsed once in updateMarketPEStats)
-  const storedHist = _mpeHistCache || JSON.parse(localStorage.getItem('tasi_mpe_hist')||'[]');
+  // Stored actual daily P/E (from localStorage — grows over time)
+  const storedHist = JSON.parse(localStorage.getItem('tasi_mpe_hist')||'[]');
   const storedMap  = new Map(storedHist.map(e=>[e.d, e]));
-
-  // Key to read from stored history based on selected curve
-  const curveKey = _mpeCurve === 'med' ? 'med' : _mpeCurve === 'mean' ? 'mean' : 'pe';
-  // Current ratio between selected curve and wtdAvg (for estimating historical curve from price data)
-  const curveRatio = wtdAvg > 0 ? curveVal / wtdAvg : 1;
 
   // Estimated P/E from TASI price history (immediate historical context)
   const priceCloses = tasiIndex.closes || [];
@@ -7697,19 +7629,18 @@ function _renderMPEChart() {
       const tMs = priceStamps[i] * 1000;
       if (tMs < cutoffMs) continue;
       const dateStr = new Date(tMs).toISOString().slice(0,10);
-      if (storedMap.has(dateStr) && storedMap.get(dateStr)[curveKey] != null) {
-        pointMap.set(dateStr, { t:tMs, pe: storedMap.get(dateStr)[curveKey], estimated:false });
+      if (storedMap.has(dateStr)) {
+        pointMap.set(dateStr, { t:tMs, pe: storedMap.get(dateStr).pe, estimated:false });
       } else {
-        // Scale estimated wtd-avg by curve ratio for median/mean curves
-        pointMap.set(dateStr, { t:tMs, pe: +(priceCloses[i]/mktEPS*curveRatio).toFixed(2), estimated:true });
+        pointMap.set(dateStr, { t:tMs, pe: +(priceCloses[i]/mktEPS).toFixed(2), estimated:true });
       }
     }
   }
   // Add any stored points not yet covered (older than TASI history)
   storedHist.forEach(e => {
     const tMs = new Date(e.d).getTime();
-    if (tMs >= cutoffMs && !pointMap.has(e.d) && e[curveKey] != null) {
-      pointMap.set(e.d, { t:tMs, pe:e[curveKey], estimated:false });
+    if (tMs >= cutoffMs && !pointMap.has(e.d)) {
+      pointMap.set(e.d, { t:tMs, pe:e.pe, estimated:false });
     }
   });
 
@@ -7745,7 +7676,7 @@ function _renderMPEChart() {
     data: {
       labels,
       datasets: [
-        { label:`Market P/E (${curveLabel})`, data:peVals,
+        { label:'Market P/E (Wtd Avg)', data:peVals,
           borderColor:'#4f9cf9', backgroundColor:'rgba(79,156,249,0.08)',
           fill:true, pointRadius:0, borderWidth:2, tension:0.2 },
         { label:`Avg ${avgPE.toFixed(1)}x`, data:new Array(labels.length).fill(+avgPE.toFixed(2)),
