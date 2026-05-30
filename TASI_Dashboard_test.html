@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260530o'; // bump this string on every deploy that matters
+  var V='20260530p'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530o · +fix: widen Chg% column to show 2 decimal places</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530p · +fix: sector 2dp; no stale +0.00% from Drive cache</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -3951,7 +3951,7 @@ async function fetchStockPrice(stock, skipDriveNetwork=false) {
     if (driveData?.priceData && Date.now() - (driveData.priceUpdated || 0) < GD_PRICE_TTL) {
       const p = driveData.priceData;
       const cls = p.closes || [];
-      const change = cls.length >= 2 ? dailyChangeFromCloses(cls) : (p.change ?? null);
+      const change = cls.length >= 2 ? dailyChangeFromCloses(cls) : null;
       return {
         price: p.price, change, closes: cls, timestamps: p.timestamps || [],
         dataSource: 'google-drive', dataDate: new Date(driveData.priceUpdated).toISOString().slice(0, 10),
@@ -7807,7 +7807,7 @@ function buildSectorPerf() {
     const border= pos ? '#166534'      : '#991b1b';
     const isActive = activeSector === name;
     return `<span class="sp-pill${isActive?' sp-active':''}" data-s="${name}" style="color:${color};background:${bg};border-color:${border}" onclick="setSector('${name}')" title="${count} stocks · daily avg">
-      ${name} <strong>${avg>=0?'+':''}${avg.toFixed(1)}%</strong>
+      ${name} <strong>${avg>=0?'+':''}${avg.toFixed(2)}%</strong>
     </span>`;
   };
 
