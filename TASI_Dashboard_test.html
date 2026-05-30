@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260530k'; // bump this string on every deploy that matters
+  var V='20260530l'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530k · +fix: %CHG uses Yahoo daily% (not manual calc)</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530l · +fix: %CHG from last 2 closes (no meta field needed)</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -3920,19 +3920,16 @@ async function fetchYahooPrice(ticker){
     const timestamps = data?.chart?.result?.[0]?.timestamp||[];
     // regularMarketPreviousClose = yesterday's official close (correct for 1-day % change)
     // chartPreviousClose = close before chart period starts (6 months ago for range=6mo → wrong for daily change)
-    const prev  = meta?.regularMarketPreviousClose ?? null;
     const price = meta?.regularMarketPrice ?? null;
-    // Prefer Yahoo's own pre-computed daily % — it handles halts, splits, and adjustments correctly
-    const change = meta?.regularMarketChangePercent != null
-      ? +meta.regularMarketChangePercent.toFixed(2)
-      : (price != null && prev != null && prev > 0)
-        ? +((price - prev) / prev * 100).toFixed(2)
-        : null;
-    return { price, prev, change, closes, timestamps,
+    const n = closes.length;
+    const change = (n >= 2 && closes[n-2] > 0)
+      ? +((closes[n-1] - closes[n-2]) / closes[n-2] * 100).toFixed(2)
+      : null;
+    return { price, change, closes, timestamps,
       volume: meta?.regularMarketVolume??null,
       avgVolume3M: meta?.averageDailyVolume3Month??null,
     };
-  }catch(e){ return {price:null,prev:null,change:null,closes:[],timestamps:[],volume:null,avgVolume3M:null}; }
+  }catch(e){ return {price:null,change:null,closes:[],timestamps:[],volume:null,avgVolume3M:null}; }
 }
 
 // ── PRICE-ONLY FETCH: used during main refresh (fast, 1 req per stock) ──
