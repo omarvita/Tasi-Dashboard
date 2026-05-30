@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260530m'; // bump this string on every deploy that matters
+  var V='20260530n'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530m · +fix: %CHG recomputed from cached closes (fixes +0.0 from Drive)</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530n · +fix: %CHG skips trailing duplicate closes (market closed)</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -3911,6 +3911,16 @@ async function fetchYahoo(ticker) {
 }
 
 // Quick price-only fetch (1 request, for main table refresh)
+// Yahoo repeats the previous close for non-trading days (weekends/holidays) as a non-null value.
+// Walk backwards to find the last two closes that actually differ — those are the last two trading days.
+function dailyChangeFromCloses(closes) {
+  let i = closes.length - 1;
+  while (i > 0 && closes[i] === closes[i - 1]) i--;
+  return (i >= 1 && closes[i - 1] > 0)
+    ? +((closes[i] - closes[i - 1]) / closes[i - 1] * 100).toFixed(2)
+    : null;
+}
+
 async function fetchYahooPrice(ticker){
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=6mo`;
   try{
@@ -3918,13 +3928,8 @@ async function fetchYahooPrice(ticker){
     const meta = data?.chart?.result?.[0]?.meta;
     const closes = (data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
     const timestamps = data?.chart?.result?.[0]?.timestamp||[];
-    // regularMarketPreviousClose = yesterday's official close (correct for 1-day % change)
-    // chartPreviousClose = close before chart period starts (6 months ago for range=6mo → wrong for daily change)
     const price = meta?.regularMarketPrice ?? null;
-    const n = closes.length;
-    const change = (n >= 2 && closes[n-2] > 0)
-      ? +((closes[n-1] - closes[n-2]) / closes[n-2] * 100).toFixed(2)
-      : null;
+    const change = dailyChangeFromCloses(closes);
     return { price, change, closes, timestamps,
       volume: meta?.regularMarketVolume??null,
       avgVolume3M: meta?.averageDailyVolume3Month??null,
@@ -3946,10 +3951,7 @@ async function fetchStockPrice(stock, skipDriveNetwork=false) {
     if (driveData?.priceData && Date.now() - (driveData.priceUpdated || 0) < GD_PRICE_TTL) {
       const p = driveData.priceData;
       const cls = p.closes || [];
-      const n = cls.length;
-      const change = (n >= 2 && cls[n-2] > 0)
-        ? +((cls[n-1] - cls[n-2]) / cls[n-2] * 100).toFixed(2)
-        : p.change ?? null;
+      const change = cls.length >= 2 ? dailyChangeFromCloses(cls) : (p.change ?? null);
       return {
         price: p.price, change, closes: cls, timestamps: p.timestamps || [],
         dataSource: 'google-drive', dataDate: new Date(driveData.priceUpdated).toISOString().slice(0, 10),
