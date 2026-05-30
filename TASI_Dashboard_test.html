@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260530l'; // bump this string on every deploy that matters
+  var V='20260530m'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530l · +fix: %CHG from last 2 closes (no meta field needed)</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530m · +fix: %CHG recomputed from cached closes (fixes +0.0 from Drive)</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -3945,8 +3945,13 @@ async function fetchStockPrice(stock, skipDriveNetwork=false) {
       : (_gdCache[ticker] || await gdReadStock(ticker));     // full Drive read (single modal)
     if (driveData?.priceData && Date.now() - (driveData.priceUpdated || 0) < GD_PRICE_TTL) {
       const p = driveData.priceData;
+      const cls = p.closes || [];
+      const n = cls.length;
+      const change = (n >= 2 && cls[n-2] > 0)
+        ? +((cls[n-1] - cls[n-2]) / cls[n-2] * 100).toFixed(2)
+        : p.change ?? null;
       return {
-        price: p.price, change: p.change, closes: p.closes || [], timestamps: p.timestamps || [],
+        price: p.price, change, closes: cls, timestamps: p.timestamps || [],
         dataSource: 'google-drive', dataDate: new Date(driveData.priceUpdated).toISOString().slice(0, 10),
         volume: p.volume, avgVolume3M: p.avgVolume3M, volatility: p.volatility,
       };
