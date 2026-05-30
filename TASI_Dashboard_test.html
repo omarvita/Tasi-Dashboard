@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260530j'; // bump this string on every deploy that matters
+  var V='20260530k'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530j · +fix: %CHG now shows correctly in table</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530k · +fix: %CHG uses Yahoo daily% (not manual calc)</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -3922,9 +3922,12 @@ async function fetchYahooPrice(ticker){
     // chartPreviousClose = close before chart period starts (6 months ago for range=6mo → wrong for daily change)
     const prev  = meta?.regularMarketPreviousClose ?? null;
     const price = meta?.regularMarketPrice ?? null;
-    const change = (price != null && prev != null && prev > 0)
-      ? +((price - prev) / prev * 100).toFixed(2)
-      : null;
+    // Prefer Yahoo's own pre-computed daily % — it handles halts, splits, and adjustments correctly
+    const change = meta?.regularMarketChangePercent != null
+      ? +meta.regularMarketChangePercent.toFixed(2)
+      : (price != null && prev != null && prev > 0)
+        ? +((price - prev) / prev * 100).toFixed(2)
+        : null;
     return { price, prev, change, closes, timestamps,
       volume: meta?.regularMarketVolume??null,
       avgVolume3M: meta?.averageDailyVolume3Month??null,
@@ -3961,7 +3964,7 @@ async function fetchStockPrice(stock, skipDriveNetwork=false) {
     const quick = await fetchYahooPrice(ticker);
     if(quick.price){
       result.price = quick.price;
-      result.change = (quick.price && quick.prev) ? ((quick.price-quick.prev)/quick.prev)*100 : null;
+      result.change = quick.change;
       result.dataSource = 'yahoo';
       result.dataDate = new Date().toISOString().slice(0,10);
     }
