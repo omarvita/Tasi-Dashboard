@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260530h'; // bump this string on every deploy that matters
+  var V='20260530i'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -3550,16 +3550,7 @@ function deriveMetricsFromStatements(annual, quarterly){
     const n0=_num(aIS[0].net_income), n1=_num(aIS[1].net_income);
     if(n0!=null && n1>0) out.eg=(n0-n1)/n1;
   }
-  // TTM EPS — sum last 4 quarters' basic EPS (most current), else latest annual EPS.
-  // Used to recompute P/E (= price / TTM EPS) so the main table P/E reflects statements.
-  let ttmEPS=null;
-  if (Array.isArray(qIS) && qIS.length>=4){
-    const e4=qIS.slice(0,4); let s=0,n=0;
-    for(const q of e4){ const e=_num(q.eps); if(e!=null){s+=e;n++;} }
-    if(n===4) ttmEPS=s;
-  }
-  if (ttmEPS==null && Array.isArray(aIS) && _num(aIS[0]?.eps)!=null) ttmEPS=_num(aIS[0].eps);
-  out.eps=ttmEPS; out.ttmRev=ttmRev; out.ttmNI=ttmNI;
+  out.ttmRev=ttmRev; out.ttmNI=ttmNI;
   return out;
 }
 
@@ -3590,20 +3581,10 @@ function applyDerivedMetrics(d){
   }
   if (m.ttmRev>0){ d.ttmRev=m.ttmRev; d.rev=m.ttmRev/1e9; }
   if (m.ttmNI!=null){ d.ttmNI=m.ttmNI; d.ni=m.ttmNI/1e9; }
-  // EPS & P/E from statements — TTM EPS (statement basicEPS) or TTM NI / shares.
-  // P/E = live price / TTM EPS, matching Yahoo. Drives the main-table P/E and PEG.
-  const shares = d.sharesOutstanding || _gdCache[d.ticker]?.fundamentals?.sharesOutstanding;
-  let eps = (m.eps!=null && m.eps>0) ? m.eps : null;
-  if (eps==null && m.ttmNI>0 && shares>0) eps = m.ttmNI/shares;
-  if (eps>0){
-    d.eps = +eps.toFixed(4);
-    if (d.price>0){ d.pe = +(d.price/eps).toFixed(2); d.livepeLoaded=true; changed=true; }
-  }
   if (changed){
-    recomputeAllScores(d); // recomputes PEG from statement-derived P/E + growth
+    recomputeAllScores(d);
     _gdCache[d.ticker] = Object.assign(_gdCache[d.ticker]||{}, {
       fundamentals: Object.assign((_gdCache[d.ticker]?.fundamentals||{}), {
-        pe:d.pe, eps:d.eps,
         roe:d.roe, npm:d.npm, de:d.de, fcf:d.fcf, rg:d.rg, eg:d.eg, assets:d.assets,
         ttmRev:d.ttmRev, ttmNI:d.ttmNI,
       }),
@@ -6907,7 +6888,6 @@ async function refreshAll(forceRefresh=false){
         const F = c.fundamentals, d = allData[i];
         if (F.pe > 0) { d.pe = F.pe; d.livepeLoaded = true; }
         if (F.pb != null) d.pb = F.pb;
-        if (F.eps != null) d.eps = F.eps;
         for (const k of ['roe','npm','de','dy','fcf','cr','rg','eg','assets','beta']) {
           if (F[k] != null) d[k] = F[k];
         }
