@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260530f'; // bump this string on every deploy that matters
+  var V='20260530g'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -349,7 +349,6 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
     <span style="margin-left:4px">Advancing: <span id="tasi-adv" style="color:var(--green)">—</span></span>
     <span>Declining: <span id="tasi-dec" style="color:var(--red)">—</span></span>
     <span id="tasi-mood">—</span>
-    <span id="fin-last-fetched" style="color:var(--tx3);font-size:9px" title="When financial statements were last bulk-retrieved"></span>
     <span style="margin-left:auto;color:var(--tx3)" id="tasi-time">—</span>
   </div>
   <div class="secperf" id="secperf-bar"><span class="secperf-lbl">Sectors</span><span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Loading…</span></div>
@@ -7342,24 +7341,6 @@ function _applyTASICloses(closes, timestamps) {
   if (GD_TOKEN) gdSaveBulkPrices();
 }
 
-function _updateFinLastFetched(ts) {
-  const el = document.getElementById('fin-last-fetched');
-  if (!el) return;
-  if (!ts) { el.textContent = ''; return; }
-  const d = new Date(ts);
-  const now = new Date();
-  const diffH = (now - d) / 36e5;
-  let label;
-  if (diffH < 1) label = `${Math.round(diffH * 60)}m ago`;
-  else if (diffH < 24) label = `${Math.round(diffH)}h ago`;
-  else {
-    const diffD = Math.floor(diffH / 24);
-    label = diffD === 1 ? '1d ago' : `${diffD}d ago`;
-  }
-  el.textContent = `Financials: ${label}`;
-  el.title = `Financial statements last retrieved: ${d.toLocaleString()}`;
-}
-
 // ── Bulk retrieve: financial statements for ALL stocks ──
 // Fetches annual (and quarterly) statements per stock, derives all overview
 // metrics, recomputes every criteria score and the DCF/Fair Value, then saves
@@ -7396,9 +7377,6 @@ async function fetchAllFinancials(){
   try { if (GD_TOKEN) await gdSaveBulkPrices(); } catch(e){}
   try { await saveCache(); } catch(e){}
   scheduleRender();
-  const finFetchedAt = Date.now();
-  localStorage.setItem('tasi_fin_last_fetched', finFetchedAt);
-  _updateFinLastFetched(finFetchedAt);
   tdLog(`✓ Done — retrieved statements for ${ok}/${stocks.length} stocks. All overview metrics & scores recalculated and saved to Google Drive.`, true);
   if (btn) { btn.disabled = false; btn.textContent = '📊 Retrieve All Financial Statements'; }
   _fetchingAllFin = false;
@@ -7879,7 +7857,6 @@ function buildSectorPerf() {
   // Step 2: Open DB async in background, then check cache, then fetch prices
   restoreUIState();
   initGDToken();
-  _updateFinLastFetched(+localStorage.getItem('tasi_fin_last_fetched') || 0);
   // Fetch TASI market summary
   fetchMarketSummary();
 
