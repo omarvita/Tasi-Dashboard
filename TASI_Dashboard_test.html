@@ -1459,9 +1459,14 @@ async function gdSaveBulkPrices() {
       ? `https://www.googleapis.com/upload/drive/v3/files/${_gdBulkPriceFileId}?uploadType=multipart`
       : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
     const res = await fetch(uploadUrl, { method, headers: { Authorization: `Bearer ${GD_TOKEN}` }, body: form, signal: AbortSignal.timeout(20000) });
-    if (res.ok && !_gdBulkPriceFileId) {
-      const meta = await _bodyJson(res, 5000);
-      if (meta?.id) _gdBulkPriceFileId = meta.id;
+    if (res.ok) {
+      if (!_gdBulkPriceFileId) {
+        const meta = await _bodyJson(res, 5000);
+        if (meta?.id) _gdBulkPriceFileId = meta.id;
+      }
+    } else if (res.status === 401) {
+      GD_TOKEN = null; sessionStorage.removeItem('TASI_gd_token'); updateGDStatus();
+      showToast('⚠ Google Drive token expired — please reconnect in Settings');
     }
   } catch(e) { console.warn('gdSaveBulkPrices:', e); }
 }
@@ -1557,6 +1562,11 @@ async function gdLoadStatementsBulk() {
           _stmtCache[ticker] = Object.assign(_stmtCache[ticker] || {}, data);
         }
         console.log(`[GD] Loaded statements for ${Object.keys(bulk.statements).length} stocks from Drive`);
+        // Invalidate tab cache for currently open stock if it now has Drive data
+        const openD = window._fd?.[window._curIdx];
+        if (openD && _stmtCache[openD.ticker]) {
+          openD._htmlCache = {};
+        }
       }
       if (bulk?.finLastFetched) {
         localStorage.setItem('tasi_fin_last_fetched', bulk.finLastFetched);
@@ -1590,9 +1600,15 @@ async function gdSaveStatementsBulk() {
       body: form,
       signal: AbortSignal.timeout(90000)
     });
-    if (res.ok && !_stmtBulkFileId) {
-      const meta = await _bodyJson(res, 5000);
-      if (meta?.id) _stmtBulkFileId = meta.id;
+    if (res.ok) {
+      if (!_stmtBulkFileId) {
+        const meta = await _bodyJson(res, 5000);
+        if (meta?.id) _stmtBulkFileId = meta.id;
+      }
+      console.log(`[GD] Saved statements bulk (${(body.length/1024).toFixed(0)}KB, ${Object.keys(_stmtCache).length} stocks)`);
+    } else if (res.status === 401) {
+      GD_TOKEN = null; sessionStorage.removeItem('TASI_gd_token'); updateGDStatus();
+      showToast('⚠ Google Drive token expired — please reconnect in Settings');
     }
   } catch(e) { console.warn('gdSaveStatementsBulk:', e); }
 }
@@ -1600,6 +1616,7 @@ async function gdSaveStatementsBulk() {
 // Wait for statements bulk to finish loading (with 30s max timeout)
 async function gdAwaitStatements() {
   if (_stmtBulkLoaded) return;
+  if (GD_TOKEN && !_stmtBulkLoadPromise) gdLoadStatementsBulk(); // trigger if not started
   if (_stmtBulkLoadPromise) {
     await Promise.race([_stmtBulkLoadPromise, new Promise(r => setTimeout(r, 30000))]);
   }
@@ -4481,6 +4498,9 @@ async function openModal(idx){
   window._curIdx=idx;
   const d=window._fd?.[idx];if(!d)return;
 
+  // Clear tab HTML cache when opening a new stock to prevent stale content
+  d._htmlCache = {};
+
   // Show modal immediately with whatever data we already have
   _renderModalShell(d);
   document.getElementById("modal").style.display="flex";
@@ -4594,7 +4614,7 @@ async function openModal(idx){
   // If modal is still showing this stock, refresh header + overview with new data
   if(window._curIdx===idx && document.getElementById('modal')?.style.display!=='none'){
     const freshD=window._fd?.[idx];
-    if(freshD){ _renderModalShell(freshD); switchTab("overview"); }
+    if(freshD){ freshD._htmlCache = {}; _renderModalShell(freshD); switchTab("overview"); }
   }
 
   // Pre-fetch both statement periods in background so tabs open instantly
@@ -4620,6 +4640,16 @@ async function openModal(idx){
     for (const period of ['annual', 'quarterly']) {
       if (!_prefetchD.rawTwelveData[period]) {
         buildFinancials(_prefetchD, period).catch(() => {});
+      }
+    }
+    // Pre-render statement tabs so switching is instant
+    for (const period of ['annual', 'quarterly']) {
+      const tabKey = period === 'annual' ? 'annual' : 'quarterly';
+      if (_prefetchD.rawTwelveData?.[period] && !_prefetchD._htmlCache?.[tabKey]) {
+        buildFinancials(_prefetchD, period).then(html => {
+          if (!_prefetchD._htmlCache) _prefetchD._htmlCache = {};
+          _prefetchD._htmlCache[tabKey] = html;
+        }).catch(() => {});
       }
     }
   }
@@ -4651,8 +4681,14 @@ function switchTab(tab){
   const el=document.getElementById("tab-"+tab);if(el)el.classList.add("active");
   const d=window._fd?.[window._curIdx];if(!d)return;
   const body=document.getElementById("panel-content");if(!body)return;
+  // Serve from per-stock HTML cache if available (avoids re-render and spinner)
+  if(tab!=="overview"&&tab!=="chart"&&d._htmlCache?.[tab]){body.innerHTML=d._htmlCache[tab];return;}
   if(tab==="overview"){
-    body.innerHTML=buildOverview(d);
+    const html=buildOverview(d);
+    if(!d._htmlCache)d._htmlCache={};
+    // overview includes a live dividend placeholder so we don't cache the static shell,
+    // but we do set innerHTML and then async-fill the placeholder as before
+    body.innerHTML=html;
     // Async load dividend schedule into placeholder
     fetchDividendSchedule(d.ticker).then(sched=>{
       const el=document.getElementById('div-sched-'+d.ticker);
@@ -4686,19 +4722,49 @@ function switchTab(tab){
         <div style="font-size:8px;color:var(--tx3);margin-top:4px">Source: Yahoo Finance · ${sched.length} dividend payments found</div>`;
     });
   }
-  else if(tab==="breakdown")body.innerHTML=buildBreakdown(d);
+  else if(tab==="breakdown"){
+    const html=buildBreakdown(d);
+    if(!d._htmlCache)d._htmlCache={};
+    d._htmlCache[tab]=html;
+    body.innerHTML=html;
+  }
   else if(tab==="quarterly"){
     body.innerHTML=`<div class="tab-loading"><span class="spin"></span> Loading quarterly statements…</div>`;
-    buildQuarterly(d).then(html=>{if(body.isConnected)body.innerHTML=html;});
+    buildQuarterly(d).then(html=>{
+      if(!d._htmlCache)d._htmlCache={};
+      d._htmlCache[tab]=html;
+      if(body.isConnected)body.innerHTML=html;
+    });
   }
   else if(tab==="annual"){
     body.innerHTML=`<div class="tab-loading"><span class="spin"></span> Loading annual statements…</div>`;
-    buildAnnual(d).then(html=>{if(body.isConnected)body.innerHTML=html;}).catch(e=>{console.error('buildAnnual failed:',e);if(body.isConnected)body.innerHTML=`<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">⚠ Error: ${e?.message||String(e)}. <button onclick="switchTab('annual')" style="background:var(--acc);color:#000;border:none;border-radius:3px;padding:2px 8px;cursor:pointer;font-family:var(--mono);font-size:10px">Retry</button></div>`;});
+    buildAnnual(d).then(html=>{
+      if(!d._htmlCache)d._htmlCache={};
+      d._htmlCache[tab]=html;
+      if(body.isConnected)body.innerHTML=html;
+    }).catch(e=>{console.error('buildAnnual failed:',e);if(body.isConnected)body.innerHTML=`<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">⚠ Error: ${e?.message||String(e)}. <button onclick="switchTab('annual')" style="background:var(--acc);color:#000;border:none;border-radius:3px;padding:2px 8px;cursor:pointer;font-family:var(--mono);font-size:10px">Retry</button></div>`;});
   }
-  else if(tab==="buffett")body.innerHTML=buildBuffett(d);
+  else if(tab==="buffett"){
+    const html=buildBuffett(d);
+    if(!d._htmlCache)d._htmlCache={};
+    d._htmlCache[tab]=html;
+    body.innerHTML=html;
+  }
   else if(tab==="chart"){chartRangeIdx=3;chartShowRSI=false;chartShowSMA20=true;chartShowSMA50=false;chartShowBollinger=false;chartShowVolume=true;chartShowMACD=false;chartShowStoch=false;body.innerHTML=buildChartPanel(d);drawChart(d);}
-  else if(tab==="dcf"){body.innerHTML=`<div class="tab-loading"><span class="spin"></span> Building fair value model…</div>`;buildDCF(d).then(html=>{if(body.isConnected)body.innerHTML=html;});}
-  else if(tab==="extra")body.innerHTML=buildExtraPanel(d);
+  else if(tab==="dcf"){
+    body.innerHTML=`<div class="tab-loading"><span class="spin"></span> Building fair value model…</div>`;
+    buildDCF(d).then(html=>{
+      if(!d._htmlCache)d._htmlCache={};
+      d._htmlCache[tab]=html;
+      if(body.isConnected)body.innerHTML=html;
+    });
+  }
+  else if(tab==="extra"){
+    const html=buildExtraPanel(d);
+    if(!d._htmlCache)d._htmlCache={};
+    d._htmlCache[tab]=html;
+    body.innerHTML=html;
+  }
 }
 
 function computeRiskRating(d) {
