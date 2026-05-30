@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260531a'; // bump this string on every deploy that matters
+  var V='20260531b'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531a · new: two-bulk-file Drive system (prices + statements, no per-stock files)</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531b · perf: instant tab switching (HTML cache), faster fetches, Drive error detection</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -349,8 +349,8 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
     <span style="margin-left:4px">Advancing: <span id="tasi-adv" style="color:var(--green)">—</span></span>
     <span>Declining: <span id="tasi-dec" style="color:var(--red)">—</span></span>
     <span id="tasi-mood">—</span>
+    <span id="fin-last-fetched" style="color:var(--tx3);font-size:9px" title="When financial statements were last bulk-retrieved"></span>
     <span style="margin-left:auto;color:var(--tx3)" id="tasi-time">—</span>
-    <span id="fin-last-fetched" style="color:var(--tx3);font-size:9px;margin-left:8px" title="When financial statements were last bulk-retrieved"></span>
   </div>
   <div class="secperf" id="secperf-bar"><span class="secperf-lbl">Sectors</span><span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Loading…</span></div>
   <!-- Market P/E Statistics Panel -->
@@ -361,7 +361,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
       <span style="color:var(--tx3)">Median: <span id="mpe-median" style="color:var(--tx);font-weight:600">—</span></span>
       <span style="color:var(--tx3)">Mean: <span id="mpe-mean" style="color:var(--tx);font-weight:600">—</span></span>
       <span id="mpe-count" style="color:var(--tx3)"></span>
-      <span style="margin-left:auto;color:var(--tx3);font-size:9px" id="mpe-toggle-hint">▼ show chart</span>
+      <span style="margin-left:auto;color:var(--tx3);font-size:9px" id="mpe-toggle-hint">▼ valuation tools</span>
     </div>
     <!-- Market P/E time-series chart (hidden by default) -->
     <div id="market-pe-chart-wrap" style="display:none;margin-top:10px">
@@ -376,16 +376,25 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
             <div id="mpe-gauge-ptr" style="position:absolute;top:-3px;width:2px;height:14px;background:var(--tx);border-radius:1px;transition:left 0.4s;left:50%"></div>
           </div>
           <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--tx3);margin-top:2px">
-            <span>Cheap &lt;12</span><span>Fair 12–22</span><span>Expensive &gt;22</span>
+            <span>Cheap &lt;15</span><span>Fair 15–25</span><span>Expensive &gt;25</span>
           </div>
         </div>
-        <div style="display:flex;gap:4px;margin-left:auto">
+        <div style="display:flex;gap:4px;margin-left:auto;align-items:center;flex-wrap:wrap">
+          <span style="color:var(--tx3);font-size:8px;margin-right:2px">Curve:</span>
+          <button class="tasi-rng-btn" id="mpe-c-wtd"  onclick="setMPECurve('wtd')"  style="background:var(--acc);color:#000;border-color:var(--acc)">Wtd Avg</button>
+          <button class="tasi-rng-btn" id="mpe-c-med"  onclick="setMPECurve('med')">Median</button>
+          <button class="tasi-rng-btn" id="mpe-c-mean" onclick="setMPECurve('mean')">Mean</button>
+          <span style="border-left:1px solid var(--b2);height:12px;margin:0 4px"></span>
           <button class="tasi-rng-btn" id="mpe-r-3m"  onclick="setMPERange('3M')">3M</button>
           <button class="tasi-rng-btn" id="mpe-r-6m"  onclick="setMPERange('6M')">6M</button>
           <button class="tasi-rng-btn" id="mpe-r-1y"  onclick="setMPERange('1Y')" style="background:var(--acc);color:#000;border-color:var(--acc)">1Y</button>
           <button class="tasi-rng-btn" id="mpe-r-2y"  onclick="setMPERange('2Y')">2Y</button>
+          <button class="tasi-rng-btn" id="mpe-r-5y"  onclick="setMPERange('5Y')">5Y</button>
         </div>
       </div>
+      <!-- Market valuation thermometer + indicator tiles -->
+      <div id="mkt-cond-banner" style="display:none;margin-bottom:10px"></div>
+      <div id="mkt-cond-tiles" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>
       <div style="height:180px"><canvas id="market-pe-chart"></canvas></div>
     </div>
   </div>
@@ -405,6 +414,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
       <option value="peg">Sort: PEG (low→high)</option>
       <option value="change">Sort: Daily Chg%</option>
       <option value="vsTasi">Sort: vs TASI</option>
+      <option value="dcfUpside">Sort: Fair Value Upside</option>
     </select>
     <select id="vs" onchange="doFilter()">
       <option value="all">All securities</option>
@@ -427,7 +437,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
         <th style="width:58px">Ticker</th>
         <th class="col-co" style="width:145px">Company</th>
         <th style="width:60px">SAR <span style="font-size:8px;opacity:.5">▼price</span></th>
-        <th style="width:62px">Chg%</th>
+        <th style="width:50px">Chg%</th>
         <th class="col-pe" style="width:46px" onclick="sk('pe')" title="P/E Ratio">P/E↕</th>
         <th class="col-eg" style="width:52px" onclick="sk('eg')" title="Earnings Growth">EG%↕</th>
         <th class="col-peg" style="width:46px" onclick="sk('peg')" title="PEG Ratio — P/E÷EarningsGrowth">PEG↕</th>
@@ -436,7 +446,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
         <th class="col-bu" style="width:82px" onclick="sk('buffett')">Buffett↕</th>
         <th style="width:82px" onclick="sk('combined')">Score↕</th>
         <th style="width:48px">Signal</th>
-        <th class="col-tr" style="width:50px">Trend</th>
+        <th class="col-tr" style="width:66px" onclick="sk('dcfUpside')" title="DCF Fair Value vs current price↕">Fair Val↕</th>
         <th class="col-vs" style="width:52px" onclick="sk('vsTasi')" title="6-month return vs TASI index">vs TASI↕</th>
         <th class="col-st" style="width:32px">★</th>
         <th class="col-cp" style="width:32px">⊕</th>
@@ -483,7 +493,8 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
       <button onclick="tasiChartRange=90;drawTASIChart()" class="tasi-rng-btn" id="tr-90">3M</button>
       <button onclick="tasiChartRange=180;drawTASIChart()" class="tasi-rng-btn" id="tr-180">6M</button>
       <button onclick="tasiChartRange=365;drawTASIChart()" class="tasi-rng-btn" id="tr-365" style="background:var(--acc);color:#000">1Y</button>
-      <button onclick="tasiChartRange=9999;drawTASIChart()" class="tasi-rng-btn" id="tr-all">All</button>
+      <button onclick="tasiChartRange=1825;drawTASIChart();if((tasiIndex.closes||[]).length<1000)fetchTASIIndexLong();" class="tasi-rng-btn" id="tr-1825">5Y</button>
+      <button onclick="tasiChartRange=9999;drawTASIChart();if((tasiIndex.closes||[]).length<1000)fetchTASIIndexLong();" class="tasi-rng-btn" id="tr-all">All</button>
       <span style="border-left:1px solid var(--b1);padding-left:8px;display:flex;gap:5px;flex-wrap:wrap">
         <button onclick="tasiShowSMA20=!tasiShowSMA20;drawTASIChart()" id="tasi-ov-sma20" class="tasi-rng-btn">SMA-20</button>
         <button onclick="tasiShowSMA50=!tasiShowSMA50;drawTASIChart()" id="tasi-ov-sma50" class="tasi-rng-btn">SMA-50</button>
@@ -1448,9 +1459,14 @@ async function gdSaveBulkPrices() {
       ? `https://www.googleapis.com/upload/drive/v3/files/${_gdBulkPriceFileId}?uploadType=multipart`
       : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
     const res = await fetch(uploadUrl, { method, headers: { Authorization: `Bearer ${GD_TOKEN}` }, body: form, signal: AbortSignal.timeout(20000) });
-    if (res.ok && !_gdBulkPriceFileId) {
-      const meta = await _bodyJson(res, 5000);
-      if (meta?.id) _gdBulkPriceFileId = meta.id;
+    if (res.ok) {
+      if (!_gdBulkPriceFileId) {
+        const meta = await _bodyJson(res, 5000);
+        if (meta?.id) _gdBulkPriceFileId = meta.id;
+      }
+    } else if (res.status === 401) {
+      GD_TOKEN = null; sessionStorage.removeItem('TASI_gd_token'); updateGDStatus();
+      showToast('⚠ Google Drive token expired — please reconnect in Settings');
     }
   } catch(e) { console.warn('gdSaveBulkPrices:', e); }
 }
@@ -1546,6 +1562,11 @@ async function gdLoadStatementsBulk() {
           _stmtCache[ticker] = Object.assign(_stmtCache[ticker] || {}, data);
         }
         console.log(`[GD] Loaded statements for ${Object.keys(bulk.statements).length} stocks from Drive`);
+        // Invalidate tab cache for currently open stock if it now has Drive data
+        const openD = window._fd?.[window._curIdx];
+        if (openD && _stmtCache[openD.ticker]) {
+          openD._htmlCache = {};
+        }
       }
       if (bulk?.finLastFetched) {
         localStorage.setItem('tasi_fin_last_fetched', bulk.finLastFetched);
@@ -1579,9 +1600,15 @@ async function gdSaveStatementsBulk() {
       body: form,
       signal: AbortSignal.timeout(90000)
     });
-    if (res.ok && !_stmtBulkFileId) {
-      const meta = await _bodyJson(res, 5000);
-      if (meta?.id) _stmtBulkFileId = meta.id;
+    if (res.ok) {
+      if (!_stmtBulkFileId) {
+        const meta = await _bodyJson(res, 5000);
+        if (meta?.id) _stmtBulkFileId = meta.id;
+      }
+      console.log(`[GD] Saved statements bulk (${(body.length/1024).toFixed(0)}KB, ${Object.keys(_stmtCache).length} stocks)`);
+    } else if (res.status === 401) {
+      GD_TOKEN = null; sessionStorage.removeItem('TASI_gd_token'); updateGDStatus();
+      showToast('⚠ Google Drive token expired — please reconnect in Settings');
     }
   } catch(e) { console.warn('gdSaveStatementsBulk:', e); }
 }
@@ -1589,6 +1616,7 @@ async function gdSaveStatementsBulk() {
 // Wait for statements bulk to finish loading (with 30s max timeout)
 async function gdAwaitStatements() {
   if (_stmtBulkLoaded) return;
+  if (GD_TOKEN && !_stmtBulkLoadPromise) gdLoadStatementsBulk(); // trigger if not started
   if (_stmtBulkLoadPromise) {
     await Promise.race([_stmtBulkLoadPromise, new Promise(r => setTimeout(r, 30000))]);
   }
@@ -2162,20 +2190,6 @@ function getStockName(d) {
 }
 
 // ── SPARKLINE (inline 8-week price trend) ──
-function makeSparkline(closes, width=60, height=20) {
-  if(!closes || closes.length < 5) return '<span style="color:var(--tx3);font-size:9px">—</span>';
-  const data = closes.slice(-40); // last 40 data points
-  const min = Math.min(...data), max = Math.max(...data);
-  const range = max - min || 1;
-  const pts = data.map((v,i) => {
-    const x = (i/(data.length-1))*width;
-    const y = height - ((v-min)/range)*height;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(' ');
-  const color = data[data.length-1] >= data[0] ? '#22c55e' : '#ef4444';
-  return `<svg width="${width}" height="${height}" style="vertical-align:middle"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.2"/></svg>`;
-}
-
 // ── PEER COMPARISON (sector stats) ──
 function getSectorStats(sector) {
   const peers = allData.filter(d => d.sector === sector && d.combined > 0);
@@ -2489,7 +2503,7 @@ function _portFilter(q) {
       onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
       <div>
         <span style="font-family:var(--mono);font-size:10px;color:var(--acc);font-weight:600">${d.ticker.replace('.SR','')}</span>
-        <span style="font-family:var(--mono);font-size:9px;color:var(--tx2);margin-left:6px">${d.name.split(' ').slice(0,4).join(' ')}</span>
+        <span style="font-family:var(--mono);font-size:9px;color:var(--tx2);margin-left:6px">${escapeHTML(d.name.split(' ').slice(0,4).join(' '))}</span>
       </div>
       <div style="text-align:right;flex-shrink:0;margin-left:8px">
         <span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">${priceStr}</span>
@@ -3518,16 +3532,21 @@ function scorePEG(pe,eg,annIS){
       pegGrowthRate = Math.pow(eps0 / eps2, 1/2) - 1; // 2-year CAGR
     }
   }
+  // Cap growth at 25% — Saudi banks/telecoms rarely sustain above this;
+  // uncapped inputs from one-off earnings spikes produce misleadingly low PEGs.
+  if (pegGrowthRate != null) pegGrowthRate = Math.min(pegGrowthRate, 0.25);
   const peg = (pe != null && pegGrowthRate != null && pegGrowthRate > 0)
     ? pe / (pegGrowthRate * 100) : null;
   if(!pe||!pegGrowthRate||pegGrowthRate<=0||peg==null)return{score:50,peg:null,steps:[{label:"PEG Ratio",raw:"N/A",delta:0,why:"Cannot calculate — need positive P/E and EG"}]};
+  // Saudi market thresholds — wider "fair" band than US norms:
+  // TASI growth stocks (Healthcare, Tech, Vision 2030 plays) trade at PEG 1.5–2.5
   let p=50,delta=0,why="";
   if(peg<0.5){delta=+25;why="Exceptional: PEG < 0.5 — very undervalued vs growth";}
   else if(peg<1.0){delta=+18;why="Undervalued: PEG 0.5–1.0 — Buffett sweet spot";}
-  else if(peg<1.5){delta=+8;why="Fair: PEG 1.0–1.5 — reasonably priced for growth";}
-  else if(peg<2.0){delta=-5;why="Slightly expensive: PEG 1.5–2.0";}
-  else if(peg<3.0){delta=-15;why="Expensive: PEG 2.0–3.0 — growth priced in";}
-  else{delta=-25;why="Very expensive: PEG > 3.0 — significant growth premium";}
+  else if(peg<2.0){delta=+8;why="Fair: PEG 1.0–2.0 — reasonable for Saudi market growth premium";}
+  else if(peg<3.0){delta=-8;why="Slightly expensive: PEG 2.0–3.0 — growth priced in";}
+  else if(peg<4.0){delta=-18;why="Expensive: PEG 3.0–4.0 — significant growth premium";}
+  else{delta=-25;why="Very expensive: PEG > 4.0 — speculative growth priced in";}
   p+=delta;
   return{score:Math.min(100,Math.max(0,Math.round(p))),peg:parseFloat(peg.toFixed(2)),steps:[{label:"PEG Ratio",raw:peg.toFixed(2),delta,why}]};
 }
@@ -3574,7 +3593,16 @@ function deriveMetricsFromStatements(annual, quarterly){
     const n0=_num(aIS[0].net_income), n1=_num(aIS[1].net_income);
     if(n0!=null && n1>0) out.eg=(n0-n1)/n1;
   }
-  out.ttmRev=ttmRev; out.ttmNI=ttmNI;
+  // TTM EPS — sum last 4 quarters' basic EPS (most current), else latest annual EPS.
+  // Used to recompute P/E (= price / TTM EPS) so the main table P/E reflects statements.
+  let ttmEPS=null;
+  if (Array.isArray(qIS) && qIS.length>=4){
+    const e4=qIS.slice(0,4); let s=0,n=0;
+    for(const q of e4){ const e=_num(q.eps); if(e!=null){s+=e;n++;} }
+    if(n===4) ttmEPS=s;
+  }
+  if (ttmEPS==null && Array.isArray(aIS) && _num(aIS[0]?.eps)!=null) ttmEPS=_num(aIS[0].eps);
+  out.eps=ttmEPS; out.ttmRev=ttmRev; out.ttmNI=ttmNI;
   return out;
 }
 
@@ -3605,10 +3633,20 @@ function applyDerivedMetrics(d){
   }
   if (m.ttmRev>0){ d.ttmRev=m.ttmRev; d.rev=m.ttmRev/1e9; }
   if (m.ttmNI!=null){ d.ttmNI=m.ttmNI; d.ni=m.ttmNI/1e9; }
+  // EPS & P/E from statements — TTM EPS (statement basicEPS) or TTM NI / shares.
+  // P/E = live price / TTM EPS, matching Yahoo. Drives the main-table P/E and PEG.
+  const shares = d.sharesOutstanding || _gdCache[d.ticker]?.fundamentals?.sharesOutstanding;
+  let eps = (m.eps!=null && m.eps>0) ? m.eps : null;
+  if (eps==null && m.ttmNI>0 && shares>0) eps = m.ttmNI/shares;
+  if (eps>0){
+    d.eps = +eps.toFixed(4);
+    if (d.price>0){ d.pe = +(d.price/eps).toFixed(2); d.livepeLoaded=true; changed=true; }
+  }
   if (changed){
-    recomputeAllScores(d);
+    recomputeAllScores(d); // recomputes PEG from statement-derived P/E + growth
     _gdCache[d.ticker] = Object.assign(_gdCache[d.ticker]||{}, {
       fundamentals: Object.assign((_gdCache[d.ticker]?.fundamentals||{}), {
+        pe:d.pe, eps:d.eps,
         roe:d.roe, npm:d.npm, de:d.de, fcf:d.fcf, rg:d.rg, eg:d.eg, assets:d.assets,
         ttmRev:d.ttmRev, ttmNI:d.ttmNI,
       }),
@@ -3935,16 +3973,6 @@ async function fetchYahoo(ticker) {
 }
 
 // Quick price-only fetch (1 request, for main table refresh)
-// Yahoo repeats the previous close for non-trading days (weekends/holidays) as a non-null value.
-// Walk backwards to find the last two closes that actually differ — those are the last two trading days.
-function dailyChangeFromCloses(closes) {
-  let i = closes.length - 1;
-  while (i > 0 && closes[i] === closes[i - 1]) i--;
-  return (i >= 1 && closes[i - 1] > 0)
-    ? +((closes[i] - closes[i - 1]) / closes[i - 1] * 100).toFixed(2)
-    : null;
-}
-
 async function fetchYahooPrice(ticker){
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=6mo`;
   try{
@@ -3952,13 +3980,17 @@ async function fetchYahooPrice(ticker){
     const meta = data?.chart?.result?.[0]?.meta;
     const closes = (data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
     const timestamps = data?.chart?.result?.[0]?.timestamp||[];
-    const price = meta?.regularMarketPrice ?? null;
-    const change = dailyChangeFromCloses(closes);
-    return { price, change, closes, timestamps,
+    // regularMarketPreviousClose = yesterday's official close (correct for 1-day % change)
+    // chartPreviousClose = close before chart period starts (6 months ago for range=6mo → wrong for daily change)
+    const prev = meta?.regularMarketPreviousClose ?? null;
+    return {
+      price: meta?.regularMarketPrice??null,
+      prev,
+      closes, timestamps,
       volume: meta?.regularMarketVolume??null,
       avgVolume3M: meta?.averageDailyVolume3Month??null,
     };
-  }catch(e){ return {price:null,change:null,closes:[],timestamps:[],volume:null,avgVolume3M:null}; }
+  }catch(e){ return {price:null,prev:null,closes:[],timestamps:[],volume:null,avgVolume3M:null}; }
 }
 
 // ── PRICE-ONLY FETCH: used during main refresh (fast, 1 req per stock) ──
@@ -3990,7 +4022,7 @@ async function fetchStockPrice(stock, skipDriveNetwork=false) {
     const quick = await fetchYahooPrice(ticker);
     if(quick.price){
       result.price = quick.price;
-      result.change = quick.change;
+      result.change = (quick.price && quick.prev) ? ((quick.price-quick.prev)/quick.prev)*100 : null;
       result.dataSource = 'yahoo';
       result.dataDate = new Date().toISOString().slice(0,10);
     }
@@ -4002,19 +4034,13 @@ async function fetchStockPrice(stock, skipDriveNetwork=false) {
     if(quick.volume != null) result.volume = quick.volume;
     if(quick.avgVolume3M != null) result.avgVolume3M = quick.avgVolume3M;
     // Update in-memory cache only — prices go to bulk file via gdSaveBulkPrices.
-    // Writing to the per-stock Drive file here would overwrite fundamentals/statements
-    // (which are not in the bulk cache) with just price data.
     if (result.price && GD_TOKEN) {
-      const cached = _gdCache[ticker]?.priceData;
-      const priceDiff = cached?.price ? Math.abs(result.price - cached.price) / cached.price : 1;
-      if (priceDiff > 0.001) {
-        _gdCache[ticker] = Object.assign(_gdCache[ticker] || {}, {
-          priceData: { price: result.price, change: result.change, closes: result.closes,
-            timestamps: result.timestamps, volume: result.volume, avgVolume3M: result.avgVolume3M,
-            volatility: result.volatility },
-          priceUpdated: Date.now(),
-        });
-      }
+      _gdCache[ticker] = Object.assign(_gdCache[ticker] || {}, {
+        priceData: { price: result.price, change: result.change, closes: result.closes,
+          timestamps: result.timestamps, volume: result.volume, avgVolume3M: result.avgVolume3M,
+          volatility: result.volatility },
+        priceUpdated: Date.now(),
+      });
     }
   } catch(e) {}
   return result;
@@ -4210,30 +4236,38 @@ function renderTable(){
   tb.innerHTML=page.map((d,i)=>{
     const sig=getSig(d.combined,d.buffett);
     const hasPx=d.price!=null;
-    const hasChg=hasPx&&d.change!=null;
-    const cc=hasChg?(d.change>=0?"pos":"neg"):"nav";
-    const cs=hasChg?((d.change>=0?"+":"")+d.change.toFixed(2)+"%"):"—";
+    const cc=hasPx?(d.change>=0?"pos":"neg"):"nav";
+    const cs=hasPx?((d.change>=0?"+":"")+d.change.toFixed(2)+"%"):"—";
     const moat=d.criteria?.hasMoat?`<span class="badge b-moat">Moat</span>`:"";
     const reit=d.isReit?`<span class="badge b-reit">REIT</span>`:"";
     const lv=d.priceLoaded?`<span class="badge b-live" style="margin-left:2px">LIVE</span>`:`<span class="badge b-est" style="margin-left:2px">EST</span>`;
     const pegStr=d.peg!=null?`<span style="font-family:var(--mono);font-size:10px;color:${d.peg<1?"var(--green)":d.peg<2?"var(--amb)":"var(--red)"}">${d.peg.toFixed(2)}</span>`:`<span class="nav">—</span>`;
     const egStr=d.eg!=null?`<span class="${d.eg>=0?'pos':'neg'}">${d.eg>=0?"+":""}${(d.eg*100).toFixed(0)}%</span>`:`<span class="nav">—</span>`;
+    const unscored = d.noHardcodedData && !d.priceLoaded;
     const shortName = d.name.split(' ').slice(0,3).join(' ') + (d.name.split(' ').length > 3 ? '…' : '');
     return`<tr class="data-row" onclick="openModal(${start+i})" onmouseenter="gdPrefetch(${start+i})">
       <td class="rk">${start+i+1}</td>
       <td class="tk" style="white-space:normal;min-width:54px">${d.ticker.replace(".SR","")}<span class="mob-company" style="display:none">${shortName}${moat}${reit}</span></td>
-      <td class="col-co" title="${d.name}" style="color:var(--tx)">${getStockName(d)}${moat}${reit}</td>
+      <td class="col-co" title="${escapeHTML(d.name)}" style="color:var(--tx)">${escapeHTML(getStockName(d))}${moat}${reit}</td>
       <td style="min-width:52px"><span class="pv">${hasPx?d.price.toFixed(2):'—'}</span>${lv}</td>
       <td class="${cc}" style="min-width:44px">${cs}</td>
       <td class="col-pe"><span style="font-family:var(--mono);font-size:10px;color:var(--tx)">${d.pe!=null?d.pe.toFixed(1):'<span class="nav">—</span>'}</span></td>
       <td class="col-eg">${egStr}</td>
       <td class="col-peg">${pegStr}</td>
-      <td class="col-fu">${(d.noHardcodedData&&!d.priceLoaded)?'<span class="nav">—</span>':bar(d.fundamental??50)}</td>
+      <td class="col-fu">${unscored?'<span class="nav">—</span>':bar(d.fundamental??50)}</td>
       <td class="col-te">${bar(d.technical)}</td>
-      <td class="col-bu">${(d.noHardcodedData&&!d.priceLoaded)?'<span class="nav">—</span>':bar(d.buffett??50)}</td>
-      <td style="min-width:60px">${(d.noHardcodedData&&!d.priceLoaded)?'<span class="nav" style="font-size:11px">Unscored</span>':bar(d.combined??50)}</td>
-      <td style="min-width:40px"><span class="badge ${sig.cls}">${(d.noHardcodedData&&!d.priceLoaded)?'—':sig.label}</span></td>
-      <td class="col-tr">${makeSparkline(d.closes)}</td>
+      <td class="col-bu">${unscored?'<span class="nav">—</span>':bar(d.buffett??50)}</td>
+      <td style="min-width:60px">${unscored?'<span class="nav" style="font-size:11px">Unscored</span>':bar(d.combined??50)}</td>
+      <td style="min-width:40px"><span class="badge ${sig.cls}">${unscored?'—':sig.label}</span></td>
+      <td class="col-tr">${(()=>{
+        if (d.dcfPS != null && d.price) {
+          const up = d.dcfUpside ?? 0;
+          const col = up > 0.15 ? 'var(--green)' : up > -0.10 ? 'var(--amb)' : 'var(--red)';
+          const sign = up >= 0 ? '+' : '';
+          return `<div style="line-height:1.3"><div style="font-family:var(--mono);font-size:10px;font-weight:600;color:${col}">${d.dcfPS.toFixed(1)}</div><div style="font-family:var(--mono);font-size:8px;color:${col}">${sign}${(up*100).toFixed(1)}%</div></div>`;
+        }
+        return '<span class="nav" style="font-size:9px">—</span>';
+      })()}</td>
       <td class="col-vs">${(()=>{
         const v=d.vsTasi;
         if(v==null)return'<span class="nav" style="font-size:9px">—</span>';
@@ -4403,7 +4437,7 @@ function saveUIState(){
   }catch(e){}
 }
 
-const VALID_SORT_KEYS = new Set(['combined','fundamental','technical','buffett','pegScore','pe','peg','dy','roe','npm','rg','eg','price','change','mktCap']);
+const VALID_SORT_KEYS = new Set(['combined','fundamental','technical','buffett','pegScore','pe','peg','dy','roe','npm','rg','eg','price','change','mktCap','dcfUpside']);
 function restoreUIState(){
   try{
     const raw=localStorage.getItem('TASI_ui_state');
@@ -4438,8 +4472,8 @@ function _renderModalShell(d) {
   <div class="mhead">
     <div class="mhtop">
       <div>
-        <div class="mtitle">${d.name} ${moat}${reit}${_capTier?` <span style="color:${_capTier.color};font-size:8px;font-family:var(--mono)">${_capTier.label}</span>`:''}</div>
-        <div class="msub">${d.ticker} · ${d.sector} · Signal: <span class="badge ${sig.cls}">${sig.label}</span> &nbsp;<span style="font-family:var(--mono);font-size:9px;font-weight:600;padding:2px 7px;border-radius:3px;background:${_risk.color}22;color:${_risk.color};border:1px solid ${_risk.color}55" title="Risk factors: ${_risk.flags.join(', ')||'None identified'}">Risk: ${_risk.level}</span> · ${d.priceLoaded?'<span style="color:var(--acc)">● Live data</span>':'<span style="color:var(--tx3)">○ Loading…</span>'}</div>
+        <div class="mtitle">${escapeHTML(d.name)} ${moat}${reit}${_capTier?` <span style="color:${_capTier.color};font-size:8px;font-family:var(--mono)">${_capTier.label}</span>`:''}</div>
+        <div class="msub">${escapeHTML(d.ticker)} · ${escapeHTML(d.sector)} · Signal: <span class="badge ${sig.cls}">${sig.label}</span> &nbsp;<span style="font-family:var(--mono);font-size:9px;font-weight:600;padding:2px 7px;border-radius:3px;background:${_risk.color}22;color:${_risk.color};border:1px solid ${_risk.color}55" title="Risk factors: ${_risk.flags.join(', ')||'None identified'}">Risk: ${_risk.level}</span> · ${d.priceLoaded?'<span style="color:var(--acc)">● Live data</span>':'<span style="color:var(--tx3)">○ Loading…</span>'}</div>
       </div>
       <div style="display:flex;gap:4px;align-items:center">
         <button id="fs-btn" onclick="toggleModalFS()" title="Toggle fullscreen" style="width:22px;height:22px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;cursor:pointer;color:var(--tx2);font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .12s;padding:0" onmouseover="this.style.borderColor='var(--acc)';this.style.color='var(--acc)'" onmouseout="this.style.borderColor='var(--b2)';this.style.color='var(--tx2)'">⛶</button>
@@ -4464,6 +4498,9 @@ async function openModal(idx){
   window._curIdx=idx;
   const d=window._fd?.[idx];if(!d)return;
 
+  // Clear tab HTML cache when opening a new stock to prevent stale content
+  d._htmlCache = {};
+
   // Show modal immediately with whatever data we already have
   _renderModalShell(d);
   document.getElementById("modal").style.display="flex";
@@ -4481,8 +4518,9 @@ async function openModal(idx){
   try{
     let usedDriveCache = false;
     if (GD_TOKEN) {
-      // Fundamentals from prices bulk (loaded at startup); statements from statements bulk
-      await gdAwaitStatements();
+      // Fundamentals from prices bulk (already loaded at startup); statements from statements bulk
+      // Skip waiting for bulk load if this stock already has statement data in memory
+      if (!d.rawTwelveData?.annual && !d.rawTwelveData?.quarterly) await gdAwaitStatements();
       const gdFund = _gdCache[d.ticker];
       const gdStmt = gdGetStatement(d.ticker);
       const driveStock = (gdFund || gdStmt) ? Object.assign({}, gdFund, gdStmt) : null;
@@ -4577,7 +4615,7 @@ async function openModal(idx){
   // If modal is still showing this stock, refresh header + overview with new data
   if(window._curIdx===idx && document.getElementById('modal')?.style.display!=='none'){
     const freshD=window._fd?.[idx];
-    if(freshD){ _renderModalShell(freshD); switchTab("overview"); }
+    if(freshD){ freshD._htmlCache = {}; _renderModalShell(freshD); switchTab("overview"); }
   }
 
   // Pre-fetch both statement periods in background so tabs open instantly
@@ -4603,6 +4641,16 @@ async function openModal(idx){
     for (const period of ['annual', 'quarterly']) {
       if (!_prefetchD.rawTwelveData[period]) {
         buildFinancials(_prefetchD, period).catch(() => {});
+      }
+    }
+    // Pre-render statement tabs so switching is instant
+    for (const period of ['annual', 'quarterly']) {
+      const tabKey = period === 'annual' ? 'annual' : 'quarterly';
+      if (_prefetchD.rawTwelveData?.[period] && !_prefetchD._htmlCache?.[tabKey]) {
+        buildFinancials(_prefetchD, period).then(html => {
+          if (!_prefetchD._htmlCache) _prefetchD._htmlCache = {};
+          _prefetchD._htmlCache[tabKey] = html;
+        }).catch(() => {});
       }
     }
   }
@@ -4634,8 +4682,14 @@ function switchTab(tab){
   const el=document.getElementById("tab-"+tab);if(el)el.classList.add("active");
   const d=window._fd?.[window._curIdx];if(!d)return;
   const body=document.getElementById("panel-content");if(!body)return;
+  // Serve from per-stock HTML cache if available (avoids re-render and spinner)
+  if(tab!=="overview"&&tab!=="chart"&&d._htmlCache?.[tab]){body.innerHTML=d._htmlCache[tab];return;}
   if(tab==="overview"){
-    body.innerHTML=buildOverview(d);
+    const html=buildOverview(d);
+    if(!d._htmlCache)d._htmlCache={};
+    // overview includes a live dividend placeholder so we don't cache the static shell,
+    // but we do set innerHTML and then async-fill the placeholder as before
+    body.innerHTML=html;
     // Async load dividend schedule into placeholder
     fetchDividendSchedule(d.ticker).then(sched=>{
       const el=document.getElementById('div-sched-'+d.ticker);
@@ -4669,19 +4723,49 @@ function switchTab(tab){
         <div style="font-size:8px;color:var(--tx3);margin-top:4px">Source: Yahoo Finance · ${sched.length} dividend payments found</div>`;
     });
   }
-  else if(tab==="breakdown")body.innerHTML=buildBreakdown(d);
+  else if(tab==="breakdown"){
+    const html=buildBreakdown(d);
+    if(!d._htmlCache)d._htmlCache={};
+    d._htmlCache[tab]=html;
+    body.innerHTML=html;
+  }
   else if(tab==="quarterly"){
     body.innerHTML=`<div class="tab-loading"><span class="spin"></span> Loading quarterly statements…</div>`;
-    buildQuarterly(d).then(html=>{if(body.isConnected)body.innerHTML=html;});
+    buildQuarterly(d).then(html=>{
+      if(!d._htmlCache)d._htmlCache={};
+      d._htmlCache[tab]=html;
+      if(body.isConnected)body.innerHTML=html;
+    });
   }
   else if(tab==="annual"){
     body.innerHTML=`<div class="tab-loading"><span class="spin"></span> Loading annual statements…</div>`;
-    buildAnnual(d).then(html=>{if(body.isConnected)body.innerHTML=html;}).catch(e=>{console.error('buildAnnual failed:',e);if(body.isConnected)body.innerHTML=`<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">⚠ Error: ${e?.message||String(e)}. <button onclick="switchTab('annual')" style="background:var(--acc);color:#000;border:none;border-radius:3px;padding:2px 8px;cursor:pointer;font-family:var(--mono);font-size:10px">Retry</button></div>`;});
+    buildAnnual(d).then(html=>{
+      if(!d._htmlCache)d._htmlCache={};
+      d._htmlCache[tab]=html;
+      if(body.isConnected)body.innerHTML=html;
+    }).catch(e=>{console.error('buildAnnual failed:',e);if(body.isConnected)body.innerHTML=`<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">⚠ Error: ${e?.message||String(e)}. <button onclick="switchTab('annual')" style="background:var(--acc);color:#000;border:none;border-radius:3px;padding:2px 8px;cursor:pointer;font-family:var(--mono);font-size:10px">Retry</button></div>`;});
   }
-  else if(tab==="buffett")body.innerHTML=buildBuffett(d);
+  else if(tab==="buffett"){
+    const html=buildBuffett(d);
+    if(!d._htmlCache)d._htmlCache={};
+    d._htmlCache[tab]=html;
+    body.innerHTML=html;
+  }
   else if(tab==="chart"){chartRangeIdx=3;chartShowRSI=false;chartShowSMA20=true;chartShowSMA50=false;chartShowBollinger=false;chartShowVolume=true;chartShowMACD=false;chartShowStoch=false;body.innerHTML=buildChartPanel(d);drawChart(d);}
-  else if(tab==="dcf"){body.innerHTML=`<div class="tab-loading"><span class="spin"></span> Building fair value model…</div>`;buildDCF(d).then(html=>{if(body.isConnected)body.innerHTML=html;});}
-  else if(tab==="extra")body.innerHTML=buildExtraPanel(d);
+  else if(tab==="dcf"){
+    body.innerHTML=`<div class="tab-loading"><span class="spin"></span> Building fair value model…</div>`;
+    buildDCF(d).then(html=>{
+      if(!d._htmlCache)d._htmlCache={};
+      d._htmlCache[tab]=html;
+      if(body.isConnected)body.innerHTML=html;
+    });
+  }
+  else if(tab==="extra"){
+    const html=buildExtraPanel(d);
+    if(!d._htmlCache)d._htmlCache={};
+    d._htmlCache[tab]=html;
+    body.innerHTML=html;
+  }
 }
 
 function computeRiskRating(d) {
@@ -5196,9 +5280,9 @@ async function buildFinancials(d, period) {
     d.rawYahoo
       ? Promise.resolve(parseYahooFinancials(d.rawYahoo, period))
       : fetchYahooFinancials(d.ticker).then(r => parseYahooFinancials(r, period)),
-    Promise.race([fetchArgaamFinancials(code, period), _t(10000)]),
-    Promise.race([fetchSaudiExchangeFinancials(code, period), _t(8000)]),
-    Promise.race([fetchMubasherFinancials(code, period), _t(8000)]),
+    Promise.race([fetchArgaamFinancials(code, period), _t(6000)]),
+    Promise.race([fetchSaudiExchangeFinancials(code, period), _t(5000)]),
+    Promise.race([fetchMubasherFinancials(code, period), _t(5000)]),
   ]);
 
   // Merge Yahoo sources (timeseries = primary for depth, quoteSummary fills gaps)
@@ -5316,7 +5400,15 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
         }).join('')}</tbody>
       </table></div></div>`;
   }
-  const pLabel = period === 'quarterly' ? (r => r.fiscal_date || '—') : (r => 'FY' + (r.fiscal_date || '—').slice(0, 4));
+  // Quarterly columns shown as "2026 Q1", "2025 Q4"… (calendar quarter from period end date)
+  const fiscalQuarterLabel = (fd) => {
+    if (!fd || fd === '—') return '—';
+    const m = String(fd).match(/^(\d{4})-(\d{2})/);
+    if (!m) return fd; // already a label (e.g. "Q1 2026") or year-only — leave untouched
+    const q = Math.min(4, Math.max(1, Math.ceil(parseInt(m[2], 10) / 3)));
+    return `${m[1]} Q${q}`;
+  };
+  const pLabel = period === 'quarterly' ? (r => fiscalQuarterLabel(r.fiscal_date)) : (r => 'FY' + (r.fiscal_date || '—').slice(0, 4));
 
   // Banks and insurance use a different P&L structure — no COGS, no EBITDA, no traditional margins
   const sector = stockObj?.sector || stockObj?.s || '';
@@ -5651,7 +5743,16 @@ async function buildDCF(d) {
   }
 
   // ── WACC ──
-  const rfRate=0.055, erp=0.065, kd=0.055, termGrowth=0.025;
+  const rfRate=0.055, erp=0.065, kd=0.055;
+  // Sector-aware terminal growth — Vision 2030 tailwinds lift domestic sectors;
+  // commodities/petrochem mean-revert to global cycle; banking/consumer = TASI long-run.
+  const TERM_GROWTH_BY_SECTOR = {
+    'Technology':0.035,'Healthcare':0.035,'Real Estate':0.035,
+    'Banking':0.030,'Insurance':0.030,'Consumer':0.030,'Telecom':0.030,'Utilities':0.030,
+    'Industrial':0.025,'Transportation':0.025,'Building Materials':0.025,'Materials':0.025,
+    'Energy':0.020,'Petrochemicals':0.020,'Chemicals':0.020,
+  };
+  const termGrowth = TERM_GROWTH_BY_SECTOR[d.sector] ?? 0.025;
   const _energyTaxTickers = ['2222.SR','2010.SR'];
   const taxRate = _energyTaxTickers.includes(d.ticker) ? 0.20 : 0.05;
   // Sector-specific beta defaults — used when Yahoo Finance has not provided a measured beta.
@@ -5747,19 +5848,24 @@ async function buildDCF(d) {
     upside = (intrinsicPS && d.price) ? (intrinsicPS - d.price) / d.price : null;
   }
 
-  // ── DDM FOR BANKING STOCKS ──
-  // Banks have D/E 400–600% (deposits = liabilities) → EV − Net Debt ≈ 0 → FCF-DCF useless.
-  // Use Gordon Growth DDM: Fair Value = DPS / (ke − g_sustainable)
+  // ── DDM FOR BANKS AND REITs ──
+  // Banks: D/E 400–600% (deposits) → FCF-DCF useless. REITs: must distribute ≥90% of income.
+  // Both use Gordon Growth DDM: Fair Value = DPS / (ke − g_sustainable)
   const isBanking = d.sector === 'Banking';
+  const isReitDCF = d.isReit ?? (d.sector === 'REITs');
   let ddmPS=null, ddmUpside=null, ddmNotes='';
-  if (isBanking && d.dy && d.price && d.price > 0) {
+  if ((isBanking || isReitDCF) && d.dy && d.price && d.price > 0) {
     const dps = d.dy * d.price;
-    const payoutRatio = Math.min(d.dy * (d.pe||15), 0.95);
-    const gSustain = Math.min((d.roe||0.12) * (1-payoutRatio), ke - 0.005);
+    // REITs distribute ≥90% by regulation; banks modeled from ROE × retention
+    const payoutRatio = isReitDCF ? 0.90 : Math.min(d.dy * (d.pe||15), 0.95);
+    // REIT NOI growth capped at 3.5% (rental inflation + new assets); bank = ROE × retention
+    const gSustain = isReitDCF
+      ? Math.min(0.035, ke - 0.005)
+      : Math.min((d.roe||0.12) * (1-payoutRatio), ke - 0.005);
     if (ke > gSustain + 0.003 && dps > 0) {
       ddmPS = dps / (ke - gSustain);
       ddmUpside = (ddmPS - d.price) / d.price;
-      ddmNotes = `DPS ≈ ${dps.toFixed(3)} SAR · payout ≈ ${(payoutRatio*100).toFixed(0)}% · g = ${(gSustain*100).toFixed(2)}% · ke = ${(ke*100).toFixed(1)}%`;
+      ddmNotes = `DPS ≈ ${dps.toFixed(3)} SAR · payout ${isReitDCF?'90%':((payoutRatio*100).toFixed(0)+'%')} · g = ${(gSustain*100).toFixed(2)}% · ke = ${(ke*100).toFixed(1)}%`;
     }
   }
 
@@ -5821,7 +5927,7 @@ async function buildDCF(d) {
     {name:'P/E',     w:_W[1], fv:peFairValue},
     {name:'EV/EBITDA',w:_W[2],fv:evFairValue},
     {name:'P/B',     w:_W[3], fv:pbFairValue},
-    {name:'DDM',     w:_W[4], fv:isBanking?ddmPS:null},
+    {name:'DDM',     w:_W[4], fv:(isBanking||isReitDCF)?ddmPS:null},
   ].filter(m => m.fv != null && m.fv > 0 && m.w > 0);
   let compositeFV = null, compositeUpside = null;
   if (_methods.length > 0) {
@@ -5831,11 +5937,11 @@ async function buildDCF(d) {
   }
 
   // ── PRIMARY VALUATION ──
-  const primaryPS = compositeFV ?? (isBanking ? (ddmPS ?? intrinsicPS) : intrinsicPS);
-  const primaryUpside = compositeUpside ?? (isBanking ? (ddmUpside ?? upside) : upside);
+  const primaryPS = compositeFV ?? ((isBanking || isReitDCF) ? (ddmPS ?? intrinsicPS) : intrinsicPS);
+  const primaryUpside = compositeUpside ?? ((isBanking || isReitDCF) ? (ddmUpside ?? upside) : upside);
   const primaryMethod = compositeFV
     ? `Composite (${_methods.map(m=>m.name).join('+')})`
-    : (isBanking && ddmPS ? 'DDM' : 'FCF-DCF');
+    : ((isBanking || isReitDCF) && ddmPS ? 'DDM' : 'FCF-DCF');
   if (primaryPS != null) {
     d.dcfPS = primaryPS; d.dcfUpside = primaryUpside; d.dcfMethod = primaryMethod;
     gdSetStatement(d.ticker, { dcfResult: { dcfPS: primaryPS, dcfUpside: primaryUpside, dcfMethod: primaryMethod }, dcfUpdated: Date.now() });
@@ -6926,6 +7032,7 @@ async function refreshAll(forceRefresh=false){
         const F = c.fundamentals, d = allData[i];
         if (F.pe > 0) { d.pe = F.pe; d.livepeLoaded = true; }
         if (F.pb != null) d.pb = F.pb;
+        if (F.eps != null) d.eps = F.eps;
         for (const k of ['roe','npm','de','dy','fcf','cr','rg','eg','assets','beta']) {
           if (F[k] != null) d[k] = F[k];
         }
@@ -6944,6 +7051,7 @@ async function refreshAll(forceRefresh=false){
   // Drive Phase 1 is still useful for closes (chart/technical data).
   document.getElementById("pl").textContent = `Fetching live prices (${allData.length} stocks)...`;
   const _QBATCH = 20;
+  const _p2TickerIdx = new Map(allData.map((d,i) => [d.ticker, i]));
   for (let qi = 0; qi < allData.length; qi += _QBATCH) {
     try {
       const batch = allData.slice(qi, qi + _QBATCH);
@@ -6959,11 +7067,10 @@ async function refreshAll(forceRefresh=false){
       const quotes = qdata?.quoteResponse?.result || qdata?.quote || [];
       for (const q of quotes) {
         if (!q.symbol || q.regularMarketPrice == null) continue;
-        const idx = allData.findIndex(d => d.ticker === q.symbol);
+        const idx = _p2TickerIdx.get(q.symbol) ?? -1;
         if (idx < 0) continue;
         const price  = q.regularMarketPrice;
-        const change = (q.regularMarketChangePercent != null && q.regularMarketChangePercent !== 0)
-          ? q.regularMarketChangePercent : null; // Phase 3 closes will compute accurate value
+        const change = q.regularMarketChangePercent ?? null;
         // Try P/E from v7/quote (may be null for Saudi .SR — Phase 2.5 will fill the gaps)
         let livePE = allData[idx].pe; // hardcoded fallback
         let livepeLoaded = false;
@@ -6996,6 +7103,14 @@ async function refreshAll(forceRefresh=false){
           rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
           combined: calcCombined({...allData[idx], price, pe: livePE, technical: tRes.score}),
         };
+        // Quick P/E-relative fair value — shows in main table without needing full DCF
+        if (!allData[idx].dcfPS && livePE > 0 && price > 0) {
+          const _SFVPE = {'Banking':11,'Insurance':13,'Energy':18,'Petrochemicals':14,'Chemicals':13,'Materials':13,'Building Materials':14,'Real Estate':20,'REITs':16,'Telecom':20,'Technology':28,'Healthcare':25,'Consumer':18,'Utilities':16,'Transportation':14,'Industrial':16};
+          const sFVPE = _SFVPE[allData[idx].sector] || 15;
+          allData[idx].dcfPS = +(price / livePE * sFVPE).toFixed(2);
+          allData[idx].dcfUpside = (allData[idx].dcfPS - price) / price;
+          allData[idx].dcfMethod = 'P/E Est.';
+        }
         // Update Drive cache entry
         _gdCache[q.symbol] = Object.assign(_gdCache[q.symbol] || {}, {
           priceData: { price, change,
@@ -7092,24 +7207,32 @@ async function refreshAll(forceRefresh=false){
     dataDate:'—',volume:null,avgVolume3M:null,volatility:null
   }), 10000));
   const _needsCloses = allData.filter(d => (d.closes||[]).length < 6);
+  const _tickerIdx = new Map(allData.map((d,i) => [d.ticker, i]));
   for(let i = 0; i < _needsCloses.length; i += B){
     const pct = 60 + Math.round((i / Math.max(_needsCloses.length,1)) * 40);
     document.getElementById("pf").style.width = pct + "%";
     document.getElementById("pl").textContent = `Loading chart data: ${i+1}–${Math.min(i+B,_needsCloses.length)} of ${_needsCloses.length}`;
     await Promise.all(_needsCloses.slice(i, i+B).map(async d => {
-      const idx = allData.findIndex(x => x.ticker === d.ticker);
+      const idx = _tickerIdx.get(d.ticker) ?? -1;
       if (idx < 0) return;
       try {
         const fetched = await Promise.race([fetchStockPrice(allData[idx], true), _priceTimeout()]);
         if ((fetched.closes||[]).length > 5) {
           const tRes = scoreTechnicalWithSteps(fetched.closes);
-          const closesChange = dailyChangeFromCloses(fetched.closes);
+          // Recompute daily change from fresh closes when market appears open.
+          // closes[-1] = last completed day's close; if price differs meaningfully,
+          // market is intraday-open and closes-based change is more reliable.
+          let validatedChange = allData[idx].priceLoaded ? allData[idx].change : (fetched.change ?? allData[idx].change);
+          const currPx = allData[idx].price;
+          const lastClose = fetched.closes[fetched.closes.length - 1];
+          if (currPx > 0 && lastClose > 0 && Math.abs(currPx - lastClose) / lastClose > 0.001) {
+            validatedChange = +((currPx - lastClose) / lastClose * 100).toFixed(2);
+          }
           allData[idx] = {
             ...allData[idx],
             // Only overwrite price if we didn't already get it from v7/quote
             price:  allData[idx].priceLoaded ? allData[idx].price  : (fetched.price  ?? allData[idx].price),
-            // Always prefer closes-based change — more accurate than Phase 2's regularMarketChangePercent
-            change: closesChange ?? fetched.change ?? allData[idx].change,
+            change: validatedChange,
             priceLoaded: allData[idx].priceLoaded || fetched.price != null,
             closes: fetched.closes, timestamps: fetched.timestamps,
             dataSource: allData[idx].dataSource || fetched.dataSource,
@@ -7208,8 +7331,8 @@ function openTASIModal() {
   bg.style.display = 'block';
   document.body.style.overflow = 'hidden';
   setTimeout(() => drawTASIChart(), 50);
-  // If we have less than 200 closes, try to fetch 2y data for a richer chart
-  if (closes.length < 200) fetchTASIIndexLong();
+  // If we have less than 1000 closes, fetch full 10y data for richer chart
+  if (closes.length < 1000) fetchTASIIndexLong();
 }
 
 function closeTASIModal() {
@@ -7290,12 +7413,12 @@ function drawTASIChart() {
 }
 
 async function fetchTASIIndexLong() {
-  // Yahoo Finance v8/chart (try both hosts)
+  // Yahoo Finance v8/chart — try 10y first, fall back to 5y then 2y
   const urls2y = [
-    `https://query1.finance.yahoo.com/v8/finance/chart/^TASI.SR?interval=1d&range=2y`,
-    `https://query2.finance.yahoo.com/v8/finance/chart/^TASI.SR?interval=1d&range=2y`,
-    `https://query1.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=2y`,
-    `https://query2.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=2y`,
+    `https://query1.finance.yahoo.com/v8/finance/chart/^TASI.SR?interval=1d&range=10y`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/^TASI.SR?interval=1d&range=10y`,
+    `https://query1.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=10y`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/^TASI?interval=1d&range=10y`,
   ];
   for (const url of urls2y) {
     try {
@@ -7332,7 +7455,7 @@ async function fetchTASIIndexLong() {
         closes.reverse(); timestamps.reverse();
       }
       if (closes.length > tasiIndex.closes.length) {
-        _applyTASICloses(closes.slice(-750), timestamps.slice(-750));
+        _applyTASICloses(closes.slice(-3000), timestamps.slice(-3000));
       }
     }
   } catch(e) {}
@@ -7356,24 +7479,28 @@ function _applyTASICloses(closes, timestamps) {
   if (GD_TOKEN) gdSaveBulkPrices();
 }
 
-// ── Bulk retrieve: financial statements for ALL stocks ──
-// Fetches annual (and quarterly) statements per stock, derives all overview
-// metrics, recomputes every criteria score and the DCF/Fair Value, then saves
-// to Google Drive so subsequent loads are instant.
 function _updateFinLastFetched(ts) {
   const el = document.getElementById('fin-last-fetched');
   if (!el) return;
   if (!ts) { el.textContent = ''; return; }
   const d = new Date(ts);
-  const diffH = (Date.now() - d) / 36e5;
+  const now = new Date();
+  const diffH = (now - d) / 36e5;
   let label;
   if (diffH < 1) label = `${Math.round(diffH * 60)}m ago`;
   else if (diffH < 24) label = `${Math.round(diffH)}h ago`;
-  else { const diffD = Math.floor(diffH / 24); label = diffD === 1 ? '1d ago' : `${diffD}d ago`; }
+  else {
+    const diffD = Math.floor(diffH / 24);
+    label = diffD === 1 ? '1d ago' : `${diffD}d ago`;
+  }
   el.textContent = `Financials: ${label}`;
   el.title = `Financial statements last retrieved: ${d.toLocaleString()}`;
 }
 
+// ── Bulk retrieve: financial statements for ALL stocks ──
+// Fetches annual (and quarterly) statements per stock, derives all overview
+// metrics, recomputes every criteria score and the DCF/Fair Value, then saves
+// to Google Drive so subsequent loads are instant.
 async function fetchAllFinancials(){
   if (_fetchingAllFin) { tdLog('Already retrieving — please wait…', false); return; }
   _fetchingAllFin = true;
@@ -7406,12 +7533,12 @@ async function fetchAllFinancials(){
   try { if (GD_TOKEN) await Promise.all([gdSaveBulkPrices(), gdSaveStatementsBulk()]); } catch(e){}
   try { await saveCache(); } catch(e){}
   scheduleRender();
-  tdLog(`✓ Done — retrieved statements for ${ok}/${stocks.length} stocks. All overview metrics & scores recalculated and saved to Google Drive.`, true);
-  if (btn) { btn.disabled = false; btn.textContent = '📊 Retrieve All Financial Statements'; }
-  _fetchingAllFin = false;
   const finFetchedAt = Date.now();
   localStorage.setItem('tasi_fin_last_fetched', finFetchedAt);
   _updateFinLastFetched(finFetchedAt);
+  tdLog(`✓ Done — retrieved statements for ${ok}/${stocks.length} stocks. All overview metrics & scores recalculated and saved to Google Drive.`, true);
+  if (btn) { btn.disabled = false; btn.textContent = '📊 Retrieve All Financial Statements'; }
+  _fetchingAllFin = false;
 }
 
 // ── Change 5: TASI Index fetch ──
@@ -7504,23 +7631,37 @@ async function fetchTASIIndex() {
     ytdEl.innerHTML = `<span style="color:var(--tx3)">YTD: <span style="color:${col}">${ytdReturn>=0?'+':''}${(ytdReturn*100).toFixed(1)}%</span></span>`;
   }
 
-  // Compute vsTASI for all stocks (stock return over same window vs TASI)
-  const tasiRet = closes.length > 0 ? (closes[closes.length-1] - closes[0]) / closes[0] : null;
-  if (tasiRet != null) {
+  // Compute vsTASI — align TASI window to each stock's price history start date
+  // so both returns cover the same calendar period (fixes window-mismatch bias).
+  const tasiTS = tasiIndex.timestamps || [];
+  const tasiCL = tasiIndex.closes || [];
+  if (tasiCL.length > 0) {
     allData.forEach(d => {
-      if (d.closes && d.closes.length >= 10) {
-        const sr = (d.closes[d.closes.length-1] - d.closes[0]) / d.closes[0];
-        d.vsTasi = parseFloat(((sr - tasiRet)*100).toFixed(1));
+      if (!d.closes || d.closes.length < 10) return;
+      const stockStartTS = (d.timestamps || [])[0];
+      let alignedTasiRet;
+      if (stockStartTS && tasiTS.length > 0) {
+        // Find earliest TASI close on or after the stock's first timestamp
+        const ti = tasiTS.findIndex(ts => ts >= stockStartTS);
+        if (ti >= 0 && ti < tasiCL.length - 1) {
+          alignedTasiRet = (tasiCL[tasiCL.length-1] - tasiCL[ti]) / tasiCL[ti];
+        }
       }
+      if (alignedTasiRet == null) {
+        // Fallback: same full-window ratio as before
+        alignedTasiRet = (tasiCL[tasiCL.length-1] - tasiCL[0]) / tasiCL[0];
+      }
+      const sr = (d.closes[d.closes.length-1] - d.closes[0]) / d.closes[0];
+      d.vsTasi = parseFloat(((sr - alignedTasiRet)*100).toFixed(1));
     });
     if (window._fd) { const _m=new Map(allData.map(d=>[d.ticker,d])); window._fd=window._fd.map(d=>_m.get(d.ticker)||d); }
-    renderTable();
+    scheduleRender();
   }
 
   // Refresh market P/E chart if open (uses tasiIndex.closes for historical line)
   if (marketPEChartVisible) _renderMPEChart();
-  // Queue long-range fetch for full 2Y closes (used by TASI modal chart)
-  if (closes.length < 200) fetchTASIIndexLong();
+  // Queue long-range fetch for full 10Y closes (used by TASI modal chart)
+  if (closes.length < 1000) fetchTASIIndexLong();
 }
 
 // ── Change 6: Compute annualized historical volatility from daily closes ──
@@ -7536,10 +7677,12 @@ function computeVolatility(closes) {
 let marketPEChartInst = null;
 let marketPEChartVisible = false;
 let _mpeRange = '1Y'; // active range button
-let _mpeLastWtd = null, _mpeLastMed = null, _mpeLastMean = null;
+let _mpeCurve = 'wtd'; // 'wtd' | 'med' | 'mean'
+let _mpeHistCache = null; // in-memory cache to avoid repeated localStorage parse
 
 function _mpeCalc() {
-  const valid = allData.filter(d => d.pe > 0 && d.pe < 200 && d.priceLoaded);
+  // Exclude REITs — their P/E is structurally incomparable to equities
+  const valid = allData.filter(d => d.pe > 0 && d.pe < 200 && d.priceLoaded && !d.isReit && d.sector !== 'REITs');
   if (!valid.length) return null;
   const mean = valid.reduce((s,d)=>s+d.pe,0)/valid.length;
   const sorted = valid.map(d=>d.pe).sort((a,b)=>a-b);
@@ -7551,11 +7694,163 @@ function _mpeCalc() {
   return { valid, mean, median, wtdAvg, count: valid.length };
 }
 
+// ── Macro / whole-market valuation context ────────────────────────────────
+// Saudi nominal GDP ≈ SAR 4.0 trillion (2024). Risk-free ≈ 5.0% (Saudi 10Y).
+const SAUDI_GDP_SAR = 4.0e12;
+const SAUDI_RF = 0.05;
+const _clamp01 = x => Math.max(0, Math.min(1, x));
+
+function _marketConditions() {
+  const r = _mpeCalc();
+  if (!r) return null;
+  const { wtdAvg, median, mean } = r;
+
+  // Whole-market cap (include REITs here — this is a market-wide aggregate)
+  const withMC = allData.filter(d => d.mktCap > 0 && d.priceLoaded);
+  const totalMC = withMC.reduce((s,d)=>s+d.mktCap, 0);
+  // Aramco (2222.SR) has ~2% free float and dominates cap — show an ex-Aramco view too
+  const exAramcoMC = withMC.filter(d=>d.ticker!=='2222.SR').reduce((s,d)=>s+d.mktCap,0);
+  const buffettInd = totalMC > 0 ? totalMC / SAUDI_GDP_SAR : null;
+  const buffettExAramco = exAramcoMC > 0 ? exAramcoMC / SAUDI_GDP_SAR : null;
+
+  // Earnings yield + equity risk premium (vs Saudi risk-free)
+  const earningsYield = wtdAvg > 0 ? 1/wtdAvg : null;
+  const erp = earningsYield != null ? earningsYield - SAUDI_RF : null;
+
+  // Cap-weighted dividend yield
+  const dyStocks = withMC.filter(d=>d.dy>0);
+  const dyMC = dyStocks.reduce((s,d)=>s+d.mktCap,0);
+  const wtdDY = dyMC>0 ? dyStocks.reduce((s,d)=>s+d.dy*(d.mktCap/dyMC),0) : null;
+
+  // Cap-weighted price-to-book
+  const pbStocks = withMC.filter(d=>d.pb>0 && d.pb<30);
+  const pbMC = pbStocks.reduce((s,d)=>s+d.mktCap,0);
+  const wtdPB = pbMC>0 ? pbStocks.reduce((s,d)=>s+d.pb*(d.mktCap/pbMC),0) : null;
+
+  // Breadth — % of stocks trading above their 50-day SMA (trend participation)
+  const brStocks = allData.filter(d=>d.priceLoaded && d.price>0 && d.sma50>0);
+  const aboveSMA50 = brStocks.filter(d=>d.price>d.sma50).length;
+  const breadth = brStocks.length>0 ? aboveSMA50/brStocks.length : null;
+
+  return { wtdAvg, median, mean, totalMC, exAramcoMC, buffettInd, buffettExAramco,
+           earningsYield, erp, wtdDY, wtdPB, breadth, breadthN: brStocks.length, count: r.count };
+}
+
+function _renderMarketConditions() {
+  const m = _marketConditions();
+  const tilesEl = document.getElementById('mkt-cond-tiles');
+  const bannerEl = document.getElementById('mkt-cond-banner');
+  if (!m || !tilesEl) return;
+
+  // ── Composite valuation thermometer (0 = cheap/fear, 100 = expensive/greed) ──
+  const sP   = _clamp01((m.wtdAvg - 12) / (28 - 12));
+  const sERP = m.erp != null ? _clamp01((0.04 - m.erp) / 0.05) : null;
+  const sBr  = m.breadth != null ? _clamp01((m.breadth - 0.30) / 0.50) : null;
+  const sDY  = m.wtdDY != null ? _clamp01((0.05 - m.wtdDY) / 0.03) : null;
+  const sPB  = m.wtdPB != null ? _clamp01((m.wtdPB - 1.5) / 1.5) : null;
+  const parts = [sP, sERP, sBr, sDY, sPB].filter(x=>x!=null);
+  const temp = parts.length ? Math.round(parts.reduce((a,b)=>a+b,0)/parts.length*100) : null;
+
+  if (temp != null && bannerEl) {
+    const label = temp < 25 ? 'CHEAP — Fear'
+      : temp < 45 ? 'Modestly Cheap'
+      : temp < 60 ? 'Fair Value'
+      : temp < 75 ? 'Modestly Expensive'
+      : 'EXPENSIVE — Greed';
+    const col = temp < 25 ? '#2ed573' : temp < 45 ? '#7bed9f'
+      : temp < 60 ? '#f5a623' : temp < 75 ? '#ff7f50' : '#e74c3c';
+    bannerEl.style.display = 'block';
+    bannerEl.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div style="min-width:120px">
+          <div style="font-size:8px;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em">Market Valuation</div>
+          <div style="font-size:20px;font-weight:700;color:${col};line-height:1.1">${label}</div>
+        </div>
+        <div style="flex:1;min-width:200px">
+          <div style="position:relative;height:10px;border-radius:5px;overflow:hidden;background:linear-gradient(to right,#2ed573 0%,#7bed9f 25%,#f5a623 50%,#ff7f50 75%,#e74c3c 100%)">
+            <div style="position:absolute;top:-3px;width:3px;height:16px;background:var(--tx);border-radius:1px;left:${temp}%;box-shadow:0 0 4px rgba(0,0,0,.6)"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--tx3);margin-top:3px">
+            <span>Fear / Cheap</span><span style="color:${col};font-weight:600">${temp}/100</span><span>Greed / Expensive</span>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // ── Indicator tiles ──
+  const tile = (label, val, sub, color, tip) =>
+    `<div title="${escapeHTML(tip)}" style="flex:1;min-width:118px;background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:8px 10px;cursor:help">
+       <div style="font-size:8px;color:var(--tx3);text-transform:uppercase;letter-spacing:.04em">${label}</div>
+       <div style="font-size:16px;font-weight:700;color:${color};line-height:1.1;margin-top:3px">${val}</div>
+       <div style="font-size:8px;color:var(--tx3);margin-top:3px">${sub}</div>
+     </div>`;
+
+  const tiles = [];
+
+  // 1. Buffett Indicator (ex-Aramco headline; Aramco's 2% float distorts the total)
+  if (m.buffettExAramco != null) {
+    const b = m.buffettExAramco;
+    const col = b < 0.75 ? '#2ed573' : b < 1.0 ? '#7bed9f' : b < 1.3 ? '#f5a623' : '#e74c3c';
+    const verdict = b < 0.75 ? 'Undervalued' : b < 1.0 ? 'Fair' : b < 1.3 ? 'Modestly rich' : 'Overvalued';
+    tiles.push(tile('Buffett Indicator', (b*100).toFixed(0)+'%',
+      `${verdict} · incl. Aramco ${(m.buffettInd*100).toFixed(0)}%`, col,
+      'Total market cap ÷ GDP (the "Buffett Indicator"). Shown ex-Aramco because Aramco\'s ~2% free float massively inflates the headline ratio. <0.75 undervalued, 0.75–1.0 fair, 1.0–1.3 modestly rich, >1.3 overvalued. Saudi GDP ≈ SAR 4.0T (2024).'));
+  }
+
+  // 2. Earnings Yield
+  if (m.earningsYield != null) {
+    const ey = m.earningsYield;
+    const col = ey > 0.07 ? '#2ed573' : ey > 0.05 ? '#f5a623' : '#e74c3c';
+    tiles.push(tile('Earnings Yield', (ey*100).toFixed(1)+'%',
+      `vs risk-free ${(SAUDI_RF*100).toFixed(1)}%`, col,
+      'Inverse of the market P/E (1 ÷ P/E) — the earnings the market generates per riyal invested. Compare to the risk-free rate: higher than bonds = equities attractive.'));
+  }
+
+  // 3. Equity Risk Premium
+  if (m.erp != null) {
+    const e = m.erp;
+    const col = e > 0.03 ? '#2ed573' : e > 0.01 ? '#7bed9f' : e > 0 ? '#f5a623' : '#e74c3c';
+    const verdict = e > 0.03 ? 'Stocks cheap vs bonds' : e > 0.01 ? 'Fair' : e > 0 ? 'Slightly rich' : 'Stocks rich vs bonds';
+    tiles.push(tile('Equity Risk Premium', (e>=0?'+':'')+(e*100).toFixed(1)+'%',
+      verdict, col,
+      'Earnings yield minus the risk-free rate. The extra return equities offer over Saudi government bonds. >3% = equities clearly cheap; negative = equities expensive vs bonds.'));
+  }
+
+  // 4. Market Dividend Yield
+  if (m.wtdDY != null) {
+    const dy = m.wtdDY;
+    const col = dy > 0.04 ? '#2ed573' : dy > 0.025 ? '#f5a623' : '#e74c3c';
+    tiles.push(tile('Market Div Yield', (dy*100).toFixed(2)+'%',
+      'cap-weighted', col,
+      'Market-cap weighted dividend yield across all dividend-paying stocks. Higher yields generally accompany cheaper markets. TASI long-run ≈ 3–4%.'));
+  }
+
+  // 5. Market P/B
+  if (m.wtdPB != null) {
+    const pb = m.wtdPB;
+    const col = pb < 1.8 ? '#2ed573' : pb < 2.5 ? '#f5a623' : '#e74c3c';
+    tiles.push(tile('Market P/B', pb.toFixed(2)+'x',
+      'cap-weighted', col,
+      'Market-cap weighted price-to-book. <1.8x is historically cheap for TASI, >2.5x rich. Less distorted by earnings cycles than P/E.'));
+  }
+
+  // 6. Breadth (% above SMA-50)
+  if (m.breadth != null) {
+    const br = m.breadth;
+    const col = br > 0.60 ? '#2ed573' : br > 0.40 ? '#f5a623' : '#e74c3c';
+    const verdict = br > 0.60 ? 'Broad uptrend' : br > 0.40 ? 'Mixed' : 'Weak / downtrend';
+    tiles.push(tile('Breadth >SMA-50', (br*100).toFixed(0)+'%',
+      `${verdict} · ${m.breadthN} stk`, col,
+      'Percentage of stocks trading above their 50-day moving average — measures how broadly the market is participating in the trend. >60% healthy, <40% weak.'));
+  }
+
+  tilesEl.innerHTML = tiles.join('');
+}
+
 function updateMarketPEStats() {
   const r = _mpeCalc();
   if (!r) return;
   const { mean, median, wtdAvg, count } = r;
-  _mpeLastWtd = wtdAvg; _mpeLastMed = median; _mpeLastMean = mean;
   document.getElementById('mpe-mean').textContent   = mean.toFixed(1)+'x';
   document.getElementById('mpe-median').textContent = median.toFixed(1)+'x';
   document.getElementById('mpe-wtd').textContent    = wtdAvg.toFixed(1)+'x';
@@ -7563,14 +7858,14 @@ function updateMarketPEStats() {
   // Store today's calculated P/E in localStorage for historical chart
   try {
     const today = new Date().toISOString().slice(0,10);
-    const hist = JSON.parse(localStorage.getItem('tasi_mpe_hist')||'[]');
-    const existing = hist.findIndex(e=>e.d===today);
+    if (!_mpeHistCache) _mpeHistCache = JSON.parse(localStorage.getItem('tasi_mpe_hist')||'[]');
+    const existing = _mpeHistCache.findIndex(e=>e.d===today);
     const entry = { d:today, pe:+wtdAvg.toFixed(2), med:+median.toFixed(2), mean:+mean.toFixed(2) };
-    if (existing >= 0) hist[existing] = entry; else hist.push(entry);
-    if (hist.length > 730) hist.splice(0, hist.length - 730); // keep 2 years
-    localStorage.setItem('tasi_mpe_hist', JSON.stringify(hist));
+    if (existing >= 0) _mpeHistCache[existing] = entry; else _mpeHistCache.push(entry);
+    if (_mpeHistCache.length > 3650) _mpeHistCache.splice(0, _mpeHistCache.length - 3650);
+    localStorage.setItem('tasi_mpe_hist', JSON.stringify(_mpeHistCache));
   } catch(e){}
-  if (marketPEChartVisible) _renderMPEChart();
+  if (marketPEChartVisible) { _renderMPEChart(); _renderMarketConditions(); }
 }
 
 function toggleMarketPEChart() {
@@ -7579,17 +7874,28 @@ function toggleMarketPEChart() {
   if (!wrap) return;
   marketPEChartVisible = !marketPEChartVisible;
   wrap.style.display = marketPEChartVisible ? 'block' : 'none';
-  if (hint) hint.textContent = marketPEChartVisible ? '▲ hide chart' : '▼ show chart';
-  if (marketPEChartVisible) { updateMarketPEStats(); setTimeout(_renderMPEChart, 30); }
+  if (hint) hint.textContent = marketPEChartVisible ? '▲ hide tools' : '▼ valuation tools';
+  if (marketPEChartVisible) { updateMarketPEStats(); _renderMarketConditions(); setTimeout(_renderMPEChart, 30); }
   else if (marketPEChartInst) { try { marketPEChartInst.destroy(); } catch(e){} marketPEChartInst = null; }
 }
 
 function setMPERange(r) {
   _mpeRange = r;
-  ['3M','6M','1Y','2Y'].forEach(x => {
+  ['3M','6M','1Y','2Y','5Y'].forEach(x => {
     const btn = document.getElementById('mpe-r-'+x.toLowerCase());
     if (!btn) return;
     if (x === r) { btn.style.background='var(--acc)'; btn.style.color='#000'; btn.style.borderColor='var(--acc)'; }
+    else { btn.style.background=''; btn.style.color=''; btn.style.borderColor=''; }
+  });
+  _renderMPEChart();
+}
+
+function setMPECurve(c) {
+  _mpeCurve = c;
+  ['wtd','med','mean'].forEach(x => {
+    const btn = document.getElementById('mpe-c-'+x);
+    if (!btn) return;
+    if (x === c) { btn.style.background='var(--acc)'; btn.style.color='#000'; btn.style.borderColor='var(--acc)'; }
     else { btn.style.background=''; btn.style.color=''; btn.style.borderColor=''; }
   });
   _renderMPEChart();
@@ -7601,97 +7907,105 @@ function _renderMPEChart() {
   if (!ctx) return;
   const r = _mpeCalc();
   if (!r) return;
-  const { wtdAvg, median } = r;
+  const { wtdAvg, median, mean } = r;
 
-  // Update big value display + gauge pointer
+  // Gauge/big-number uses the curve selected by the buttons
+  const curveVal   = _mpeCurve === 'med' ? median : _mpeCurve === 'mean' ? mean : wtdAvg;
+  const curveLabel = _mpeCurve === 'med' ? 'Median' : _mpeCurve === 'mean' ? 'Mean' : 'Wtd Avg';
+
   const bigEl = document.getElementById('mpe-big-val');
   const lblEl = document.getElementById('mpe-val-label');
   const ptr   = document.getElementById('mpe-gauge-ptr');
-  if (bigEl) bigEl.textContent = wtdAvg.toFixed(1)+'x';
+  if (bigEl) bigEl.textContent = curveVal.toFixed(1)+'x';
   if (lblEl) {
-    const label = wtdAvg < 12 ? '(Undervalued)' : wtdAvg < 22 ? '(Fair Value)' : wtdAvg < 30 ? '(Overvalued)' : '(Expensive)';
-    const col   = wtdAvg < 12 ? 'var(--green)' : wtdAvg < 22 ? '#f5a623' : 'var(--red)';
+    const label = curveVal < 15 ? `(${curveLabel} — Undervalued)` : curveVal < 25 ? `(${curveLabel} — Fair Value)` : curveVal < 32 ? `(${curveLabel} — Overvalued)` : `(${curveLabel} — Expensive)`;
+    const col   = curveVal < 15 ? 'var(--green)' : curveVal < 25 ? '#f5a623' : 'var(--red)';
     lblEl.textContent = label; lblEl.style.color = col;
   }
   if (ptr) {
-    // Gauge goes 0→30+ mapped to 0→100% width; clamp at 5 and 95
-    const pct = Math.min(95, Math.max(5, ((wtdAvg - 5) / 25) * 100));
+    const pct = Math.min(95, Math.max(5, ((curveVal - 5) / 25) * 100));
     ptr.style.left = pct + '%';
   }
 
-  // Build time-series data points
-  const rangeDays = { '3M':90, '6M':180, '1Y':365, '2Y':730 }[_mpeRange] || 365;
+  const rangeDays = { '3M':90, '6M':180, '1Y':365, '2Y':730, '5Y':1825 }[_mpeRange] || 365;
   const cutoffMs  = Date.now() - rangeDays * 864e5;
 
-  // Stored actual daily P/E (from localStorage — grows over time)
-  const storedHist = JSON.parse(localStorage.getItem('tasi_mpe_hist')||'[]');
-  const storedMap  = new Map(storedHist.map(e=>[e.d, e]));
+  // Filter out pre-REIT-exclusion data (inflated entries with pe > 40)
+  const rawHist   = _mpeHistCache || JSON.parse(localStorage.getItem('tasi_mpe_hist')||'[]');
+  const validHist = rawHist.filter(e => e.pe > 0 && e.pe < 40);
+  const storedMap = new Map(validHist.map(e=>[e.d, e]));
 
-  // Estimated P/E from TASI price history (immediate historical context)
-  const priceCloses = tasiIndex.closes || [];
-  const priceStamps = tasiIndex.timestamps || [];
+  // Ratios for estimating historical median/mean from TASI price (when actual stored data unavailable)
+  const medRatio  = wtdAvg > 0 ? median / wtdAvg : 1;
+  const meanRatio = wtdAvg > 0 ? mean   / wtdAvg : 1;
+
+  const priceCloses  = tasiIndex.closes || [];
+  const priceStamps  = tasiIndex.timestamps || [];
   const currentPrice = tasiIndex.price;
-  const pointMap = new Map(); // date string → { t, pe, estimated }
+
+  // Three separate point maps — one per curve
+  const wtdMap = new Map(), medMap = new Map(), meanMap = new Map();
+
   if (priceCloses.length > 5 && currentPrice > 0 && wtdAvg > 0) {
-    const mktEPS = currentPrice / wtdAvg; // estimated market earnings per index unit
+    const mktEPS = currentPrice / wtdAvg;
     for (let i = 0; i < priceCloses.length; i++) {
       if (!priceCloses[i] || !priceStamps[i]) continue;
       const tMs = priceStamps[i] * 1000;
       if (tMs < cutoffMs) continue;
       const dateStr = new Date(tMs).toISOString().slice(0,10);
-      if (storedMap.has(dateStr)) {
-        pointMap.set(dateStr, { t:tMs, pe: storedMap.get(dateStr).pe, estimated:false });
-      } else {
-        pointMap.set(dateStr, { t:tMs, pe: +(priceCloses[i]/mktEPS).toFixed(2), estimated:true });
-      }
+      const stored  = storedMap.get(dateStr);
+      const estWtd  = +(priceCloses[i] / mktEPS).toFixed(2);
+      if (estWtd <= 0 || estWtd > 40) continue;
+      if (stored?.pe  > 0 && stored.pe  < 40) wtdMap.set(dateStr,  { t:tMs, pe:stored.pe  });
+      else                                      wtdMap.set(dateStr,  { t:tMs, pe:estWtd, estimated:true });
+      if (stored?.med > 0 && stored.med < 40) medMap.set(dateStr,  { t:tMs, pe:stored.med });
+      else                                      medMap.set(dateStr,  { t:tMs, pe:+(estWtd*medRatio).toFixed(2), estimated:true });
+      if (stored?.mean> 0 && stored.mean< 40) meanMap.set(dateStr, { t:tMs, pe:stored.mean });
+      else                                      meanMap.set(dateStr, { t:tMs, pe:+(estWtd*meanRatio).toFixed(2), estimated:true });
     }
   }
-  // Add any stored points not yet covered (older than TASI history)
-  storedHist.forEach(e => {
+  // Add stored entries not covered by TASI price timestamps
+  validHist.forEach(e => {
     const tMs = new Date(e.d).getTime();
-    if (tMs >= cutoffMs && !pointMap.has(e.d)) {
-      pointMap.set(e.d, { t:tMs, pe:e.pe, estimated:false });
-    }
+    if (tMs < cutoffMs) return;
+    if (!wtdMap.has(e.d)  && e.pe   > 0) wtdMap.set(e.d,  { t:tMs, pe:e.pe   });
+    if (!medMap.has(e.d)  && e.med  > 0) medMap.set(e.d,  { t:tMs, pe:e.med  });
+    if (!meanMap.has(e.d) && e.mean > 0) meanMap.set(e.d, { t:tMs, pe:e.mean });
   });
 
-  const points = [...pointMap.values()].sort((a,b)=>a.t-b.t);
-  if (!points.length) {
-    // No historical data yet — just show gauge/current values, trigger TASI fetch
+  const allDates = [...new Set([...wtdMap.keys(), ...medMap.keys(), ...meanMap.keys()])]
+    .filter(d => { const e = wtdMap.get(d)||medMap.get(d)||meanMap.get(d); return e && e.t >= cutoffMs; })
+    .sort();
+
+  if (!allDates.length) {
     if (!tasiIndex.price) fetchTASIIndex();
     return;
   }
-  // Suppress chart when only 1 data point (single dot is misleading)
-  if (points.length < 5) {
-    // Show "building history" placeholder instead of a chart
-    const ctx2 = document.getElementById('market-pe-chart');
-    if (ctx2) {
-      const c2 = ctx2.getContext('2d');
-      c2.clearRect(0, 0, ctx2.width, ctx2.height);
-      c2.fillStyle = '#4a5568';
-      c2.font = "11px 'IBM Plex Mono'";
-      c2.textAlign = 'center';
-      c2.fillText('Historical P/E chart builds over time — reload daily for trend data.', ctx2.width/2, ctx2.height/2 - 10);
-      c2.fillText(`Today: ${wtdAvg.toFixed(1)}x  Median: ${median.toFixed(1)}x  (${points.length} session${points.length>1?'s':''}  stored)`, ctx2.width/2, ctx2.height/2 + 12);
-    }
+  if (allDates.length < 5) {
+    const c2 = ctx.getContext('2d');
+    c2.clearRect(0, 0, ctx.width, ctx.height);
+    c2.fillStyle = '#4a5568'; c2.font = "11px 'IBM Plex Mono'"; c2.textAlign = 'center';
+    c2.fillText('Historical P/E chart builds over time — reload daily for trend data.', ctx.width/2, ctx.height/2 - 10);
+    c2.fillText(`Wtd ${wtdAvg.toFixed(1)}x  Median ${median.toFixed(1)}x  Mean ${mean.toFixed(1)}x`, ctx.width/2, ctx.height/2 + 12);
     return;
   }
 
-  const avgPE = points.reduce((s,p)=>s+p.pe,0)/points.length;
-  const labels = points.map(p => new Date(p.t).toISOString().slice(0,10));
-  const peVals = points.map(p => p.pe);
+  const wtdVals  = allDates.map(d => wtdMap.get(d)?.pe  ?? null);
+  const medVals  = allDates.map(d => medMap.get(d)?.pe  ?? null);
+  const meanVals = allDates.map(d => meanMap.get(d)?.pe ?? null);
+  const validWtd = wtdVals.filter(v => v != null);
+  const avgPE    = validWtd.length ? validWtd.reduce((s,v)=>s+v,0)/validWtd.length : wtdAvg;
   const fontOpts = { size:8, family:"'IBM Plex Mono'" };
 
   marketPEChartInst = new Chart(ctx, {
     type: 'line',
     data: {
-      labels,
+      labels: allDates,
       datasets: [
-        { label:'Market P/E (Wtd Avg)', data:peVals,
-          borderColor:'#4f9cf9', backgroundColor:'rgba(79,156,249,0.08)',
-          fill:true, pointRadius:0, borderWidth:2, tension:0.2 },
-        { label:`Avg ${avgPE.toFixed(1)}x`, data:new Array(labels.length).fill(+avgPE.toFixed(2)),
-          borderColor:'#f5a623', backgroundColor:'transparent',
-          borderDash:[5,4], pointRadius:0, borderWidth:1.5 }
+        { label:`Wtd Avg ${wtdAvg.toFixed(1)}x`,  data:wtdVals,  borderColor:'#4f9cf9', backgroundColor:'rgba(79,156,249,0.06)', fill:true,  pointRadius:0, borderWidth:2,   tension:0.2, spanGaps:true },
+        { label:`Median ${median.toFixed(1)}x`,    data:medVals,  borderColor:'#22c55e', backgroundColor:'transparent',           fill:false, pointRadius:0, borderWidth:1.5, tension:0.2, spanGaps:true },
+        { label:`Mean ${mean.toFixed(1)}x`,        data:meanVals, borderColor:'#f59e0b', backgroundColor:'transparent',           fill:false, pointRadius:0, borderWidth:1.5, tension:0.2, spanGaps:true, borderDash:[4,3] },
+        { label:`Period Avg ${avgPE.toFixed(1)}x`, data:new Array(allDates.length).fill(+avgPE.toFixed(2)), borderColor:'#4a5568', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:1, borderDash:[5,4], spanGaps:true }
       ]
     },
     options: {
@@ -7702,7 +8016,7 @@ function _renderMPEChart() {
         tooltip:{ backgroundColor:'rgba(24,28,34,0.97)', borderColor:'#2d3440', borderWidth:1,
           titleColor:'#e8eaed', bodyColor:'#8a9ab5',
           titleFont:{family:"'IBM Plex Mono'",size:9}, bodyFont:{family:"'IBM Plex Mono'",size:9},
-          callbacks:{ label: c=>`${c.dataset.label}: ${c.raw}x` }
+          callbacks:{ label: c => c.raw != null ? `${c.dataset.label}: ${c.raw}x` : null }
         }
       },
       scales: {
@@ -7858,7 +8172,7 @@ function buildSectorPerf() {
     const border= pos ? '#166534'      : '#991b1b';
     const isActive = activeSector === name;
     return `<span class="sp-pill${isActive?' sp-active':''}" data-s="${name}" style="color:${color};background:${bg};border-color:${border}" onclick="setSector('${name}')" title="${count} stocks · daily avg">
-      ${name} <strong>${avg>=0?'+':''}${avg.toFixed(2)}%</strong>
+      ${name} <strong>${avg>=0?'+':''}${avg.toFixed(1)}%</strong>
     </span>`;
   };
 
@@ -7889,9 +8203,9 @@ function buildSectorPerf() {
   // Step 2: Open DB async in background, then check cache, then fetch prices
   restoreUIState();
   initGDToken();
+  _updateFinLastFetched(+localStorage.getItem('tasi_fin_last_fetched') || 0);
   // Fetch TASI market summary
   fetchMarketSummary();
-  _updateFinLastFetched(+localStorage.getItem('tasi_fin_last_fetched') || 0);
 
   openDB().then(()=>{
     return dbGet(META_KEY);
