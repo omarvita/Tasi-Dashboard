@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260530s'; // bump this string on every deploy that matters
+  var V='20260530t'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530s · +feat: financials timestamp synced from Google Drive bulk file</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530t · +fix: fundamentals load from Drive (TTL 90d, fundVersion restored)</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1321,7 +1321,7 @@ function mergeStatements(primary, secondary) {
 
 // ── GOOGLE DRIVE STORAGE ──
 let GD_TOKEN = null;
-const GD_FUND_TTL  = 24 * 60 * 60 * 1000;       // 1 day TTL for fundamentals
+const GD_FUND_TTL  = 90 * 24 * 60 * 60 * 1000;  // 90 days TTL for fundamentals (quarterly data)
 const GD_FUND_VER  = 3;                          // bump to invalidate old Drive caches (forces fresh PE/EPS fetch)
 const GD_STMT_TTL  = 30 * 24 * 60 * 60 * 1000;  // 30 days TTL for financial statements
 const GD_DCF_TTL   = 24 * 60 * 60 * 1000;       // 1 day TTL for DCF result
@@ -1381,6 +1381,7 @@ async function gdLoadBulkPrices(onProgress) {
               fundamentals: Object.assign((_gdCache[ticker]?.fundamentals || {}),
                 { pe: entry.pe, pb: entry.pb, eps: entry.eps }, entry.fund || {}),
               fundUpdated: entry.fundUpdated,
+              fundVersion: entry.fundVersion ?? GD_FUND_VER,
             });
           }
         }
@@ -1430,6 +1431,7 @@ async function gdSaveBulkPrices() {
                   assets:F.assets??null, beta:F.beta??null,
                   ttmRev:F.ttmRev??null, ttmNI:F.ttmNI??null },
           fundUpdated: c.fundUpdated,
+          fundVersion: c.fundVersion ?? GD_FUND_VER,
         });
       }
     }
