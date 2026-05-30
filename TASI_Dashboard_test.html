@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260529n'; // bump this string on every deploy that matters
+  var V='20260530a'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -3952,15 +3952,18 @@ async function fetchYahooPrice(ticker){
     const timestamps = data?.chart?.result?.[0]?.timestamp||[];
     // regularMarketPreviousClose = yesterday's official close (correct for 1-day % change)
     // chartPreviousClose = close before chart period starts (6 months ago for range=6mo → wrong for daily change)
-    const prev = meta?.regularMarketPreviousClose ?? null;
+    const prev  = meta?.regularMarketPreviousClose ?? null;
+    const price = meta?.regularMarketPrice ?? null;
+    const change = (price != null && prev != null && prev > 0)
+      ? +((price - prev) / prev * 100).toFixed(2)
+      : null;
     return {
-      price: meta?.regularMarketPrice??null,
-      prev,
+      price, prev, change,
       closes, timestamps,
       volume: meta?.regularMarketVolume??null,
       avgVolume3M: meta?.averageDailyVolume3Month??null,
     };
-  }catch(e){ return {price:null,prev:null,closes:[],timestamps:[],volume:null,avgVolume3M:null}; }
+  }catch(e){ return {price:null,prev:null,change:null,closes:[],timestamps:[],volume:null,avgVolume3M:null}; }
 }
 
 // ── PRICE-ONLY FETCH: used during main refresh (fast, 1 req per stock) ──
@@ -4209,8 +4212,9 @@ function renderTable(){
   tb.innerHTML=page.map((d,i)=>{
     const sig=getSig(d.combined,d.buffett);
     const hasPx=d.price!=null;
-    const cc=hasPx?(d.change>=0?"pos":"neg"):"nav";
-    const cs=hasPx?((d.change>=0?"+":"")+d.change.toFixed(2)+"%"):"—";
+    const hasChg=d.change!=null;
+    const cc=hasPx&&hasChg?(d.change>=0?"pos":"neg"):"nav";
+    const cs=hasPx&&hasChg?((d.change>=0?"+":"")+d.change.toFixed(2)+"%"):"—";
     const moat=d.criteria?.hasMoat?`<span class="badge b-moat">Moat</span>`:"";
     const reit=d.isReit?`<span class="badge b-reit">REIT</span>`:"";
     const lv=d.priceLoaded?`<span class="badge b-live" style="margin-left:2px">LIVE</span>`:`<span class="badge b-est" style="margin-left:2px">EST</span>`;
