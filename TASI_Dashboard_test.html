@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260529j'; // bump this string on every deploy that matters
+  var V='20260531a'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531a · new: two-bulk-file Drive system (prices + statements, no per-stock files)</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -989,10 +989,11 @@ async function testFMPKey() {
 
 function clearTwelveCache() {
   Object.keys(localStorage).filter(k => k.startsWith('TASI_td_')).forEach(k => localStorage.removeItem(k));
-  // Also clear Drive in-memory cache so next open re-reads from Drive
+  // Also clear Drive in-memory caches so next open re-reads from Drive
   Object.keys(_gdCache).forEach(k => delete _gdCache[k]);
-  Object.keys(_gdFileIdCache).forEach(k => delete _gdFileIdCache[k]);
-  Object.keys(_gdInFlight).forEach(k => delete _gdInFlight[k]);
+  Object.keys(_stmtCache).forEach(k => delete _stmtCache[k]);
+  _stmtBulkLoaded = false;
+  _stmtBulkLoadPromise = null;
   showToast('✓ Financial statement cache cleared');
   document.getElementById('td-log').textContent = 'Cache cleared — next tab click will fetch fresh data.';
 }
@@ -1332,19 +1333,25 @@ function mergeStatements(primary, secondary) {
 
 // ── GOOGLE DRIVE STORAGE ──
 let GD_TOKEN = null;
-const GD_FUND_TTL  = 24 * 60 * 60 * 1000;       // 1 day TTL for fundamentals
-const GD_FUND_VER  = 3;                          // bump to invalidate old Drive caches (forces fresh PE/EPS fetch)
+const GD_FUND_TTL  = 90 * 24 * 60 * 60 * 1000;  // 90 days TTL for fundamentals (quarterly data)
+const GD_FUND_VER  = 3;                          // bump to invalidate old Drive caches
 const GD_STMT_TTL  = 30 * 24 * 60 * 60 * 1000;  // 30 days TTL for financial statements
 const GD_DCF_TTL   = 24 * 60 * 60 * 1000;       // 1 day TTL for DCF result
 const GD_TREND_TTL =  7 * 24 * 60 * 60 * 1000;  // 7 day TTL for earnings trend
 const GD_OHLCV_TTL =  8 * 60 * 60 * 1000;       // 8 hours TTL for OHLCV chart data
-const _gdCache = {};                              // in-memory per-ticker Drive cache
-const _gdFileIdCache = {};                        // ticker → Drive file ID (avoids double list+fetch)
-const _gdInFlight = {};                           // in-flight promise map for coalescing concurrent reads
 
-// ── BULK PRICE CACHE (single Drive file for all 238 prices) ──────────────
-// Replaces the per-stock Drive prefetch loop (238 API calls → 2 API calls).
-let _gdBulkPriceFileId = null; // cached file ID for TASI_prices_bulk.json
+// Prices + fundamentals bulk cache (TASI_prices_bulk.json — loaded on every startup)
+const _gdCache = {};           // ticker → { priceData, priceUpdated, fundamentals, fundUpdated, fundVersion }
+let _gdBulkPriceFileId = null;
+
+// Statements bulk cache (TASI_statements_bulk.json — loaded once in background after prices)
+// Holds: annual, quarterly, dcfResult, earningsTrend, ohlcvData, dividendSchedule + their timestamps
+const _stmtCache = {};
+let _stmtBulkFileId = null;
+let _stmtBulkLoaded = false;
+let _stmtBulkLoadPromise = null;
+let _stmtSaveTimer = null;
+const STMT_SAVE_DEBOUNCE = 12000; // 12s — coalesces many gdSetStatement() calls into one Drive write
 
 async function gdLoadBulkPrices(onProgress) {
   if (!GD_TOKEN) return 0;
@@ -1359,6 +1366,10 @@ async function gdLoadBulkPrices(onProgress) {
       const fr = await fetch(`https://www.googleapis.com/drive/v3/files/${bulkFile.id}?alt=media`,
         { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(15000) });
       const bulk = await _bodyJson(fr, 14000);
+      if (bulk?.finLastFetched) {
+        localStorage.setItem('tasi_fin_last_fetched', bulk.finLastFetched);
+        _updateFinLastFetched(bulk.finLastFetched);
+      }
       if (bulk?.prices) {
         let hits = 0;
         for (const [ticker, entry] of Object.entries(bulk.prices)) {
@@ -1388,6 +1399,7 @@ async function gdLoadBulkPrices(onProgress) {
               fundamentals: Object.assign((_gdCache[ticker]?.fundamentals || {}),
                 { pe: entry.pe, pb: entry.pb, eps: entry.eps }, entry.fund || {}),
               fundUpdated: entry.fundUpdated,
+              fundVersion: entry.fundVersion ?? GD_FUND_VER,
             });
           }
         }
@@ -1395,22 +1407,7 @@ async function gdLoadBulkPrices(onProgress) {
       }
     }
   } catch(e) { console.warn('gdLoadBulkPrices bulk file:', e); }
-
-  // Fallback: bulk file doesn't exist yet — read per-stock Drive files.
-  // Data IS there from previous individual fetches. Reads in batches of 12
-  // with body-read timeouts so this completes in ~30-40s max.
-  // After loading, gdSaveBulkPrices() will consolidate into bulk file for next time.
-  const DB = 12;
-  let hits = 0;
-  for (let i = 0; i < allData.length; i += DB) {
-    if (onProgress) onProgress(i, allData.length);
-    await Promise.all(allData.slice(i, i + DB).map(async d => {
-      const data = await gdReadStock(d.ticker).catch(() => null);
-      // gdReadStock already populates _gdCache[d.ticker]
-      if (data?.priceData?.price) hits++;
-    }));
-  }
-  return hits;
+  return 0;
 }
 
 async function gdSaveBulkPrices() {
@@ -1437,21 +1434,23 @@ async function gdSaveBulkPrices() {
                   assets:F.assets??null, beta:F.beta??null,
                   ttmRev:F.ttmRev??null, ttmNI:F.ttmNI??null },
           fundUpdated: c.fundUpdated,
+          fundVersion: c.fundVersion ?? GD_FUND_VER,
         });
       }
     }
     // Include TASI index historical closes in bulk file so next load is instant
     if (tasiIndex.closes?.length > 10) {
       prices['_tasi'] = {
-        closes: tasiIndex.closes.slice(-3000),
-        timestamps: tasiIndex.timestamps.slice(-3000),
+        closes: tasiIndex.closes.slice(-750),
+        timestamps: tasiIndex.timestamps.slice(-750),
         price: tasiIndex.price,
         change: tasiIndex.change,
         ytdReturn: tasiIndex.ytdReturn,
         savedAt: Date.now(),
       };
     }
-    const body = JSON.stringify({ savedAt: Date.now(), prices });
+    const finLastFetched = +localStorage.getItem('tasi_fin_last_fetched') || null;
+    const body = JSON.stringify({ savedAt: Date.now(), finLastFetched, prices });
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify({ name: 'TASI_prices_bulk.json' })], { type: 'application/json' }));
     form.append('file', new Blob([body], { type: 'application/json' }));
@@ -1513,78 +1512,102 @@ function saveGDClientId() {
   showToast(k ? '✓ Client ID saved' : 'Client ID cleared');
 }
 
-// One Drive file per stock: TASI_stock_{ticker}.json
-// Contains: { fundamentals, quarterly:{is,bs,cf}, annual:{is,bs,cf}, fundUpdated, quarterlyUpdated, annualUpdated }
-async function gdFindFile(ticker) {
-  if (!GD_TOKEN) return null;
-  if (_gdFileIdCache[ticker]) return { id: _gdFileIdCache[ticker] };
-  const name = `TASI_stock_${ticker.replace(/\./g,'_')}.json`;
-  try {
-    const r = await fetch(
-      `https://www.googleapis.com/drive/v3/files?q=name%3D%27${encodeURIComponent(name)}%27+and+trashed%3Dfalse&fields=files(id,modifiedTime)`,
-      { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(8000) }
-    );
-    const d = await _bodyJson(r, 7000);
-    const file = d.files?.[0] || null;
-    if (file) _gdFileIdCache[ticker] = file.id;
-    return file;
-  } catch(e) { return null; }
+// ── STATEMENTS BULK STORAGE ──────────────────────────────────────────────────
+
+// Get statement data for ticker from in-memory cache (sync, no network)
+function gdGetStatement(ticker) {
+  return _stmtCache[ticker] || null;
 }
 
-async function gdReadStock(ticker) {
-  if (!GD_TOKEN) return null;
-  if (_gdCache[ticker]) return _gdCache[ticker];
-  if (_gdInFlight[ticker]) return _gdInFlight[ticker];
-  _gdInFlight[ticker] = (async () => {
-    try {
-      const file = await gdFindFile(ticker);
-      if (!file) return null;
-      const r = await fetch(
-        `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
-        { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(10000) }
-      );
-      const data = await _bodyJson(r, 9000);
-      _gdCache[ticker] = data;
-      return data;
-    } catch(e) { return null; }
-    finally { delete _gdInFlight[ticker]; }
-  })();
-  return _gdInFlight[ticker];
-}
-
-function gdPrefetch(idx) {
-  const d = window._fd?.[idx];
-  if (!d || !GD_TOKEN) return;
-  if (_gdCache[d.ticker] || _gdInFlight[d.ticker]) return;
-  gdReadStock(d.ticker).catch(() => {});
-}
-
-async function gdWriteStock(ticker, patch) {
+// Update statement data for ticker and schedule a debounced bulk Drive save
+function gdSetStatement(ticker, patch) {
   if (!GD_TOKEN) return;
-  const name = `TASI_stock_${ticker.replace(/\./g,'_')}.json`;
-  const merged = Object.assign(_gdCache[ticker] || {}, patch);
-  _gdCache[ticker] = merged;
-  // LRU eviction: keep cache bounded to 100 entries
-  const keys = Object.keys(_gdCache);
-  if (keys.length > 100) delete _gdCache[keys[0]];
+  _stmtCache[ticker] = Object.assign(_stmtCache[ticker] || {}, patch);
+  gdScheduleStatementsSave();
+}
+
+// Coalesce many writes into one Drive upload
+function gdScheduleStatementsSave() {
+  if (!GD_TOKEN) return;
+  clearTimeout(_stmtSaveTimer);
+  _stmtSaveTimer = setTimeout(gdSaveStatementsBulk, STMT_SAVE_DEBOUNCE);
+}
+
+// Load TASI_statements_bulk.json — called once at startup after prices are loaded
+async function gdLoadStatementsBulk() {
+  if (!GD_TOKEN || _stmtBulkLoaded) return;
+  if (_stmtBulkLoadPromise) return _stmtBulkLoadPromise;
+  _stmtBulkLoadPromise = (async () => {
+    try {
+      const sr = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=name%3D%27TASI_statements_bulk.json%27+and+trashed%3Dfalse&fields=files(id)`,
+        { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(8000) }
+      );
+      const sd = await _bodyJson(sr, 7000);
+      const file = sd?.files?.[0];
+      if (!file) { _stmtBulkLoaded = true; return; }
+      _stmtBulkFileId = file.id;
+      const fr = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
+        { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(60000) }
+      );
+      const bulk = await _bodyJson(fr, 55000);
+      if (bulk?.statements) {
+        for (const [ticker, data] of Object.entries(bulk.statements)) {
+          _stmtCache[ticker] = Object.assign(_stmtCache[ticker] || {}, data);
+        }
+        console.log(`[GD] Loaded statements for ${Object.keys(bulk.statements).length} stocks from Drive`);
+      }
+      if (bulk?.finLastFetched) {
+        localStorage.setItem('tasi_fin_last_fetched', bulk.finLastFetched);
+        _updateFinLastFetched(bulk.finLastFetched);
+      }
+    } catch(e) { console.warn('gdLoadStatementsBulk:', e); }
+    finally { _stmtBulkLoaded = true; }
+  })();
+  return _stmtBulkLoadPromise;
+}
+
+// Save all statement data to Drive as TASI_statements_bulk.json
+async function gdSaveStatementsBulk() {
+  if (!GD_TOKEN) return;
+  clearTimeout(_stmtSaveTimer);
+  _stmtSaveTimer = null;
+  if (!Object.keys(_stmtCache).length) return;
   try {
-    const fileId = _gdFileIdCache[ticker];
-    let uploadUrl, method;
-    if (fileId) {
-      uploadUrl = `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`;
-      method = 'PATCH';
-    } else {
-      const file = await gdFindFile(ticker);
-      uploadUrl = file
-        ? `https://www.googleapis.com/upload/drive/v3/files/${file.id}?uploadType=multipart`
-        : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-      method = file ? 'PATCH' : 'POST';
-    }
+    const finLastFetched = +localStorage.getItem('tasi_fin_last_fetched') || null;
+    const body = JSON.stringify({ savedAt: Date.now(), finLastFetched, statements: _stmtCache });
     const form = new FormData();
-    form.append('metadata', new Blob([JSON.stringify({ name })], { type: 'application/json' }));
-    form.append('file', new Blob([JSON.stringify(merged)], { type: 'application/json' }));
-    await fetch(uploadUrl, { method, headers: { Authorization: `Bearer ${GD_TOKEN}` }, body: form, signal: AbortSignal.timeout(15000) });
-  } catch(e) { console.warn('GD write failed:', e); }
+    form.append('metadata', new Blob([JSON.stringify({ name: 'TASI_statements_bulk.json' })], { type: 'application/json' }));
+    form.append('file', new Blob([body], { type: 'application/json' }));
+    const method = _stmtBulkFileId ? 'PATCH' : 'POST';
+    const uploadUrl = _stmtBulkFileId
+      ? `https://www.googleapis.com/upload/drive/v3/files/${_stmtBulkFileId}?uploadType=multipart`
+      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+    const res = await fetch(uploadUrl, {
+      method,
+      headers: { Authorization: `Bearer ${GD_TOKEN}` },
+      body: form,
+      signal: AbortSignal.timeout(90000)
+    });
+    if (res.ok && !_stmtBulkFileId) {
+      const meta = await _bodyJson(res, 5000);
+      if (meta?.id) _stmtBulkFileId = meta.id;
+    }
+  } catch(e) { console.warn('gdSaveStatementsBulk:', e); }
+}
+
+// Wait for statements bulk to finish loading (with 30s max timeout)
+async function gdAwaitStatements() {
+  if (_stmtBulkLoaded) return;
+  if (_stmtBulkLoadPromise) {
+    await Promise.race([_stmtBulkLoadPromise, new Promise(r => setTimeout(r, 30000))]);
+  }
+}
+
+// Trigger background statements load if not yet started (called on table row hover)
+function gdPrefetch(idx) {
+  if (GD_TOKEN && !_stmtBulkLoaded && !_stmtBulkLoadPromise) gdLoadStatementsBulk();
 }
 
 // ── DIVIDEND SCHEDULE — Yahoo Finance chart events ──
@@ -1593,7 +1616,7 @@ const GD_DIV_TTL = 7 * 24 * 60 * 60 * 1000; // 7-day TTL for dividend data
 async function fetchDividendSchedule(ticker) {
   // Check Drive cache first
   if (GD_TOKEN) {
-    const cached = await gdReadStock(ticker);
+    const cached = gdGetStatement(ticker);
     if (cached?.dividendSchedule && cached.divUpdated && (Date.now() - cached.divUpdated < GD_DIV_TTL)) {
       return cached.dividendSchedule;
     }
@@ -1612,7 +1635,7 @@ async function fetchDividendSchedule(ticker) {
         yieldAtPrice: price && price > 0 ? parseFloat((e.amount / price * 100).toFixed(2)) : null,
         type: 'Cash',
       }));
-    gdWriteStock(ticker, { dividendSchedule: schedule, divUpdated: Date.now() });
+    gdSetStatement(ticker, { dividendSchedule: schedule, divUpdated: Date.now() });
     return schedule;
   } catch(e) { return []; }
 }
@@ -3961,13 +3984,13 @@ async function fetchStockPrice(stock, skipDriveNetwork=false) {
   const ticker = stock.ticker;
   // Check Drive price cache — memory-only during bulk refresh, full Drive during modal open
   if (GD_TOKEN) {
-    const driveData = skipDriveNetwork
-      ? (_gdCache[ticker] ?? null)                           // in-memory only, no network
-      : (_gdCache[ticker] || await gdReadStock(ticker));     // full Drive read (single modal)
+    const driveData = _gdCache[ticker] ?? null;  // prices always in-memory (bulk-loaded at startup)
     if (driveData?.priceData && Date.now() - (driveData.priceUpdated || 0) < GD_PRICE_TTL) {
       const p = driveData.priceData;
+      const cls = p.closes || [];
+      const change = cls.length >= 2 ? dailyChangeFromCloses(cls) : null;
       return {
-        price: p.price, change: p.change, closes: p.closes || [], timestamps: p.timestamps || [],
+        price: p.price, change, closes: cls, timestamps: p.timestamps || [],
         dataSource: 'google-drive', dataDate: new Date(driveData.priceUpdated).toISOString().slice(0, 10),
         volume: p.volume, avgVolume3M: p.avgVolume3M, volatility: p.volatility,
       };
@@ -3993,18 +4016,14 @@ async function fetchStockPrice(stock, skipDriveNetwork=false) {
     }
     if(quick.volume != null) result.volume = quick.volume;
     if(quick.avgVolume3M != null) result.avgVolume3M = quick.avgVolume3M;
-    // Save to Drive so next page load is instant
+    // Update in-memory cache only — prices go to bulk file via gdSaveBulkPrices.
     if (result.price && GD_TOKEN) {
-      const cached = _gdCache[ticker]?.priceData;
-      const priceDiff = cached?.price ? Math.abs(result.price - cached.price) / cached.price : 1;
-      if (priceDiff > 0.001) {
-        gdWriteStock(ticker, {
-          priceData: { price: result.price, change: result.change, closes: result.closes,
-            timestamps: result.timestamps, volume: result.volume, avgVolume3M: result.avgVolume3M,
-            volatility: result.volatility },
-          priceUpdated: Date.now(),
-        });
-      }
+      _gdCache[ticker] = Object.assign(_gdCache[ticker] || {}, {
+        priceData: { price: result.price, change: result.change, closes: result.closes,
+          timestamps: result.timestamps, volume: result.volume, avgVolume3M: result.avgVolume3M,
+          volatility: result.volatility },
+        priceUpdated: Date.now(),
+      });
     }
   } catch(e) {}
   return result;
@@ -4118,7 +4137,8 @@ async function fetchStockFull(stock) {
       };
       // Also update in-memory cache so next gdSaveBulkPrices includes this P/E
       _gdCache[ticker] = Object.assign(_gdCache[ticker] || {}, _fundPayload);
-      gdWriteStock(ticker, _fundPayload);
+      // earningsTrend goes to statements bulk; fundamentals go to prices bulk via gdSaveBulkPrices
+      if (result.earningsTrend?.length) gdSetStatement(ticker, { earningsTrend: result.earningsTrend, trendUpdated: Date.now() });
     }
     // Also get longer chart data for 2-year history
     const meta = raw.chart?.chart?.result?.[0]?.meta;
@@ -4478,8 +4498,12 @@ async function openModal(idx){
   try{
     let usedDriveCache = false;
     if (GD_TOKEN) {
-      const driveStock = await gdReadStock(d.ticker);
-      if (driveStock?.fundamentals && driveStock.fundUpdated && (Date.now() - driveStock.fundUpdated < GD_FUND_TTL) && (driveStock.fundVersion >= GD_FUND_VER)) {
+      // Fundamentals from prices bulk (already loaded at startup); statements from statements bulk
+      await gdAwaitStatements();
+      const gdFund = _gdCache[d.ticker];
+      const gdStmt = gdGetStatement(d.ticker);
+      const driveStock = (gdFund || gdStmt) ? Object.assign({}, gdFund, gdStmt) : null;
+      if (driveStock?.fundamentals && driveStock.fundUpdated && (Date.now() - driveStock.fundUpdated < GD_FUND_TTL)) {
         const f = driveStock.fundamentals;
         const realD = allData.find(a => a.ticker === d.ticker);
         if (realD && f) {
@@ -4578,7 +4602,7 @@ async function openModal(idx){
   const _prefetchD = window._fd?.[idx];
   if (_prefetchD) {
     const now = Date.now();
-    const driveSnap = _gdCache[_prefetchD.ticker];
+    const driveSnap = gdGetStatement(_prefetchD.ticker);
     // Pre-populate rawTwelveData from Drive snapshot (avoids re-reading Drive in buildFinancials)
     if (!_prefetchD.rawTwelveData) _prefetchD.rawTwelveData = {};
     for (const period of ['annual', 'quarterly']) {
@@ -5167,7 +5191,7 @@ async function buildFinancials(d, period) {
   }
 
   // 1. Google Drive cache (30-day TTL for statements)
-  const driveStock = await gdReadStock(d.ticker);
+  const driveStock = gdGetStatement(d.ticker);
   const driveStmt = driveStock?.[cacheKey];
   const driveUpdated = driveStock?.[`${cacheKey}Updated`] || 0;
   const now = Date.now();
@@ -5213,7 +5237,7 @@ async function buildFinancials(d, period) {
     if (!d.rawTwelveData) d.rawTwelveData = {};
     d.rawTwelveData[cacheKey] = validated;
     tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
-    gdWriteStock(d.ticker, { [cacheKey]: validated, [`${cacheKey}Updated`]: Date.now() });
+    gdSetStatement(d.ticker, { [cacheKey]: validated, [`${cacheKey}Updated`]: Date.now() });
     return enrichAndRender(validated, sources.length > 1 ? sources.join(' + ') : (sources[0] || 'Yahoo Finance'));
   }
 
@@ -5230,7 +5254,7 @@ async function buildFinancials(d, period) {
       if (!d.rawTwelveData) d.rawTwelveData = {};
       d.rawTwelveData[cacheKey] = fmp;
       tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
-      gdWriteStock(d.ticker, { [cacheKey]: fmp, [`${cacheKey}Updated`]: Date.now() });
+      gdSetStatement(d.ticker, { [cacheKey]: fmp, [`${cacheKey}Updated`]: Date.now() });
       return enrichAndRender(fmp, 'FMP');
     }
   }
@@ -5241,7 +5265,7 @@ async function buildFinancials(d, period) {
     if (!d.rawTwelveData) d.rawTwelveData = {};
     d.rawTwelveData[cacheKey] = scraped;
     tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
-    gdWriteStock(d.ticker, { [cacheKey]: scraped, [`${cacheKey}Updated`]: Date.now() });
+    gdSetStatement(d.ticker, { [cacheKey]: scraped, [`${cacheKey}Updated`]: Date.now() });
     return enrichAndRender(scraped, 'scraped');
   }
 
@@ -5580,7 +5604,7 @@ async function buildAnnual(d){ return buildFinancials(d, 'annual'); }
 async function buildDCF(d) {
   // ── FAST PATH: return cached DCF result from Drive if fresh ──
   if (GD_TOKEN) {
-    const driveStock = await gdReadStock(d.ticker);
+    const driveStock = gdGetStatement(d.ticker);
     if (driveStock?.dcfResult && driveStock.dcfUpdated && (Date.now() - driveStock.dcfUpdated < GD_DCF_TTL)) {
       const r = driveStock.dcfResult;
       d.dcfPS = r.dcfPS; d.dcfUpside = r.dcfUpside; d.dcfMethod = r.dcfMethod;
@@ -5617,7 +5641,7 @@ async function buildDCF(d) {
         if (!d.rawTwelveData) d.rawTwelveData = {};
         d.rawTwelveData.annual = merged;
         tdCacheSet(d.ticker, d.rawTwelveData.quarterly || null, merged);
-        gdWriteStock(d.ticker, { annual: merged, annualUpdated: Date.now() });
+        gdSetStatement(d.ticker, { annual: merged, annualUpdated: Date.now() });
         annualData = merged;
       }
     } catch(e) { console.warn('DCF auto-fetch failed:', e); }
@@ -5853,7 +5877,7 @@ async function buildDCF(d) {
     : ((isBanking || isReitDCF) && ddmPS ? 'DDM' : 'FCF-DCF');
   if (primaryPS != null) {
     d.dcfPS = primaryPS; d.dcfUpside = primaryUpside; d.dcfMethod = primaryMethod;
-    gdWriteStock(d.ticker, { dcfResult: { dcfPS: primaryPS, dcfUpside: primaryUpside, dcfMethod: primaryMethod }, dcfUpdated: Date.now() });
+    gdSetStatement(d.ticker, { dcfResult: { dcfPS: primaryPS, dcfUpside: primaryUpside, dcfMethod: primaryMethod }, dcfUpdated: Date.now() });
   }
 
   // ── HTML ──
@@ -6445,7 +6469,7 @@ async function fetchChartData(){
       window._fd[window._curIdx].lows=lows;
       console.log(`[Chart] OHLCV loaded: ${closes.length} bars, ${volumes.filter(v=>v!=null).length} vol, ${highs.filter(v=>v!=null).length} highs`);
       if(GD_TOKEN && volumes.filter(v=>v!=null).length>0)
-        gdWriteStock(d.ticker,{ohlcvData:{volumes,highs,lows},ohlcvUpdated:Date.now()});
+        gdSetStatement(d.ticker,{ohlcvData:{volumes,highs,lows},ohlcvUpdated:Date.now()});
     } else {
       console.warn('[Chart] fetchChartData: no closes returned from proxy');
     }
@@ -7165,6 +7189,8 @@ async function refreshAll(forceRefresh=false){
   document.getElementById("pl").textContent=`✓ Done: ${loaded}/${allData.length} stocks loaded. Saving to cache...`;
   // Save to IndexedDB and Drive bulk file in parallel
   await Promise.all([saveCache(), gdSaveBulkPrices()]);
+  // Load statements bulk in background so modal opens are instant
+  if (GD_TOKEN) gdLoadStatementsBulk();
   document.getElementById("pl").textContent=`✓ ${loaded}/${allData.length} stocks saved to cache`;
   setTimeout(()=>{pw.style.display="none";},3000);
   btn.disabled=false;btn.textContent="↻ Reload Data";
@@ -7437,7 +7463,7 @@ async function fetchAllFinancials(){
     scheduleRender();
   }
   // Persist everything to Drive + local cache
-  try { if (GD_TOKEN) await gdSaveBulkPrices(); } catch(e){}
+  try { if (GD_TOKEN) await Promise.all([gdSaveBulkPrices(), gdSaveStatementsBulk()]); } catch(e){}
   try { await saveCache(); } catch(e){}
   scheduleRender();
   const finFetchedAt = Date.now();
