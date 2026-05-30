@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260530i'; // bump this string on every deploy that matters
+  var V='20260530j'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530i · fc9f679 · Fix REIT Buffett scoring</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530j · +fix: %CHG now shows correctly in table</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -3920,15 +3920,16 @@ async function fetchYahooPrice(ticker){
     const timestamps = data?.chart?.result?.[0]?.timestamp||[];
     // regularMarketPreviousClose = yesterday's official close (correct for 1-day % change)
     // chartPreviousClose = close before chart period starts (6 months ago for range=6mo → wrong for daily change)
-    const prev = meta?.regularMarketPreviousClose ?? null;
-    return {
-      price: meta?.regularMarketPrice??null,
-      prev,
-      closes, timestamps,
+    const prev  = meta?.regularMarketPreviousClose ?? null;
+    const price = meta?.regularMarketPrice ?? null;
+    const change = (price != null && prev != null && prev > 0)
+      ? +((price - prev) / prev * 100).toFixed(2)
+      : null;
+    return { price, prev, change, closes, timestamps,
       volume: meta?.regularMarketVolume??null,
       avgVolume3M: meta?.averageDailyVolume3Month??null,
     };
-  }catch(e){ return {price:null,prev:null,closes:[],timestamps:[],volume:null,avgVolume3M:null}; }
+  }catch(e){ return {price:null,prev:null,change:null,closes:[],timestamps:[],volume:null,avgVolume3M:null}; }
 }
 
 // ── PRICE-ONLY FETCH: used during main refresh (fast, 1 req per stock) ──
@@ -4177,8 +4178,9 @@ function renderTable(){
   tb.innerHTML=page.map((d,i)=>{
     const sig=getSig(d.combined,d.buffett);
     const hasPx=d.price!=null;
-    const cc=hasPx?(d.change>=0?"pos":"neg"):"nav";
-    const cs=hasPx?((d.change>=0?"+":"")+d.change.toFixed(2)+"%"):"—";
+    const hasChg=hasPx&&d.change!=null;
+    const cc=hasChg?(d.change>=0?"pos":"neg"):"nav";
+    const cs=hasChg?((d.change>=0?"+":"")+d.change.toFixed(2)+"%"):"—";
     const moat=d.criteria?.hasMoat?`<span class="badge b-moat">Moat</span>`:"";
     const reit=d.isReit?`<span class="badge b-reit">REIT</span>`:"";
     const lv=d.priceLoaded?`<span class="badge b-live" style="margin-left:2px">LIVE</span>`:`<span class="badge b-est" style="margin-left:2px">EST</span>`;
