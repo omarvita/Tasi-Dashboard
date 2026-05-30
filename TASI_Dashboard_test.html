@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260530a'; // bump this string on every deploy that matters
+  var V='20260530b'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -1400,6 +1400,12 @@ async function gdLoadBulkPrices(onProgress) {
               fundUpdated: entry.fundUpdated,
             });
           }
+          // Load DCF fair value results so they appear in the main table
+          if (entry?.dcfResult && entry.dcfUpdated && Date.now() - entry.dcfUpdated < GD_DCF_TTL) {
+            _gdCache[ticker] = Object.assign(_gdCache[ticker] || {}, {
+              dcfResult: entry.dcfResult, dcfUpdated: entry.dcfUpdated,
+            });
+          }
         }
         if (hits > 0) return hits;
       }
@@ -1434,8 +1440,7 @@ async function gdSaveBulkPrices() {
       }
     }
     if (!Object.keys(prices).length) return;
-    // Also include latest P/E/PB/EPS from per-stock Drive cache so next load
-    // doesn't need Phase 2.5 for stocks already in cache
+    // Also include latest P/E/PB/EPS and DCF results from per-stock Drive cache
     for (const d of allData) {
       const c = _gdCache[d.ticker];
       if (c?.fundamentals && c.fundUpdated && (c.fundamentals.pe > 0 || c.fundamentals.roe != null)) {
@@ -1447,6 +1452,12 @@ async function gdSaveBulkPrices() {
                   assets:F.assets??null, beta:F.beta??null,
                   ttmRev:F.ttmRev??null, ttmNI:F.ttmNI??null },
           fundUpdated: c.fundUpdated,
+        });
+      }
+      // Include DCF fair value so it shows in the main table without requiring a modal open
+      if (c?.dcfResult && c.dcfUpdated && (Date.now() - c.dcfUpdated < GD_DCF_TTL)) {
+        prices[d.ticker] = Object.assign(prices[d.ticker] || {}, {
+          dcfResult: c.dcfResult, dcfUpdated: c.dcfUpdated,
         });
       }
     }
@@ -4291,7 +4302,7 @@ function buildSectors(){} // sector filtering handled by buildSectorPerf pills
 // INDEXEDDB CACHE (with localStorage fallback)
 // ═══════════════════════════════════════════════════
 const DB_NAME="TASIDash",DB_VER=3,STORE="cache",CACHE_KEY="stocks",META_KEY="meta";
-let CACHE_TTL=Infinity,db=null,dbReady=false; // prices never expire — use Force button to get fresh data
+let CACHE_TTL=730*24*60*60*1000,db=null,dbReady=false; // 2 years — effectively permanent; Force button clears it
 
 function openDB(){
   return new Promise(res=>{
@@ -4345,7 +4356,9 @@ async function saveCache(){
 
 async function loadCache(){
   const meta=await dbGet(META_KEY);
-  if(!meta||Date.now()-meta.savedAt>meta.ttl)return false;
+  if(!meta)return false;
+  // meta.ttl=null means it was stored as Infinity (JSON.stringify(Infinity)→null) — treat as never-expire
+  if(meta.ttl!=null&&Date.now()-meta.savedAt>meta.ttl)return false;
   const cached=await dbGet(CACHE_KEY);
   if(!cached?.length)return false;
   const tickerIdx = new Map(allData.map((d, i) => [d.ticker, i]));
@@ -6973,6 +6986,36 @@ async function refreshAll(forceRefresh=false){
       }
     }
     if (peFromDrive > 0) console.log(`[Fundamentals] Loaded ${peFromDrive} stocks' metrics from Drive cache`);
+    // Apply Drive-cached prices directly to allData now — no need to wait for Phase 3
+    let priceFromDrive = 0;
+    for (let i = 0; i < allData.length; i++) {
+      const c = _gdCache[allData[i].ticker];
+      if (c?.priceData?.price && !allData[i].priceLoaded) {
+        const p = c.priceData;
+        allData[i] = {
+          ...allData[i],
+          price:  p.price,
+          change: p.change ?? null,
+          priceLoaded: true,
+          closes:     (p.closes?.length > 5) ? p.closes     : allData[i].closes,
+          timestamps: (p.closes?.length > 5) ? p.timestamps : allData[i].timestamps,
+          volume:     p.volume     ?? allData[i].volume,
+          avgVolume3M:p.avgVolume3M ?? allData[i].avgVolume3M,
+        };
+        priceFromDrive++;
+      }
+      // Apply DCF fair value from Drive so it shows in main table
+      const c2 = _gdCache[allData[i].ticker];
+      if (c2?.dcfResult && !allData[i].dcfPS) {
+        allData[i].dcfPS    = c2.dcfResult.dcfPS;
+        allData[i].dcfUpside = c2.dcfResult.dcfUpside;
+        allData[i].dcfMethod = c2.dcfResult.dcfMethod;
+      }
+    }
+    if (priceFromDrive > 0) {
+      document.getElementById("pl").textContent = `Drive: ${priceFromDrive} prices loaded`;
+      scheduleRender();
+    }
   }
 
   // ── Phase 2: Bulk Yahoo v7/quote — all 238 stocks, 20 per request ───────
@@ -7909,29 +7952,67 @@ function _renderMPEChart() {
 
   // Three separate point maps — one per curve
   const wtdMap = new Map(), medMap = new Map(), meanMap = new Map();
-  // Current curve-to-wtdAvg ratios — used to reconstruct historical median/mean from the
-  // TASI price line when no actual stored daily value exists. Median typically sits well
-  // below wtdAvg (a few mega-caps lift the cap-weighted figure), so its line is distinctly lower.
-  const medRatio  = wtdAvg > 0 ? median / wtdAvg : 1;
-  const meanRatio = wtdAvg > 0 ? mean   / wtdAvg : 1;
 
+  // ── Build per-stock P/E time series from actual closes ──────────────────────
+  // Stocks with closes+price+pe give real daily P/E = close(t) × (pe/price).
+  // This makes median and mean genuinely diverge from wtdAvg because different
+  // sectors have different price trajectories.
+  const stocksForPE = allData.filter(d =>
+    d.pe > 0 && d.pe < 200 && !d.isReit && d.sector !== 'REITs' &&
+    d.price > 0 && d.closes?.length > 5 && d.timestamps?.length > 5
+  );
+
+  if (stocksForPE.length >= 5) {
+    // Build date → { ticker: pe } map from per-stock closes
+    const dateStockPE = new Map(); // dateStr → Array<{pe, mktCap}>
+    for (const d of stocksForPE) {
+      const eps = d.price / d.pe; // current-year EPS proxy
+      for (let i = 0; i < d.closes.length; i++) {
+        if (!d.closes[i] || !d.timestamps[i]) continue;
+        const tMs = d.timestamps[i] * 1000;
+        if (tMs < cutoffMs) continue;
+        const dateStr = new Date(tMs).toISOString().slice(0, 10);
+        const pe = +(d.closes[i] / eps).toFixed(2);
+        if (pe <= 0 || pe > 200) continue;
+        if (!dateStockPE.has(dateStr)) dateStockPE.set(dateStr, []);
+        dateStockPE.get(dateStr).push({ pe, mktCap: d.mktCap || 1 });
+      }
+    }
+    // Aggregate per date: wtdAvg, median, mean
+    for (const [dateStr, entries] of dateStockPE) {
+      if (entries.length < 3) continue;
+      const tMs = new Date(dateStr).getTime();
+      const stored = storedMap.get(dateStr);
+      const totalMC = entries.reduce((s, e) => s + e.mktCap, 0);
+      const computedWtd  = totalMC > 0 ? entries.reduce((s, e) => s + e.pe * (e.mktCap / totalMC), 0) : entries.reduce((s,e)=>s+e.pe,0)/entries.length;
+      const sortedPEs    = entries.map(e => e.pe).sort((a, b) => a - b);
+      const mid          = Math.floor(sortedPEs.length / 2);
+      const computedMed  = sortedPEs.length % 2 ? sortedPEs[mid] : (sortedPEs[mid-1]+sortedPEs[mid])/2;
+      const computedMean = entries.reduce((s,e)=>s+e.pe,0)/entries.length;
+      if (computedWtd <= 0 || computedWtd > 40) continue;
+      wtdMap.set(dateStr,  { t:tMs, pe: stored?.pe   > 0 && stored.pe   < 40 ? stored.pe   : +computedWtd.toFixed(2)  });
+      medMap.set(dateStr,  { t:tMs, pe: stored?.med  > 0 && stored.med  < 40 ? stored.med  : +computedMed.toFixed(2)  });
+      meanMap.set(dateStr, { t:tMs, pe: stored?.mean > 0 && stored.mean < 40 ? stored.mean : +computedMean.toFixed(2) });
+    }
+  }
+
+  // ── Fall back to TASI-index ratio scaling for dates with no per-stock data ──
   if (priceCloses.length > 5 && currentPrice > 0 && wtdAvg > 0) {
-    const mktEPS = currentPrice / wtdAvg;
+    const mktEPS    = currentPrice / wtdAvg;
+    const medRatio  = wtdAvg > 0 ? median / wtdAvg : 1;
+    const meanRatio = wtdAvg > 0 ? mean   / wtdAvg : 1;
     for (let i = 0; i < priceCloses.length; i++) {
       if (!priceCloses[i] || !priceStamps[i]) continue;
       const tMs = priceStamps[i] * 1000;
       if (tMs < cutoffMs) continue;
       const dateStr = new Date(tMs).toISOString().slice(0,10);
+      if (wtdMap.has(dateStr)) continue; // already have actual data for this date
       const stored  = storedMap.get(dateStr);
       const estWtd  = +(priceCloses[i] / mktEPS).toFixed(2);
       if (estWtd <= 0 || estWtd > 40) continue;
-      // Prefer actual stored daily values; fall back to ratio-scaled estimate from the index.
-      if (stored?.pe   > 0 && stored.pe   < 40) wtdMap.set(dateStr,  { t:tMs, pe:stored.pe });
-      else                                       wtdMap.set(dateStr,  { t:tMs, pe:estWtd, estimated:true });
-      if (stored?.med  > 0 && stored.med  < 40) medMap.set(dateStr,  { t:tMs, pe:stored.med });
-      else                                       medMap.set(dateStr,  { t:tMs, pe:+(estWtd*medRatio).toFixed(2),  estimated:true });
-      if (stored?.mean > 0 && stored.mean < 40) meanMap.set(dateStr, { t:tMs, pe:stored.mean });
-      else                                       meanMap.set(dateStr, { t:tMs, pe:+(estWtd*meanRatio).toFixed(2), estimated:true });
+      wtdMap.set(dateStr,  { t:tMs, pe: stored?.pe   > 0 && stored.pe   < 40 ? stored.pe   : estWtd,                              estimated:true });
+      medMap.set(dateStr,  { t:tMs, pe: stored?.med  > 0 && stored.med  < 40 ? stored.med  : +(estWtd*medRatio).toFixed(2),  estimated:true });
+      meanMap.set(dateStr, { t:tMs, pe: stored?.mean > 0 && stored.mean < 40 ? stored.mean : +(estWtd*meanRatio).toFixed(2), estimated:true });
     }
   }
   // Add stored entries not covered by TASI price timestamps
