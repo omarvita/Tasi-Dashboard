@@ -4519,7 +4519,8 @@ async function openModal(idx){
     let usedDriveCache = false;
     if (GD_TOKEN) {
       // Fundamentals from prices bulk (already loaded at startup); statements from statements bulk
-      await gdAwaitStatements();
+      // Skip waiting for bulk load if this stock already has statement data in memory
+      if (!d.rawTwelveData?.annual && !d.rawTwelveData?.quarterly) await gdAwaitStatements();
       const gdFund = _gdCache[d.ticker];
       const gdStmt = gdGetStatement(d.ticker);
       const driveStock = (gdFund || gdStmt) ? Object.assign({}, gdFund, gdStmt) : null;
@@ -5279,9 +5280,9 @@ async function buildFinancials(d, period) {
     d.rawYahoo
       ? Promise.resolve(parseYahooFinancials(d.rawYahoo, period))
       : fetchYahooFinancials(d.ticker).then(r => parseYahooFinancials(r, period)),
-    Promise.race([fetchArgaamFinancials(code, period), _t(10000)]),
-    Promise.race([fetchSaudiExchangeFinancials(code, period), _t(8000)]),
-    Promise.race([fetchMubasherFinancials(code, period), _t(8000)]),
+    Promise.race([fetchArgaamFinancials(code, period), _t(6000)]),
+    Promise.race([fetchSaudiExchangeFinancials(code, period), _t(5000)]),
+    Promise.race([fetchMubasherFinancials(code, period), _t(5000)]),
   ]);
 
   // Merge Yahoo sources (timeseries = primary for depth, quoteSummary fills gaps)
