@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260530u'; // bump this string on every deploy that matters
+  var V='20260530v'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530u · +fix: remove fundVersion gate; Drive cache now loads by TTL only</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530v · +fix: price updates no longer overwrite fundamentals in Drive</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -3987,12 +3987,14 @@ async function fetchStockPrice(stock, skipDriveNetwork=false) {
     }
     if(quick.volume != null) result.volume = quick.volume;
     if(quick.avgVolume3M != null) result.avgVolume3M = quick.avgVolume3M;
-    // Save to Drive so next page load is instant
+    // Update in-memory cache only — prices go to bulk file via gdSaveBulkPrices.
+    // Writing to the per-stock Drive file here would overwrite fundamentals/statements
+    // (which are not in the bulk cache) with just price data.
     if (result.price && GD_TOKEN) {
       const cached = _gdCache[ticker]?.priceData;
       const priceDiff = cached?.price ? Math.abs(result.price - cached.price) / cached.price : 1;
       if (priceDiff > 0.001) {
-        gdWriteStock(ticker, {
+        _gdCache[ticker] = Object.assign(_gdCache[ticker] || {}, {
           priceData: { price: result.price, change: result.change, closes: result.closes,
             timestamps: result.timestamps, volume: result.volume, avgVolume3M: result.avgVolume3M,
             volatility: result.volatility },
