@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260530n'; // bump this string on every deploy that matters
+  var V='20260530o'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530n · +fix: %CHG skips trailing duplicate closes (market closed)</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530o · +fix: widen Chg% column to show 2 decimal places</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -426,7 +426,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
         <th style="width:58px">Ticker</th>
         <th class="col-co" style="width:145px">Company</th>
         <th style="width:60px">SAR <span style="font-size:8px;opacity:.5">▼price</span></th>
-        <th style="width:50px">Chg%</th>
+        <th style="width:62px">Chg%</th>
         <th class="col-pe" style="width:46px" onclick="sk('pe')" title="P/E Ratio">P/E↕</th>
         <th class="col-eg" style="width:52px" onclick="sk('eg')" title="Earnings Growth">EG%↕</th>
         <th class="col-peg" style="width:46px" onclick="sk('peg')" title="PEG Ratio — P/E÷EarningsGrowth">PEG↕</th>
