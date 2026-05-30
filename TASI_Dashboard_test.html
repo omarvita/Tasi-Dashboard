@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260530r'; // bump this string on every deploy that matters
+  var V='20260530s'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530r · +feat: financials last-fetched timestamp in market bar</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530s · +feat: financials timestamp synced from Google Drive bulk file</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1348,6 +1348,10 @@ async function gdLoadBulkPrices(onProgress) {
       const fr = await fetch(`https://www.googleapis.com/drive/v3/files/${bulkFile.id}?alt=media`,
         { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(15000) });
       const bulk = await _bodyJson(fr, 14000);
+      if (bulk?.finLastFetched) {
+        localStorage.setItem('tasi_fin_last_fetched', bulk.finLastFetched);
+        _updateFinLastFetched(bulk.finLastFetched);
+      }
       if (bulk?.prices) {
         let hits = 0;
         for (const [ticker, entry] of Object.entries(bulk.prices)) {
@@ -1440,7 +1444,8 @@ async function gdSaveBulkPrices() {
         savedAt: Date.now(),
       };
     }
-    const body = JSON.stringify({ savedAt: Date.now(), prices });
+    const finLastFetched = +localStorage.getItem('tasi_fin_last_fetched') || null;
+    const body = JSON.stringify({ savedAt: Date.now(), finLastFetched, prices });
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify({ name: 'TASI_prices_bulk.json' })], { type: 'application/json' }));
     form.append('file', new Blob([body], { type: 'application/json' }));
