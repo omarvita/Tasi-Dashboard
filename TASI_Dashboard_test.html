@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260529m'; // bump this string on every deploy that matters
+  var V='20260529n'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -6978,14 +6978,14 @@ async function refreshAll(forceRefresh=false){
   document.getElementById("pl").textContent = `Fetching live prices (${allData.length} stocks)...`;
   const _QBATCH = 20;
   const _p2TickerIdx = new Map(allData.map((d,i) => [d.ticker, i]));
-  // Phase 2 uses a short 4-second timeout so Yahoo API failures don't eat the 4-min hard timeout
-  // (leaving Phase 3's v8/chart per-stock fetch enough time to succeed)
-  const _P2T = 4000;
+  // Phase 2 timeout gives proxies time to respond (they often need 5–8s) while still
+  // bounding the worst case. If the first 4 batches load nothing, v7/quote is blocked —
+  // abort and let Phase 3's v8/chart fetch (the reliable endpoint) handle every stock.
+  const _P2T = 9000;
   let _p2totalLoaded = 0;
   for (let qi = 0; qi < allData.length; qi += _QBATCH) {
-    // Early abort: 3 batches tried, nothing loaded → Yahoo is blocked, jump to Phase 3
-    if (qi >= 3 * _QBATCH && _p2totalLoaded === 0) {
-      document.getElementById("pl").textContent = 'Yahoo batch API unavailable — switching to per-stock fetch...';
+    if (qi >= 4 * _QBATCH && _p2totalLoaded === 0) {
+      document.getElementById("pl").textContent = 'Yahoo batch API unavailable — loading prices per-stock...';
       break;
     }
     try {
@@ -7134,32 +7134,35 @@ async function refreshAll(forceRefresh=false){
     }
   }
 
-  // ── Phase 3: Per-stock chart fetch for historical closes (technical scores) ──
-  // Also loads prices for stocks Phase 2 missed (uses v8/chart — same endpoint as TASI index, works even when v7/quote is blocked).
-  const B = 12; // larger batch to finish faster; v8/chart is lighter than v7/quote
+  // ── Phase 3: Per-stock chart fetch for closes (technical scores) + price fallback ──
+  // Covers stocks missing closes OR missing a live price (Phase 2 v7/quote often
+  // CORS-blocked for .SR — v8/chart here is the same endpoint that loads the TASI index, so it works).
+  const B = 10;
   const _priceTimeout = () => new Promise(r => setTimeout(() => r({
     price:null,change:null,closes:[],timestamps:[],dataSource:'timeout',
     dataDate:'—',volume:null,avgVolume3M:null,volatility:null
   }), 10000));
-  const _needsCloses = allData.filter(d => (d.closes||[]).length < 6);
+  const _needsCloses = allData.filter(d => (d.closes||[]).length < 6 || !d.priceLoaded);
   const _tickerIdx = new Map(allData.map((d,i) => [d.ticker, i]));
   for(let i = 0; i < _needsCloses.length; i += B){
     const pct = 60 + Math.round((i / Math.max(_needsCloses.length,1)) * 40);
     document.getElementById("pf").style.width = pct + "%";
-    document.getElementById("pl").textContent = `Loading chart data: ${i+1}–${Math.min(i+B,_needsCloses.length)} of ${_needsCloses.length}`;
+    document.getElementById("pl").textContent = `Loading prices & charts: ${i+1}–${Math.min(i+B,_needsCloses.length)} of ${_needsCloses.length}`;
     await Promise.all(_needsCloses.slice(i, i+B).map(async d => {
       const idx = _tickerIdx.get(d.ticker) ?? -1;
       if (idx < 0) return;
       try {
         const fetched = await Promise.race([fetchStockPrice(allData[idx], true), _priceTimeout()]);
-        if ((fetched.closes||[]).length > 5) {
-          const tRes = scoreTechnicalWithSteps(fetched.closes);
+        const gotCloses = (fetched.closes||[]).length > 5;
+        const gotPrice  = fetched.price != null && fetched.price > 0;
+        if (gotCloses || gotPrice) {
+          const tRes = gotCloses ? scoreTechnicalWithSteps(fetched.closes) : { score: allData[idx].technical, steps: allData[idx].techSteps, rsi: allData[idx].rsi, sma20: allData[idx].sma20, sma50: allData[idx].sma50, momentum: allData[idx].momentum };
           // Recompute daily change from fresh closes when market appears open.
           // closes[-1] = last completed day's close; if price differs meaningfully,
           // market is intraday-open and closes-based change is more reliable.
           let validatedChange = allData[idx].priceLoaded ? allData[idx].change : (fetched.change ?? allData[idx].change);
           const currPx = allData[idx].price;
-          const lastClose = fetched.closes[fetched.closes.length - 1];
+          const lastClose = gotCloses ? fetched.closes[fetched.closes.length - 1] : null;
           if (currPx > 0 && lastClose > 0 && Math.abs(currPx - lastClose) / lastClose > 0.001) {
             validatedChange = +((currPx - lastClose) / lastClose * 100).toFixed(2);
           }
@@ -7169,8 +7172,10 @@ async function refreshAll(forceRefresh=false){
             ...allData[idx],
             price:  p3price,
             change: validatedChange,
-            priceLoaded: allData[idx].priceLoaded || fetched.price != null,
-            closes: fetched.closes, timestamps: fetched.timestamps,
+            priceLoaded: allData[idx].priceLoaded || gotPrice,
+            // Preserve existing closes if this fetch only returned a price
+            closes:     gotCloses ? fetched.closes     : allData[idx].closes,
+            timestamps: gotCloses ? fetched.timestamps : allData[idx].timestamps,
             dataSource: allData[idx].dataSource || fetched.dataSource,
             technical: tRes.score, techSteps: tRes.steps,
             rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
@@ -7900,6 +7905,11 @@ function _renderMPEChart() {
 
   // Three separate point maps — one per curve
   const wtdMap = new Map(), medMap = new Map(), meanMap = new Map();
+  // Current curve-to-wtdAvg ratios — used to reconstruct historical median/mean from the
+  // TASI price line when no actual stored daily value exists. Median typically sits well
+  // below wtdAvg (a few mega-caps lift the cap-weighted figure), so its line is distinctly lower.
+  const medRatio  = wtdAvg > 0 ? median / wtdAvg : 1;
+  const meanRatio = wtdAvg > 0 ? mean   / wtdAvg : 1;
 
   if (priceCloses.length > 5 && currentPrice > 0 && wtdAvg > 0) {
     const mktEPS = currentPrice / wtdAvg;
@@ -7911,11 +7921,13 @@ function _renderMPEChart() {
       const stored  = storedMap.get(dateStr);
       const estWtd  = +(priceCloses[i] / mktEPS).toFixed(2);
       if (estWtd <= 0 || estWtd > 40) continue;
-      if (stored?.pe  > 0 && stored.pe  < 40) wtdMap.set(dateStr,  { t:tMs, pe:stored.pe  });
-      else                                      wtdMap.set(dateStr,  { t:tMs, pe:estWtd, estimated:true });
-      // Median and mean: actual stored data only — estimation would produce identical shapes when ratios are close
-      if (stored?.med  > 0 && stored.med  < 40) medMap.set(dateStr,  { t:tMs, pe:stored.med  });
+      // Prefer actual stored daily values; fall back to ratio-scaled estimate from the index.
+      if (stored?.pe   > 0 && stored.pe   < 40) wtdMap.set(dateStr,  { t:tMs, pe:stored.pe });
+      else                                       wtdMap.set(dateStr,  { t:tMs, pe:estWtd, estimated:true });
+      if (stored?.med  > 0 && stored.med  < 40) medMap.set(dateStr,  { t:tMs, pe:stored.med });
+      else                                       medMap.set(dateStr,  { t:tMs, pe:+(estWtd*medRatio).toFixed(2),  estimated:true });
       if (stored?.mean > 0 && stored.mean < 40) meanMap.set(dateStr, { t:tMs, pe:stored.mean });
+      else                                       meanMap.set(dateStr, { t:tMs, pe:+(estWtd*meanRatio).toFixed(2), estimated:true });
     }
   }
   // Add stored entries not covered by TASI price timestamps
@@ -7957,8 +7969,8 @@ function _renderMPEChart() {
       labels: allDates,
       datasets: [
         { label:`Wtd Avg ${wtdAvg.toFixed(1)}x`,  data:wtdVals,  borderColor:'#4f9cf9', backgroundColor:'rgba(79,156,249,0.06)', fill:true,  pointRadius:0, borderWidth:2,   tension:0.2, spanGaps:true },
-        { label:`Median ${median.toFixed(1)}x ●`,  data:medVals,  borderColor:'#22c55e', backgroundColor:'transparent',           fill:false, pointRadius:0, borderWidth:1.5, tension:0.2, spanGaps:false },
-        { label:`Mean ${mean.toFixed(1)}x ●`,      data:meanVals, borderColor:'#f59e0b', backgroundColor:'transparent',           fill:false, pointRadius:0, borderWidth:1.5, tension:0.2, spanGaps:false, borderDash:[4,3] },
+        { label:`Median ${median.toFixed(1)}x`,    data:medVals,  borderColor:'#22c55e', backgroundColor:'transparent',           fill:false, pointRadius:0, borderWidth:1.5, tension:0.2, spanGaps:true },
+        { label:`Mean ${mean.toFixed(1)}x`,        data:meanVals, borderColor:'#f59e0b', backgroundColor:'transparent',           fill:false, pointRadius:0, borderWidth:1.5, tension:0.2, spanGaps:true, borderDash:[4,3] },
         { label:`Hist Avg ${avgPE.toFixed(1)}x`,   data:new Array(allDates.length).fill(+avgPE.toFixed(2)), borderColor:'#4a5568', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:1, borderDash:[5,4], spanGaps:true }
       ]
     },
@@ -7994,20 +8006,19 @@ function _renderBuffettChart() {
   const currentPrice = tasiIndex.price;
   if (!currentPrice || priceCloses.length < 5) return;
 
-  // Use priced stocks first; fall back to any stocks with mktCap, then hardcoded Saudi estimates
+  // All market caps in raw SAR (Yahoo marketCap), consistent with SAUDI_GDP_SAR (4.0e12 raw SAR).
+  // Use priced stocks first; fall back to any stocks with mktCap, then hardcoded Saudi estimates.
   let withMC = allData.filter(d => d.mktCap > 0 && d.priceLoaded);
   if (!withMC.length) withMC = allData.filter(d => d.mktCap > 0);
-  let totalMCbn, exAramcoMCbn;
+  let totalMC, exAramcoMC;
   if (withMC.length > 10) {
-    totalMCbn    = withMC.reduce((s,d) => s + d.mktCap, 0);
-    exAramcoMCbn = withMC.filter(d => d.ticker !== '2222.SR').reduce((s,d) => s + d.mktCap, 0);
+    totalMC    = withMC.reduce((s,d) => s + d.mktCap, 0);
+    exAramcoMC = withMC.filter(d => d.ticker !== '2222.SR').reduce((s,d) => s + d.mktCap, 0);
   } else {
-    // Hardcoded Saudi market cap estimates (SAR billions, 2025):
-    // Total TASI ≈ 10,200 bn  |  Ex-Aramco ≈ 3,000 bn
-    totalMCbn    = 10200;
-    exAramcoMCbn = 3000;
+    // Hardcoded Saudi market cap estimates 2025: Total TASI ≈ SAR 10.2T, Ex-Aramco ≈ SAR 3.0T
+    totalMC    = 10.2e12;
+    exAramcoMC = 3.0e12;
   }
-  const gdpBn = SAUDI_GDP_SAR / 1e9; // 4,000 bn SAR
 
   const rangeDays = { '3M':90, '6M':180, '1Y':365, '2Y':730, '5Y':1825 }[_mpeRange] || 365;
   const cutoffMs  = Date.now() - rangeDays * 864e5;
@@ -8017,17 +8028,17 @@ function _renderBuffettChart() {
     if (!priceCloses[i] || !priceStamps[i]) continue;
     const tMs = priceStamps[i] * 1000;
     if (tMs < cutoffMs) continue;
-    const ratio = priceCloses[i] / currentPrice;
+    const ratio = priceCloses[i] / currentPrice; // scale current cap back through the index
     labels.push(new Date(tMs).toISOString().slice(0,10));
-    exVals.push(+(ratio * exAramcoMCbn / gdpBn * 100).toFixed(1));
+    exVals.push(+(ratio * exAramcoMC / SAUDI_GDP_SAR * 100).toFixed(1));
   }
   if (labels.length < 2) return;
 
   // Update inline label
   const lblEl = document.getElementById('buffett-line-label');
   if (lblEl) {
-    const curEx  = +(exAramcoMCbn / gdpBn * 100).toFixed(0);
-    const curTot = +(totalMCbn    / gdpBn * 100).toFixed(0);
+    const curEx  = +(exAramcoMC / SAUDI_GDP_SAR * 100).toFixed(0);
+    const curTot = +(totalMC / SAUDI_GDP_SAR * 100).toFixed(0);
     const col = curEx < 70 ? 'var(--green)' : curEx < 100 ? 'var(--amb)' : 'var(--red)';
     lblEl.textContent = `Ex-Aramco: ${curEx}% · Total: ${curTot}%`;
     lblEl.style.color = col;
