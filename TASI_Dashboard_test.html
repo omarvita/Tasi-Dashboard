@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260530b'; // bump this string on every deploy that matters
+  var V='20260530c'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -3978,9 +3978,7 @@ async function fetchYahooPrice(ticker){
 }
 
 // ── PRICE-ONLY FETCH: used during main refresh (fast, 1 req per stock) ──
-const GD_PRICE_TTL = Infinity; // prices never expire — last known price is always valid; use Force to refresh
-// skipDriveNetwork=true during bulk refreshAll: use only in-memory cache, no Drive API calls
-// (prevents 238× Drive API calls which get throttled and cause hangs)
+const GD_PRICE_TTL = 4 * 60 * 60 * 1000; // 4 hours — refresh from Yahoo when stale; Drive always used as first check
 async function fetchStockPrice(stock, skipDriveNetwork=false) {
   const ticker = stock.ticker;
   // Check Drive price cache — memory-only during bulk refresh, full Drive during modal open
@@ -7018,172 +7016,12 @@ async function refreshAll(forceRefresh=false){
     }
   }
 
-  // ── Phase 2: Bulk Yahoo v7/quote — all 238 stocks, 20 per request ───────
-  // Always fetches ALL stocks for fresh price + change%.
-  // No `fields=` parameter — default response includes trailingPE for many stocks.
-  // Drive Phase 1 is still useful for closes (chart/technical data).
-  document.getElementById("pl").textContent = `Fetching live prices (${allData.length} stocks)...`;
-  const _QBATCH = 20;
-  const _p2TickerIdx = new Map(allData.map((d,i) => [d.ticker, i]));
-  // Phase 2 timeout gives proxies time to respond (they often need 5–8s) while still
-  // bounding the worst case. If the first 4 batches load nothing, v7/quote is blocked —
-  // abort and let Phase 3's v8/chart fetch (the reliable endpoint) handle every stock.
-  const _P2T = 9000;
-  let _p2totalLoaded = 0;
-  for (let qi = 0; qi < allData.length; qi += _QBATCH) {
-    if (qi >= 4 * _QBATCH && _p2totalLoaded === 0) {
-      document.getElementById("pl").textContent = 'Yahoo batch API unavailable — loading prices per-stock...';
-      break;
-    }
-    try {
-      const batch = allData.slice(qi, qi + _QBATCH);
-      const syms  = batch.map(d => d.ticker).join(',');
-      // No fields= filter — let Yahoo return the full default set (includes trailingPE, epsTrailingTwelveMonths)
-      const qurl  = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}`;
-      const qurl6 = `https://query2.finance.yahoo.com/v6/finance/quote?symbols=${syms}`;
-      let qdata = {};
-      qdata = await Promise.race([fetchWithProxy(qurl), new Promise(r => setTimeout(() => r({}), _P2T))]);
-      if (!(qdata?.quoteResponse?.result?.length)) {
-        qdata = await Promise.race([fetchWithProxy(qurl6), new Promise(r => setTimeout(() => r({}), _P2T))]);
-      }
-      const quotes = qdata?.quoteResponse?.result || qdata?.quote || [];
-      for (const q of quotes) {
-        if (!q.symbol || q.regularMarketPrice == null) continue;
-        const idx = _p2TickerIdx.get(q.symbol) ?? -1;
-        if (idx < 0) continue;
-        const price  = q.regularMarketPrice;
-        const change = q.regularMarketChangePercent ?? null;
-        // Try P/E from v7/quote (may be null for Saudi .SR — Phase 2.5 will fill the gaps)
-        let livePE = allData[idx].pe; // hardcoded fallback
-        let livepeLoaded = false;
-        if (q.trailingPE > 0) {
-          livePE = +q.trailingPE.toFixed(2);
-          livepeLoaded = true;
-        } else if (q.epsTrailingTwelveMonths > 0 && price > 0) {
-          livePE = +(price / q.epsTrailingTwelveMonths).toFixed(2);
-          livepeLoaded = true;
-        }
-        const livePB = q.priceToBook > 0 ? +q.priceToBook.toFixed(2) : allData[idx].pb;
-        // Preserve existing closes from Drive/memory; v7/quote has no closes
-        const existingCloses     = allData[idx].closes || [];
-        const existingTimestamps = allData[idx].timestamps || [];
-        const tRes = scoreTechnicalWithSteps(existingCloses.length > 5 ? existingCloses : []);
-        allData[idx] = {
-          ...allData[idx],
-          price, change,
-          pe: livePE, pb: livePB,
-          livepeLoaded,
-          priceLoaded: true,
-          dataSource: 'yahoo-quote',
-          dataDate: new Date().toISOString().slice(0,10),
-          volume:      q.regularMarketVolume      ?? allData[idx].volume,
-          avgVolume3M: q.averageDailyVolume3Month  ?? allData[idx].avgVolume3M,
-          w52high:     q.fiftyTwoWeekHigh          ?? allData[idx].w52high,
-          w52low:      q.fiftyTwoWeekLow           ?? allData[idx].w52low,
-          mktCap:      q.marketCap                ?? allData[idx].mktCap,
-          technical: tRes.score, techSteps: tRes.steps,
-          rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
-          combined: calcCombined({...allData[idx], price, pe: livePE, technical: tRes.score}),
-        };
-        // Quick P/E-relative fair value — shows in main table without needing full DCF
-        if (!allData[idx].dcfPS && livePE > 0 && price > 0) {
-          const sFVPE = SECTOR_FV_PE[allData[idx].sector] || 15;
-          allData[idx].dcfPS = +(price / livePE * sFVPE).toFixed(2);
-          allData[idx].dcfUpside = (allData[idx].dcfPS - price) / price;
-          allData[idx].dcfMethod = 'P/E Est.';
-        }
-        // Update Drive cache entry
-        _gdCache[q.symbol] = Object.assign(_gdCache[q.symbol] || {}, {
-          priceData: { price, change,
-            closes: existingCloses.slice(-252), timestamps: existingTimestamps.slice(-252),
-            volume: allData[idx].volume, avgVolume3M: allData[idx].avgVolume3M },
-          priceUpdated: Date.now(),
-        });
-      }
-    } catch(e) { console.warn('bulk quote batch failed', e); }
-    _p2totalLoaded = allData.filter(d => d.priceLoaded).length;
-    document.getElementById("pf").style.width = Math.round(((qi + _QBATCH) / allData.length) * 60) + '%';
-    scheduleRender();
-  }
-  // Show market P/E stats with whatever P/E values we have so far (Phase 2.5 will refine them)
   updateMarketPEStats();
 
-  // ── Phase 2.5: quoteSummary P/E — limited to top 80 stocks by market cap ──
-  // Saudi .SR stocks have trailingPE=null in v7/quote AND trailingEps often absent.
-  // The reliable source is TTM EPS from quarterly income statements (same as the stock modal).
-  // We limit to 80 stocks to avoid Yahoo rate limiting; smaller stocks keep hardcoded P/E until modal open.
-  const _allNeedsPE = allData.filter(d => d.priceLoaded && !d.livepeLoaded);
-  // Sort by market cap descending — prioritise largest stocks for accurate P/E
-  const _needsPE = _allNeedsPE
-    .slice()
-    .sort((a, b) => (b.mktCap || 0) - (a.mktCap || 0))
-    .slice(0, 80);
-  if (_needsPE.length > 0) {
-    document.getElementById("pl").textContent = `Fetching P/E ratios (top ${_needsPE.length} stocks by market cap)...`;
-    const _PE_BATCH = 8; // conservative concurrency — avoid Yahoo rate limiting
-    for (let pi = 0; pi < _needsPE.length; pi += _PE_BATCH) {
-      await Promise.all(_needsPE.slice(pi, pi + _PE_BATCH).map(async d => {
-        const idx = allData.findIndex(x => x.ticker === d.ticker);
-        if (idx < 0) return;
-        try {
-          // Quarterly income statements for TTM EPS — same logic as the stock modal (fetchStockFull)
-          const qsUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${d.ticker}?modules=summaryDetail,defaultKeyStatistics,incomeStatementHistoryQuarterly`;
-          const qsData = await Promise.race([
-            fetchWithProxy(qsUrl),
-            new Promise(r => setTimeout(() => r(null), 10000))
-          ]);
-          const qsResult = qsData?.quoteSummary?.result?.[0];
-          if (!qsResult) return;
-          const sd = qsResult.summaryDetail, dk = qsResult.defaultKeyStatistics;
-          const livePrice = allData[idx].price;
-          let pe = allData[idx].pe; // keep hardcoded as absolute fallback
-          // Step 1: trailingEps from defaultKeyStatistics
-          let eps = dk?.trailingEps?.raw;
-          // Step 2: TTM EPS from last 4 quarterly income statements (works when trailingEps absent)
-          if (!(eps > 0)) {
-            const qStmts = qsResult.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
-            const last4 = qStmts.slice(0, 4);
-            const shares = dk?.sharesOutstanding?.raw;
-            if (last4.length >= 2 && shares > 0) {
-              const ttmEPS = last4.reduce((s, q) => {
-                const e = q.basicEps?.raw ?? (q.netIncome?.raw != null ? q.netIncome.raw / shares : null);
-                return e != null ? s + e : s;
-              }, 0);
-              if (ttmEPS > 0) eps = +ttmEPS.toFixed(4);
-            }
-          }
-          // Compute P/E as live price / TTM EPS — matches Yahoo Finance app exactly
-          if (eps > 0 && livePrice > 0) {
-            pe = +(livePrice / eps).toFixed(2);
-          } else if (sd?.trailingPE?.raw > 0) {
-            pe = +sd.trailingPE.raw.toFixed(2);
-          }
-          const pb = (sd?.priceToBook?.raw > 0) ? +sd.priceToBook.raw.toFixed(2) : allData[idx].pb;
-          allData[idx] = {
-            ...allData[idx],
-            pe, pb,
-            livepeLoaded: true,
-            combined: calcCombined({...allData[idx], pe, pb}),
-          };
-          // Persist P/E to Drive cache so next page load doesn't need Phase 2.5
-          _gdCache[d.ticker] = Object.assign(_gdCache[d.ticker] || {}, {
-            fundamentals: Object.assign((_gdCache[d.ticker]?.fundamentals || {}), {
-              pe, pb: pb || null, eps: eps || null
-            }),
-            fundUpdated: Date.now(),
-          });
-        } catch(e) {}
-      }));
-      const pcPE = 60 + Math.round(((pi + _PE_BATCH) / _needsPE.length) * 20);
-      document.getElementById("pf").style.width = Math.min(pcPE, 80) + '%';
-      document.getElementById("pl").textContent = `P/E: ${Math.min(pi + _PE_BATCH, _needsPE.length)}/${_needsPE.length} large caps updated`;
-      scheduleRender();
-    }
-  }
-
-  // ── Phase 3: Per-stock chart fetch for closes (technical scores) + price fallback ──
-  // Covers stocks missing closes OR missing a live price (Phase 2 v7/quote often
-  // CORS-blocked for .SR — v8/chart here is the same endpoint that loads the TASI index, so it works).
+  // ── Phase 2: Per-stock price + closes via Yahoo v8/chart ─────────────────────────────
+  // Drive _gdCache (populated by Phase 1 bulk load) is checked first — returns instantly.
+  // Falls through to Yahoo v8/chart for stocks not yet in Drive. P/E from Drive fundamentals
+  // or hardcoded data; live P/E refreshes when user opens a stock modal (fetchStockFull).
   const B = 10;
   const _priceTimeout = () => new Promise(r => setTimeout(() => r({
     price:null,change:null,closes:[],timestamps:[],dataSource:'timeout',
@@ -7192,7 +7030,7 @@ async function refreshAll(forceRefresh=false){
   const _needsCloses = allData.filter(d => (d.closes||[]).length < 6 || !d.priceLoaded);
   const _tickerIdx = new Map(allData.map((d,i) => [d.ticker, i]));
   for(let i = 0; i < _needsCloses.length; i += B){
-    const pct = 60 + Math.round((i / Math.max(_needsCloses.length,1)) * 40);
+    const pct = 30 + Math.round((i / Math.max(_needsCloses.length,1)) * 70);
     document.getElementById("pf").style.width = pct + "%";
     document.getElementById("pl").textContent = `Loading prices & charts: ${i+1}–${Math.min(i+B,_needsCloses.length)} of ${_needsCloses.length}`;
     await Promise.all(_needsCloses.slice(i, i+B).map(async d => {
