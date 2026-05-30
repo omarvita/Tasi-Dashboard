@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260530p'; // bump this string on every deploy that matters
+  var V='20260530q'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530p · +fix: sector 2dp; no stale +0.00% from Drive cache</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530q · +fix: Phase 3 always uses closes-based CHG%; Phase 2 ignores 0%</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -6933,7 +6933,8 @@ async function refreshAll(forceRefresh=false){
         const idx = allData.findIndex(d => d.ticker === q.symbol);
         if (idx < 0) continue;
         const price  = q.regularMarketPrice;
-        const change = q.regularMarketChangePercent ?? null;
+        const change = (q.regularMarketChangePercent != null && q.regularMarketChangePercent !== 0)
+          ? q.regularMarketChangePercent : null; // Phase 3 closes will compute accurate value
         // Try P/E from v7/quote (may be null for Saudi .SR — Phase 2.5 will fill the gaps)
         let livePE = allData[idx].pe; // hardcoded fallback
         let livepeLoaded = false;
@@ -7073,11 +7074,13 @@ async function refreshAll(forceRefresh=false){
         const fetched = await Promise.race([fetchStockPrice(allData[idx], true), _priceTimeout()]);
         if ((fetched.closes||[]).length > 5) {
           const tRes = scoreTechnicalWithSteps(fetched.closes);
+          const closesChange = dailyChangeFromCloses(fetched.closes);
           allData[idx] = {
             ...allData[idx],
             // Only overwrite price if we didn't already get it from v7/quote
             price:  allData[idx].priceLoaded ? allData[idx].price  : (fetched.price  ?? allData[idx].price),
-            change: allData[idx].priceLoaded ? allData[idx].change : (fetched.change ?? allData[idx].change),
+            // Always prefer closes-based change — more accurate than Phase 2's regularMarketChangePercent
+            change: closesChange ?? fetched.change ?? allData[idx].change,
             priceLoaded: allData[idx].priceLoaded || fetched.price != null,
             closes: fetched.closes, timestamps: fetched.timestamps,
             dataSource: allData[idx].dataSource || fetched.dataSource,
