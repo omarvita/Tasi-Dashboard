@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260530q'; // bump this string on every deploy that matters
+  var V='20260530r'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530q · +fix: Phase 3 always uses closes-based CHG%; Phase 2 ignores 0%</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530r · +feat: financials last-fetched timestamp in market bar</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -350,6 +350,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
     <span>Declining: <span id="tasi-dec" style="color:var(--red)">—</span></span>
     <span id="tasi-mood">—</span>
     <span style="margin-left:auto;color:var(--tx3)" id="tasi-time">—</span>
+    <span id="fin-last-fetched" style="color:var(--tx3);font-size:9px;margin-left:8px" title="When financial statements were last bulk-retrieved"></span>
   </div>
   <div class="secperf" id="secperf-bar"><span class="secperf-lbl">Sectors</span><span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Loading…</span></div>
   <!-- Market P/E Statistics Panel -->
@@ -7329,6 +7330,20 @@ function _applyTASICloses(closes, timestamps) {
 // Fetches annual (and quarterly) statements per stock, derives all overview
 // metrics, recomputes every criteria score and the DCF/Fair Value, then saves
 // to Google Drive so subsequent loads are instant.
+function _updateFinLastFetched(ts) {
+  const el = document.getElementById('fin-last-fetched');
+  if (!el) return;
+  if (!ts) { el.textContent = ''; return; }
+  const d = new Date(ts);
+  const diffH = (Date.now() - d) / 36e5;
+  let label;
+  if (diffH < 1) label = `${Math.round(diffH * 60)}m ago`;
+  else if (diffH < 24) label = `${Math.round(diffH)}h ago`;
+  else { const diffD = Math.floor(diffH / 24); label = diffD === 1 ? '1d ago' : `${diffD}d ago`; }
+  el.textContent = `Financials: ${label}`;
+  el.title = `Financial statements last retrieved: ${d.toLocaleString()}`;
+}
+
 async function fetchAllFinancials(){
   if (_fetchingAllFin) { tdLog('Already retrieving — please wait…', false); return; }
   _fetchingAllFin = true;
@@ -7364,6 +7379,9 @@ async function fetchAllFinancials(){
   tdLog(`✓ Done — retrieved statements for ${ok}/${stocks.length} stocks. All overview metrics & scores recalculated and saved to Google Drive.`, true);
   if (btn) { btn.disabled = false; btn.textContent = '📊 Retrieve All Financial Statements'; }
   _fetchingAllFin = false;
+  const finFetchedAt = Date.now();
+  localStorage.setItem('tasi_fin_last_fetched', finFetchedAt);
+  _updateFinLastFetched(finFetchedAt);
 }
 
 // ── Change 5: TASI Index fetch ──
@@ -7843,6 +7861,7 @@ function buildSectorPerf() {
   initGDToken();
   // Fetch TASI market summary
   fetchMarketSummary();
+  _updateFinLastFetched(+localStorage.getItem('tasi_fin_last_fetched') || 0);
 
   openDB().then(()=>{
     return dbGet(META_KEY);
