@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260530v'; // bump this string on every deploy that matters
+  var V='20260530w'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530v · +fix: price updates no longer overwrite fundamentals in Drive</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260530w · +fix: gdWriteStock hydrates full file first (never loses statements)</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1330,6 +1330,10 @@ const GD_OHLCV_TTL =  8 * 60 * 60 * 1000;       // 8 hours TTL for OHLCV chart d
 const _gdCache = {};                              // in-memory per-ticker Drive cache
 const _gdFileIdCache = {};                        // ticker → Drive file ID (avoids double list+fetch)
 const _gdInFlight = {};                           // in-flight promise map for coalescing concurrent reads
+const _gdHydrated = {};                           // ticker → true when _gdCache holds the FULL per-stock file
+                                                  // (bulk load only populates a partial entry: priceData + fundamentals,
+                                                  //  NOT annual/quarterly statements — writing that partial entry back
+                                                  //  to the per-stock file would destroy the statements)
 
 // ── BULK PRICE CACHE (single Drive file for all 238 prices) ──────────────
 // Replaces the per-stock Drive prefetch loop (238 API calls → 2 API calls).
@@ -1529,20 +1533,34 @@ async function gdFindFile(ticker) {
 
 async function gdReadStock(ticker) {
   if (!GD_TOKEN) return null;
-  if (_gdCache[ticker]) return _gdCache[ticker];
+  // Return cache only if it holds the FULL per-stock file. A partial bulk-loaded
+  // entry (priceData + fundamentals, no statements) must still trigger a full read.
+  if (_gdCache[ticker] && _gdHydrated[ticker]) return _gdCache[ticker];
   if (_gdInFlight[ticker]) return _gdInFlight[ticker];
   _gdInFlight[ticker] = (async () => {
     try {
       const file = await gdFindFile(ticker);
-      if (!file) return null;
+      if (!file) return _gdCache[ticker] || null;
       const r = await fetch(
         `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
         { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(10000) }
       );
       const data = await _bodyJson(r, 9000);
-      _gdCache[ticker] = data;
-      return data;
-    } catch(e) { return null; }
+      // Merge full file (statements, DCF, etc.) as the base, then re-apply any newer
+      // in-memory priceData/fundamentals so a stale file doesn't regress live values.
+      const prev = _gdCache[ticker] || {};
+      const merged = Object.assign({}, prev, data);
+      if ((prev.priceUpdated || 0) > (data.priceUpdated || 0)) {
+        merged.priceData = prev.priceData; merged.priceUpdated = prev.priceUpdated;
+      }
+      if ((prev.fundUpdated || 0) > (data.fundUpdated || 0)) {
+        merged.fundamentals = prev.fundamentals; merged.fundUpdated = prev.fundUpdated;
+        merged.fundVersion = prev.fundVersion ?? merged.fundVersion;
+      }
+      _gdCache[ticker] = merged;
+      _gdHydrated[ticker] = true;
+      return _gdCache[ticker];
+    } catch(e) { return _gdCache[ticker] || null; }
     finally { delete _gdInFlight[ticker]; }
   })();
   return _gdInFlight[ticker];
@@ -1558,11 +1576,20 @@ function gdPrefetch(idx) {
 async function gdWriteStock(ticker, patch) {
   if (!GD_TOKEN) return;
   const name = `TASI_stock_${ticker.replace(/\./g,'_')}.json`;
+  // If the cache only holds a partial bulk entry, hydrate from the full per-stock file
+  // first — otherwise this write would drop annual/quarterly statements, DCF results, etc.
+  if (!_gdHydrated[ticker]) {
+    try { await gdReadStock(ticker); } catch(e) {}
+  }
   const merged = Object.assign(_gdCache[ticker] || {}, patch);
   _gdCache[ticker] = merged;
-  // LRU eviction: keep cache bounded to 100 entries
+  _gdHydrated[ticker] = true;
+  // LRU eviction: keep cache bounded to 100 entries (never evict an in-flight read target)
   const keys = Object.keys(_gdCache);
-  if (keys.length > 100) delete _gdCache[keys[0]];
+  if (keys.length > 100) {
+    const victim = keys.find(k => k !== ticker && !_gdInFlight[k]);
+    if (victim) { delete _gdCache[victim]; delete _gdHydrated[victim]; }
+  }
   try {
     const fileId = _gdFileIdCache[ticker];
     let uploadUrl, method;
