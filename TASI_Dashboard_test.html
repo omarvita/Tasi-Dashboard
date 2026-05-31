@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260531n'; // bump this string on every deploy that matters
+  var V='20260531o'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531n · feat: total market cap (SAR T, ex-Aramco) in stats bar</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531o · fix: persist recalculated scores to IndexedDB + Drive after Recalculate</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -7706,7 +7706,15 @@ async function recalculateAllFromCache() {
   if (window._fd) { const _m = new Map(allData.map(d=>[d.ticker,d])); window._fd = window._fd.map(d=>_m.get(d.ticker)||d); }
   doFilter(); updateMetrics(); scheduleRender();
 
-  tdLog(`✓ Recalculated — ${applied} stocks updated from statements, ${skipped} skipped (no statements cached yet). Run "Retrieve All Financial Statements" first if scores look stale.`, true);
+  tdLog(`✓ Recalculated — ${applied} stocks updated from statements, ${skipped} skipped (no statements cached yet). Saving to cache…`, true);
+
+  // Persist updated scores and fundamentals so they survive a page refresh.
+  // saveCache() writes allData (with new pe/pb/dy/roe/scores) to IndexedDB.
+  // gdSaveBulkPrices() writes _gdCache fundamentals (updated by applyDerivedMetrics) to Drive.
+  try { await saveCache(); } catch(e){}
+  try { if (typeof GD_TOKEN !== 'undefined' && GD_TOKEN) gdSaveBulkPrices(); } catch(e){}
+
+  tdLog(`✓ Done — ${applied} stocks recalculated and saved. Values will persist after refresh.`, true);
   if (btn) { btn.disabled = false; btn.textContent = '⟳ Recalculate All Scores'; }
 }
 
