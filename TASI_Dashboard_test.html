@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260531p'; // bump this string on every deploy that matters
+  var V='20260531q'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531p · feat: Market Cap + Shares Outstanding tiles in stock overview</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531q · fix: mktCap cross-derive from shares; chart 5Y/All range fetch</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -3699,14 +3699,25 @@ function applyDerivedMetrics(d){
     if (d.price>0){ d.pe = +(d.price/eps).toFixed(2); d.livepeLoaded=true; changed=true; }
   }
 
+  // Cross-derive mktCap ↔ sharesOutstanding — whichever is missing.
+  // Yahoo v7/quote often omits marketCap for Saudi stocks; this fills the gap.
+  const knownShares = shares || (d.eps > 0 && m.ttmNI > 0 ? Math.round(m.ttmNI / d.eps) : 0);
+  if (!d.mktCap && d.price > 0 && knownShares > 0) {
+    d.mktCap = Math.round(d.price * knownShares); changed = true;
+  }
+  if (!d.sharesOutstanding && d.mktCap > 0 && d.price > 0) {
+    d.sharesOutstanding = Math.round(d.mktCap / d.price); changed = true;
+  }
+  const effMktCap = d.mktCap;
+
   // P/B from balance sheet equity — Market Cap ÷ Total Book Equity.
   // More reliable than quoteSummary P/B which uses float-adjusted or estimated shares.
   const eq = _num(ann?.bs?.[0]?.total_equity);
-  if (eq > 0 && d.mktCap > 0) {
-    const pb = +(d.mktCap / eq).toFixed(2);
+  if (eq > 0 && effMktCap > 0) {
+    const pb = +(effMktCap / eq).toFixed(2);
     if (pb > 0 && pb < 50) { d.pb = pb; changed = true; }
-  } else if (eq > 0 && d.price > 0 && shares > 0) {
-    const pb = +(d.price / (eq / shares)).toFixed(2);
+  } else if (eq > 0 && d.price > 0 && knownShares > 0) {
+    const pb = +(d.price / (eq / knownShares)).toFixed(2);
     if (pb > 0 && pb < 50) { d.pb = pb; changed = true; }
   }
 
@@ -3714,8 +3725,8 @@ function applyDerivedMetrics(d){
   // dividends_paid is a cash outflow (negative in most sources), so we use abs().
   // Only applied if dividends were actually paid (non-zero).
   const divPaid = _num(ann?.cf?.[0]?.dividends_paid);
-  if (divPaid != null && Math.abs(divPaid) > 0 && d.mktCap > 0) {
-    const dy = Math.abs(divPaid) / d.mktCap;
+  if (divPaid != null && Math.abs(divPaid) > 0 && effMktCap > 0) {
+    const dy = Math.abs(divPaid) / effMktCap;
     if (dy >= 0 && dy < 0.25) { d.dy = dy; changed = true; }
   } else if (divPaid === 0 || (divPaid != null && Math.abs(divPaid) === 0)) {
     // Company explicitly paid zero dividends this year
@@ -3729,6 +3740,7 @@ function applyDerivedMetrics(d){
         pe:d.pe, eps:d.eps, pb:d.pb, dy:d.dy,
         roe:d.roe, npm:d.npm, de:d.de, fcf:d.fcf, rg:d.rg, eg:d.eg, assets:d.assets,
         ttmRev:d.ttmRev, ttmNI:d.ttmNI,
+        mktCap:d.mktCap, sharesOutstanding:d.sharesOutstanding,
       }),
       fundUpdated: Date.now(), fundVersion: (typeof GD_FUND_VER!=='undefined'?GD_FUND_VER:1),
     });
@@ -6402,7 +6414,18 @@ function buildBuffett(d){
 // Chart state
 let chartRangeIdx=0,chartShowRSI=false,chartShowSMA20=true,chartShowSMA50=false,chartShowBollinger=false,chartShowVolume=true,chartShowMACD=false,chartShowStoch=false;
 let volumeChartInst=null,macdChartInst=null,stochChartInst=null;
-const RANGES=[{label:"1M",days:21},{label:"3M",days:63},{label:"6M",days:126},{label:"1Y",days:252},{label:"2Y",days:504},{label:"All",days:9999}];
+const RANGES=[{label:"1M",days:21},{label:"3M",days:63},{label:"6M",days:126},{label:"1Y",days:252},{label:"2Y",days:504},{label:"5Y",days:1260},{label:"All",days:9999}];
+function selectChartRange(idx){
+  chartRangeIdx=idx;
+  const r=RANGES[idx];
+  const d=window._fd?.[window._curIdx];
+  // For 5Y or All, fetch extended history if we don't have enough bars yet
+  if(r.days>504&&(d?.closes||[]).length<r.days){
+    fetchChartData(r.days>1260?'max':'5y');
+  } else {
+    redrawChart();
+  }
+}
 
 function buildChartPanel(d){
   const hasData=(d.closes||[]).length>1;
@@ -6549,7 +6572,7 @@ function buildChartPanel(d){
   return`
   <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:8px">
     <span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Range:</span>
-    ${RANGES.map((r,i)=>`<button id="rng-${i}" onclick="chartRangeIdx=${i};redrawChart()" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;background:${i===chartRangeIdx?"var(--acc)":"var(--bg3)"};color:${i===chartRangeIdx?"#000":"var(--tx3)"};cursor:pointer">${r.label}</button>`).join("")}
+    ${RANGES.map((r,i)=>`<button id="rng-${i}" onclick="selectChartRange(${i})" style="font-family:var(--mono);font-size:9px;padding:2px 7px;border:1px solid var(--b2);border-radius:3px;background:${i===chartRangeIdx?"var(--acc)":"var(--bg3)"};color:${i===chartRangeIdx?"#000":"var(--tx3)"};cursor:pointer">${r.label}</button>`).join("")}
   </div>
   <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:8px">
     <span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Overlays:</span>
@@ -6640,11 +6663,11 @@ function buildChartPanel(d){
 
 let rsiChartInst=null;
 
-async function fetchChartData(){
+async function fetchChartData(range='2y'){
   const d=window._fd?.[window._curIdx];if(!d)return;
   const pw2=document.getElementById("pw");if(pw2)pw2.style.display="block";
   try{
-    const url=`https://query1.finance.yahoo.com/v8/finance/chart/${d.ticker}?interval=1d&range=2y`;
+    const url=`https://query1.finance.yahoo.com/v8/finance/chart/${d.ticker}?interval=1d&range=${range}`;
     const raw=await fetchWithProxy(url);
     const q=raw?.chart?.result?.[0]?.indicators?.quote?.[0]||{};
     const ts=raw?.chart?.result?.[0]?.timestamp||[];
