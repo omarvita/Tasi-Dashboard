@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260531l'; // bump this string on every deploy that matters
+  var V='20260531m'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531l · feat: Recalculate All Scores button — applies cached statements, no re-fetch</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531m · feat: derive P/B and Dividend Yield from financial statements</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -3673,7 +3673,7 @@ function recomputeAllScores(d){
 
 // Apply statement-derived metrics (primary) and recompute all scores.
 // Keeps quoteSummary values as fallback for metrics statements don't cover
-// (current ratio, dividend yield). Persists to the Drive cache for reload.
+// (current ratio, beta, 52W ranges). Persists to the Drive cache for reload.
 function applyDerivedMetrics(d){
   const ann = d.rawTwelveData?.annual, qtr = d.rawTwelveData?.quarterly;
   if (!ann && !qtr) return false;
@@ -3687,6 +3687,7 @@ function applyDerivedMetrics(d){
   if (m.ttmRev>0){ d.ttmRev=m.ttmRev; d.rev=m.ttmRev/1e9; }
   if (m.ttmNI!=null){ d.ttmNI=m.ttmNI; d.ni=m.ttmNI/1e9; }
   if (m.ttmMethod) d.ttmMethod = m.ttmMethod;
+
   // EPS & P/E from statements — TTM EPS (statement basicEPS) or TTM NI / shares.
   // P/E = live price / TTM EPS, matching Yahoo. Drives the main-table P/E and PEG.
   const shares = d.sharesOutstanding || _gdCache[d.ticker]?.fundamentals?.sharesOutstanding;
@@ -3696,11 +3697,35 @@ function applyDerivedMetrics(d){
     d.eps = +eps.toFixed(4);
     if (d.price>0){ d.pe = +(d.price/eps).toFixed(2); d.livepeLoaded=true; changed=true; }
   }
+
+  // P/B from balance sheet equity — Market Cap ÷ Total Book Equity.
+  // More reliable than quoteSummary P/B which uses float-adjusted or estimated shares.
+  const eq = _num(ann?.bs?.[0]?.total_equity);
+  if (eq > 0 && d.mktCap > 0) {
+    const pb = +(d.mktCap / eq).toFixed(2);
+    if (pb > 0 && pb < 50) { d.pb = pb; changed = true; }
+  } else if (eq > 0 && d.price > 0 && shares > 0) {
+    const pb = +(d.price / (eq / shares)).toFixed(2);
+    if (pb > 0 && pb < 50) { d.pb = pb; changed = true; }
+  }
+
+  // Dividend Yield from CF dividends_paid — absolute dividends ÷ Market Cap.
+  // dividends_paid is a cash outflow (negative in most sources), so we use abs().
+  // Only applied if dividends were actually paid (non-zero).
+  const divPaid = _num(ann?.cf?.[0]?.dividends_paid);
+  if (divPaid != null && Math.abs(divPaid) > 0 && d.mktCap > 0) {
+    const dy = Math.abs(divPaid) / d.mktCap;
+    if (dy >= 0 && dy < 0.25) { d.dy = dy; changed = true; }
+  } else if (divPaid === 0 || (divPaid != null && Math.abs(divPaid) === 0)) {
+    // Company explicitly paid zero dividends this year
+    d.dy = 0; changed = true;
+  }
+
   if (changed){
     recomputeAllScores(d); // recomputes PEG from statement-derived P/E + growth
     _gdCache[d.ticker] = Object.assign(_gdCache[d.ticker]||{}, {
       fundamentals: Object.assign((_gdCache[d.ticker]?.fundamentals||{}), {
-        pe:d.pe, eps:d.eps,
+        pe:d.pe, eps:d.eps, pb:d.pb, dy:d.dy,
         roe:d.roe, npm:d.npm, de:d.de, fcf:d.fcf, rg:d.rg, eg:d.eg, assets:d.assets,
         ttmRev:d.ttmRev, ttmNI:d.ttmNI,
       }),
