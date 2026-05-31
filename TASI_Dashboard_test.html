@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260531b'; // bump this string on every deploy that matters
+  var V='20260531c'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531b · perf: instant tab switching (HTML cache), faster fetches, Drive error detection</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531c · fix: no more duplicate Drive files, file IDs persist across reloads</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1342,12 +1342,12 @@ const GD_OHLCV_TTL =  8 * 60 * 60 * 1000;       // 8 hours TTL for OHLCV chart d
 
 // Prices + fundamentals bulk cache (TASI_prices_bulk.json — loaded on every startup)
 const _gdCache = {};           // ticker → { priceData, priceUpdated, fundamentals, fundUpdated, fundVersion }
-let _gdBulkPriceFileId = null;
+let _gdBulkPriceFileId = localStorage.getItem('TASI_prices_bulk_id') || null;
 
 // Statements bulk cache (TASI_statements_bulk.json — loaded once in background after prices)
 // Holds: annual, quarterly, dcfResult, earningsTrend, ohlcvData, dividendSchedule + their timestamps
 const _stmtCache = {};
-let _stmtBulkFileId = null;
+let _stmtBulkFileId = localStorage.getItem('TASI_stmt_bulk_id') || null;
 let _stmtBulkLoaded = false;
 let _stmtBulkLoadPromise = null;
 let _stmtSaveTimer = null;
@@ -1357,12 +1357,17 @@ async function gdLoadBulkPrices(onProgress) {
   if (!GD_TOKEN) return 0;
   try {
     // First: try the bulk file (2 API calls, instant)
-    const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name%3D%27TASI_prices_bulk.json%27+and+trashed%3Dfalse&fields=files(id)`;
+    const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name%3D%27TASI_prices_bulk.json%27+and+trashed%3Dfalse&fields=files(id,modifiedTime)&orderBy=modifiedTime%20desc`;
     const sr = await fetch(searchUrl, { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(8000) });
     const sd = await _bodyJson(sr, 7000);
-    const bulkFile = sd?.files?.[0];
+    const priceFiles = sd?.files || [];
+    for (const f of priceFiles.slice(1)) {
+      fetch(`https://www.googleapis.com/drive/v3/files/${f.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${GD_TOKEN}` } }).catch(() => {});
+    }
+    const bulkFile = priceFiles[0];
     if (bulkFile) {
       _gdBulkPriceFileId = bulkFile.id;
+      localStorage.setItem('TASI_prices_bulk_id', bulkFile.id);
       const fr = await fetch(`https://www.googleapis.com/drive/v3/files/${bulkFile.id}?alt=media`,
         { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(15000) });
       const bulk = await _bodyJson(fr, 14000);
@@ -1462,7 +1467,7 @@ async function gdSaveBulkPrices() {
     if (res.ok) {
       if (!_gdBulkPriceFileId) {
         const meta = await _bodyJson(res, 5000);
-        if (meta?.id) _gdBulkPriceFileId = meta.id;
+        if (meta?.id) { _gdBulkPriceFileId = meta.id; localStorage.setItem('TASI_prices_bulk_id', meta.id); }
       }
     } else if (res.status === 401) {
       GD_TOKEN = null; sessionStorage.removeItem('TASI_gd_token'); updateGDStatus();
@@ -1545,13 +1550,18 @@ async function gdLoadStatementsBulk() {
   _stmtBulkLoadPromise = (async () => {
     try {
       const sr = await fetch(
-        `https://www.googleapis.com/drive/v3/files?q=name%3D%27TASI_statements_bulk.json%27+and+trashed%3Dfalse&fields=files(id)`,
+        `https://www.googleapis.com/drive/v3/files?q=name%3D%27TASI_statements_bulk.json%27+and+trashed%3Dfalse&fields=files(id,modifiedTime)&orderBy=modifiedTime%20desc`,
         { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(8000) }
       );
       const sd = await _bodyJson(sr, 7000);
-      const file = sd?.files?.[0];
+      const stmtFiles = sd?.files || [];
+      for (const f of stmtFiles.slice(1)) {
+        fetch(`https://www.googleapis.com/drive/v3/files/${f.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${GD_TOKEN}` } }).catch(() => {});
+      }
+      const file = stmtFiles[0];
       if (!file) { _stmtBulkLoaded = true; return; }
       _stmtBulkFileId = file.id;
+      localStorage.setItem('TASI_stmt_bulk_id', file.id);
       const fr = await fetch(
         `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
         { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(60000) }
@@ -1584,6 +1594,11 @@ async function gdSaveStatementsBulk() {
   clearTimeout(_stmtSaveTimer);
   _stmtSaveTimer = null;
   if (!Object.keys(_stmtCache).length) return;
+  // If we don't know the file ID yet, wait for the ongoing load to resolve it before saving.
+  // Without this, a save that fires before load completes would POST a new file instead of PATCHing the existing one.
+  if (!_stmtBulkFileId && _stmtBulkLoadPromise) {
+    await Promise.race([_stmtBulkLoadPromise, new Promise(r => setTimeout(r, 15000))]);
+  }
   try {
     const finLastFetched = +localStorage.getItem('tasi_fin_last_fetched') || null;
     const body = JSON.stringify({ savedAt: Date.now(), finLastFetched, statements: _stmtCache });
@@ -1603,7 +1618,7 @@ async function gdSaveStatementsBulk() {
     if (res.ok) {
       if (!_stmtBulkFileId) {
         const meta = await _bodyJson(res, 5000);
-        if (meta?.id) _stmtBulkFileId = meta.id;
+        if (meta?.id) { _stmtBulkFileId = meta.id; localStorage.setItem('TASI_stmt_bulk_id', meta.id); }
       }
       console.log(`[GD] Saved statements bulk (${(body.length/1024).toFixed(0)}KB, ${Object.keys(_stmtCache).length} stocks)`);
     } else if (res.status === 401) {
