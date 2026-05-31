@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260531d'; // bump this string on every deploy that matters
+  var V='20260531e'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531d · fix: merge duplicate Drive files, no data loss</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531e · fix: preserve full statement history across re-fetches</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -5271,6 +5271,24 @@ function generateFundManagerAnalysis(is, bs, cf, period, stockObj) {
   </div>`;
 }
 
+// Merge freshly-fetched statement rows with older cached rows.
+// New rows always win for years present in both; old-only years are appended.
+function mergeStatementYears(newStmt, oldStmt) {
+  if (!oldStmt) return newStmt;
+  const result = {};
+  for (const key of ['is', 'bs', 'cf']) {
+    const newRows = newStmt[key];
+    const oldRows = oldStmt[key];
+    if (!newRows?.length) { result[key] = oldRows || null; continue; }
+    if (!oldRows?.length) { result[key] = newRows; continue; }
+    const newDates = new Set(newRows.map(r => r.fiscal_date));
+    const extra = oldRows.filter(r => !newDates.has(r.fiscal_date));
+    result[key] = [...newRows, ...extra].sort((a, b) =>
+      (b.fiscal_date || '').localeCompare(a.fiscal_date || ''));
+  }
+  return result;
+}
+
 async function buildFinancials(d, period) {
   const isQ = period === 'quarterly';
   const cacheKey = isQ ? 'quarterly' : 'annual';
@@ -5334,11 +5352,12 @@ async function buildFinancials(d, period) {
   ].filter(Boolean);
 
   if (validated.is || validated.bs || validated.cf) {
+    const withHistory = mergeStatementYears(validated, driveStmt);
     if (!d.rawTwelveData) d.rawTwelveData = {};
-    d.rawTwelveData[cacheKey] = validated;
+    d.rawTwelveData[cacheKey] = withHistory;
     tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
-    gdSetStatement(d.ticker, { [cacheKey]: validated, [`${cacheKey}Updated`]: Date.now() });
-    return enrichAndRender(validated, sources.length > 1 ? sources.join(' + ') : (sources[0] || 'Yahoo Finance'));
+    gdSetStatement(d.ticker, { [cacheKey]: withHistory, [`${cacheKey}Updated`]: Date.now() });
+    return enrichAndRender(withHistory, sources.length > 1 ? sources.join(' + ') : (sources[0] || 'Yahoo Finance'));
   }
 
   // 5. localStorage cache
@@ -5351,22 +5370,24 @@ async function buildFinancials(d, period) {
     tdLog(`Fetching ${period} statements from FMP…`, true);
     const fmp = await fetchFMPStatements(d.ticker, period);
     if (fmp.is || fmp.bs || fmp.cf) {
+      const withHistory = mergeStatementYears(fmp, driveStmt);
       if (!d.rawTwelveData) d.rawTwelveData = {};
-      d.rawTwelveData[cacheKey] = fmp;
+      d.rawTwelveData[cacheKey] = withHistory;
       tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
-      gdSetStatement(d.ticker, { [cacheKey]: fmp, [`${cacheKey}Updated`]: Date.now() });
-      return enrichAndRender(fmp, 'FMP');
+      gdSetStatement(d.ticker, { [cacheKey]: withHistory, [`${cacheKey}Updated`]: Date.now() });
+      return enrichAndRender(withHistory, 'FMP');
     }
   }
 
   // 7. Web scraping fallback (StockAnalysis, Macrotrends)
   const scraped = await scrapeFinancials(d.ticker, period);
   if (scraped.is || scraped.bs || scraped.cf) {
+    const withHistory = mergeStatementYears(scraped, driveStmt);
     if (!d.rawTwelveData) d.rawTwelveData = {};
-    d.rawTwelveData[cacheKey] = scraped;
+    d.rawTwelveData[cacheKey] = withHistory;
     tdCacheSet(d.ticker, d.rawTwelveData.quarterly||null, d.rawTwelveData.annual||null);
-    gdSetStatement(d.ticker, { [cacheKey]: scraped, [`${cacheKey}Updated`]: Date.now() });
-    return enrichAndRender(scraped, 'scraped');
+    gdSetStatement(d.ticker, { [cacheKey]: withHistory, [`${cacheKey}Updated`]: Date.now() });
+    return enrichAndRender(withHistory, 'scraped');
   }
 
   return renderTwelveStatements({ is:null, bs:null, cf:null }, period, d.ticker, 'none', d);
