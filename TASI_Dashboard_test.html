@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260531i'; // bump this string on every deploy that matters
+  var V='20260531j'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531i · fix: invalidate price-sensitive tab cache after refreshAll Phase 2</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531j · feat: P/E history chart built from stock price data (no ^TASI dependency)</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -7996,14 +7996,58 @@ function _renderMPEChart() {
   const medRatio  = wtdAvg > 0 ? median / wtdAvg : 1;
   const meanRatio = wtdAvg > 0 ? mean   / wtdAvg : 1;
 
-  const priceCloses  = tasiIndex.closes || [];
-  const priceStamps  = tasiIndex.timestamps || [];
-  const currentPrice = tasiIndex.price;
-
   // Three separate point maps — one per curve
   const wtdMap = new Map(), medMap = new Map(), meanMap = new Map();
 
-  if (priceCloses.length > 5 && currentPrice > 0 && wtdAvg > 0) {
+  // ── PRIMARY: build historical market P/E from individual stock price histories ──
+  // Independent of the ^TASI index symbol (which proxies frequently block). For each
+  // stock we hold current TTM EPS constant (= price/PE) and divide its historical close
+  // by that EPS to get a historical P/E. Aggregating across stocks by date gives the
+  // market-cap-weighted, median, and mean P/E for that day.
+  const dateAgg = new Map(); // dateStr -> { capSum, earnSum, peList, t }
+  for (const s of allData) {
+    const closes = s.closes || [];
+    const stamps = s.timestamps || [];
+    if (closes.length < 5 || stamps.length !== closes.length) continue;
+    if (!(s.pe > 0) || !(s.price > 0)) continue;
+    const eps = s.price / s.pe; // current TTM EPS
+    if (!(eps > 0)) continue;
+    const shares = s.sharesOutstanding || (s.mktCap > 0 ? s.mktCap / s.price : 0);
+    for (let i = 0; i < closes.length; i++) {
+      const c = closes[i], ts = stamps[i];
+      if (!c || !ts) continue;
+      const tMs = ts * 1000;
+      if (tMs < cutoffMs) continue;
+      const histPE = c / eps;
+      if (!(histPE > 0) || histPE > 60) continue; // drop outliers
+      const dateStr = new Date(tMs).toISOString().slice(0,10);
+      let agg = dateAgg.get(dateStr);
+      if (!agg) { agg = { capSum:0, earnSum:0, peList:[], t:tMs }; dateAgg.set(dateStr, agg); }
+      agg.peList.push(histPE);
+      if (shares > 0) { agg.capSum += c * shares; agg.earnSum += eps * shares; }
+    }
+  }
+  for (const [dateStr, agg] of dateAgg) {
+    if (agg.peList.length < 5) continue; // need enough stocks for a meaningful market figure
+    const stored = storedMap.get(dateStr);
+    const wtd    = agg.earnSum > 0 ? agg.capSum / agg.earnSum : null;
+    const sorted = agg.peList.slice().sort((a,b)=>a-b);
+    const med    = sorted[Math.floor(sorted.length/2)];
+    const mean   = agg.peList.reduce((a,b)=>a+b,0) / agg.peList.length;
+    if (stored?.pe   > 0 && stored.pe   < 40) wtdMap.set(dateStr,  { t:agg.t, pe:stored.pe });
+    else if (wtd > 0 && wtd < 40)             wtdMap.set(dateStr,  { t:agg.t, pe:+wtd.toFixed(2),  estimated:true });
+    if (stored?.med  > 0 && stored.med  < 40) medMap.set(dateStr,  { t:agg.t, pe:stored.med });
+    else if (med > 0 && med < 40)             medMap.set(dateStr,  { t:agg.t, pe:+med.toFixed(2),  estimated:true });
+    if (stored?.mean > 0 && stored.mean < 40) meanMap.set(dateStr, { t:agg.t, pe:stored.mean });
+    else if (mean > 0 && mean < 40)           meanMap.set(dateStr, { t:agg.t, pe:+mean.toFixed(2), estimated:true });
+  }
+
+  // ── FALLBACK: if stock histories were too sparse (e.g. before full load), ──
+  // scale the TASI index price series by current market EPS instead.
+  const priceCloses  = tasiIndex.closes || [];
+  const priceStamps  = tasiIndex.timestamps || [];
+  const currentPrice = tasiIndex.price;
+  if (wtdMap.size < 5 && priceCloses.length > 5 && currentPrice > 0 && wtdAvg > 0) {
     const mktEPS = currentPrice / wtdAvg;
     for (let i = 0; i < priceCloses.length; i++) {
       if (!priceCloses[i] || !priceStamps[i]) continue;
@@ -8017,8 +8061,7 @@ function _renderMPEChart() {
       else                                      wtdMap.set(dateStr,  { t:tMs, pe:estWtd, estimated:true });
       if (stored?.med > 0 && stored.med < 40) medMap.set(dateStr,  { t:tMs, pe:stored.med });
       else                                      medMap.set(dateStr,  { t:tMs, pe:+(estWtd*medRatio).toFixed(2), estimated:true });
-      if (stored?.mean> 0 && stored.mean< 40) meanMap.set(dateStr, { t:tMs, pe:stored.mean });
-      else                                      meanMap.set(dateStr, { t:tMs, pe:+(estWtd*meanRatio).toFixed(2), estimated:true });
+      if (stored?.mean> 0 && stored.mean< 40) meanMap.set(dateStr, { t:tMs, pe:+(estWtd*meanRatio).toFixed(2), estimated:true });
     }
   }
   // Add stored entries not covered by TASI price timestamps
@@ -8042,7 +8085,7 @@ function _renderMPEChart() {
     const c2 = ctx.getContext('2d');
     c2.clearRect(0, 0, ctx.width, ctx.height);
     c2.fillStyle = '#4a5568'; c2.font = "11px 'IBM Plex Mono'"; c2.textAlign = 'center';
-    c2.fillText('Historical P/E chart builds over time — reload daily for trend data.', ctx.width/2, ctx.height/2 - 10);
+    c2.fillText('Loading price history — chart appears once stock data finishes loading.', ctx.width/2, ctx.height/2 - 10);
     c2.fillText(`Wtd ${wtdAvg.toFixed(1)}x  Median ${median.toFixed(1)}x  Mean ${mean.toFixed(1)}x`, ctx.width/2, ctx.height/2 + 12);
     return;
   }
