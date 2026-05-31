@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260531j'; // bump this string on every deploy that matters
+  var V='20260531k'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531j · feat: P/E history chart built from stock price data (no ^TASI dependency)</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531k · fix: 8 multi-agent review findings — macro calibration, data consistency, scores</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -3622,8 +3622,11 @@ function deriveMetricsFromStatements(annual, quarterly){
     if(revN===4 && rev>0) ttmRev=rev;
     if(niN===4) ttmNI=ni;
   }
+  // Track which source was used so UI can label "4Q TTM" vs "FY Latest"
+  const ttmFrom4Q = ttmRev != null;
   if (ttmRev==null && Array.isArray(aIS) && _num(aIS[0]?.revenue)>0) ttmRev=_num(aIS[0].revenue);
   if (ttmNI==null && Array.isArray(aIS) && _num(aIS[0]?.net_income)!=null) ttmNI=_num(aIS[0].net_income);
+  out.ttmMethod = ttmFrom4Q ? '4Q TTM' : (ttmRev != null ? 'FY Latest' : null);
   if (ttmRev>0 && ttmNI!=null) out.npm = ttmNI/ttmRev;
   // Balance sheet (latest period)
   const eq=_num(aBS?.[0]?.total_equity), ta=_num(aBS?.[0]?.total_assets), ltd=_num(aBS?.[0]?.long_term_debt);
@@ -3683,6 +3686,7 @@ function applyDerivedMetrics(d){
   }
   if (m.ttmRev>0){ d.ttmRev=m.ttmRev; d.rev=m.ttmRev/1e9; }
   if (m.ttmNI!=null){ d.ttmNI=m.ttmNI; d.ni=m.ttmNI/1e9; }
+  if (m.ttmMethod) d.ttmMethod = m.ttmMethod;
   // EPS & P/E from statements — TTM EPS (statement basicEPS) or TTM NI / shares.
   // P/E = live price / TTM EPS, matching Yahoo. Drives the main-table P/E and PEG.
   const shares = d.sharesOutstanding || _gdCache[d.ticker]?.fundamentals?.sharesOutstanding;
@@ -4904,7 +4908,7 @@ function buildOverview(d){
       return `<div class="mi"><div class="mil">vs TASI (1Y)</div><div class="miv" style="color:${col}">${vsIdx>=0?'+':''}${(vsIdx*100).toFixed(1)}% <span style="font-size:8px;color:var(--tx3)">(stk ${stockReturn>=0?'+':''}${(stockReturn*100).toFixed(1)}%)</span></div></div>`;
     })()}
   </div>
-  <div class="secl">Key Financials (SAR B, ${d.finPeriod?d.finPeriod.slice(0,4)+' latest':d.fullLoaded?'TTM':'est.'})</div>
+  <div class="secl">Key Financials (SAR B, ${d.finPeriod?d.finPeriod.slice(0,4)+' latest':d.fullLoaded?(d.ttmMethod||'TTM'):'est.'})</div>
   <div class="mgrid">
     <div class="mi"><div class="mil" ${T('revenue')}>Revenue</div><div class="miv">${d.rev!=null?d.rev.toFixed(2)+"B":"—"}</div></div>
     <div class="mi"><div class="mil" ${T('net_income')}>Net Income</div><div class="miv ${d.ni!=null?(d.ni>=0?'pos':'neg'):''}">${d.ni!=null?d.ni.toFixed(2)+"B":"—"}</div></div>
@@ -7163,10 +7167,14 @@ async function refreshAll(forceRefresh=false){
         const existingCloses     = allData[idx].closes || [];
         const existingTimestamps = allData[idx].timestamps || [];
         const tRes = scoreTechnicalWithSteps(existingCloses.length > 5 ? existingCloses : []);
+        // Derive EPS from Phase 2 source so modal price/eps recompute stays in sync with table P/E
+        const liveEPS = q.epsTrailingTwelveMonths > 0 ? +q.epsTrailingTwelveMonths.toFixed(4)
+          : (livePE > 0 && price > 0 ? +(price / livePE).toFixed(4) : allData[idx].eps);
         allData[idx] = {
           ...allData[idx],
           price, change,
           pe: livePE, pb: livePB,
+          eps: liveEPS || allData[idx].eps,
           livepeLoaded,
           priceLoaded: true,
           dataSource: 'yahoo-quote',
@@ -7348,13 +7356,18 @@ async function refreshAll(forceRefresh=false){
   // ── Change 7: Compute sector-relative P/E medians after all prices loaded ──
   computeSectorMedianPE();
   updateMarketPEStats();
-  // Re-score fundamentals with sector-relative P/E now available
+  // Re-score fundamentals and Buffett criteria with live prices + sector-relative P/E now available
   allData.forEach(d => {
-    if(d.pe != null) {
+    if(d.pe != null || d.priceLoaded) {
+      const noHard = d.noHardcodedData && !d.priceLoaded;
       const fRes = scoreFundamental(d);
-      d.fundamental = d.noHardcodedData && !d.priceLoaded ? null : fRes.score;
+      const bRes = scoreBuffett(d);
+      d.fundamental = noHard ? null : fRes.score;
       d.fundSteps = fRes.steps;
-      d.combined = (d.noHardcodedData && !d.priceLoaded) ? null : calcCombined(d);
+      d.buffett = noHard ? null : bRes.buffett;
+      d.criteria = bRes.criteria;
+      d.buffSteps = bRes.steps;
+      d.combined = noHard ? null : calcCombined(d);
     }
   });
   if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
@@ -7745,16 +7758,18 @@ function _mpeCalc() {
   const sorted = valid.map(d=>d.pe).sort((a,b)=>a-b);
   const mid = Math.floor(sorted.length/2);
   const median = sorted.length%2 ? sorted[mid] : (sorted[mid-1]+sorted[mid])/2;
-  const hasMC = valid.filter(d=>d.mktCap>0);
+  // Exclude Aramco from cap-weighted avg — its ~7T SAR cap at low P/E (~12x) would dominate
+  // and drag the market P/E down, inconsistent with the ex-Aramco Buffett Indicator.
+  const hasMC = valid.filter(d=>d.mktCap>0 && d.ticker !== '2222.SR');
   const totalMC = hasMC.reduce((s,d)=>s+d.mktCap,0);
   const wtdAvg = totalMC > 0 ? hasMC.reduce((s,d)=>s+d.pe*(d.mktCap/totalMC),0) : mean;
   return { valid, mean, median, wtdAvg, count: valid.length };
 }
 
 // ── Macro / whole-market valuation context ────────────────────────────────
-// Saudi nominal GDP ≈ SAR 4.0 trillion (2024). Risk-free ≈ 5.0% (Saudi 10Y).
-const SAUDI_GDP_SAR = 4.0e12;
-const SAUDI_RF = 0.05;
+// Saudi nominal GDP ≈ SAR 4.3 trillion (2026 estimate, IMF/SAMA). Risk-free ≈ 5.5% (SAMA policy rate / 10Y SAR bond).
+const SAUDI_GDP_SAR = 4.3e12;
+const SAUDI_RF = 0.055;
 const _clamp01 = x => Math.max(0, Math.min(1, x));
 
 function _marketConditions() {
@@ -7847,11 +7862,11 @@ function _renderMarketConditions() {
   // 1. Buffett Indicator (ex-Aramco headline; Aramco's 2% float distorts the total)
   if (m.buffettExAramco != null) {
     const b = m.buffettExAramco;
-    const col = b < 0.75 ? '#2ed573' : b < 1.0 ? '#7bed9f' : b < 1.3 ? '#f5a623' : '#e74c3c';
-    const verdict = b < 0.75 ? 'Undervalued' : b < 1.0 ? 'Fair' : b < 1.3 ? 'Modestly rich' : 'Overvalued';
+    const col = b < 0.80 ? '#2ed573' : b < 1.1 ? '#7bed9f' : b < 1.5 ? '#f5a623' : '#e74c3c';
+    const verdict = b < 0.80 ? 'Undervalued' : b < 1.1 ? 'Fair' : b < 1.5 ? 'Modestly rich' : 'Overvalued';
     tiles.push(tile('Buffett Indicator', (b*100).toFixed(0)+'%',
       `${verdict} · incl. Aramco ${(m.buffettInd*100).toFixed(0)}%`, col,
-      'Total market cap ÷ GDP (the "Buffett Indicator"). Shown ex-Aramco because Aramco\'s ~2% free float massively inflates the headline ratio. <0.75 undervalued, 0.75–1.0 fair, 1.0–1.3 modestly rich, >1.3 overvalued. Saudi GDP ≈ SAR 4.0T (2024).'));
+      'Liquid market cap (ex-Aramco) ÷ GDP. Thresholds calibrated for Saudi/EM norms: <80% undervalued, 80–110% fair, 110–150% modestly rich, >150% overvalued. Covers app\'s ~238 liquid stocks; full TASI has additional micro-caps. GDP ≈ SAR 4.3T (2026 est.).'));
   }
 
   // 2. Earnings Yield
@@ -8019,7 +8034,7 @@ function _renderMPEChart() {
       const tMs = ts * 1000;
       if (tMs < cutoffMs) continue;
       const histPE = c / eps;
-      if (!(histPE > 0) || histPE > 60) continue; // drop outliers
+      if (!(histPE > 0) || histPE > 40) continue; // match _mpeCalc headline filter (pe < 40 after REIT exclusion)
       const dateStr = new Date(tMs).toISOString().slice(0,10);
       let agg = dateAgg.get(dateStr);
       if (!agg) { agg = { capSum:0, earnSum:0, peList:[], t:tMs }; dateAgg.set(dateStr, agg); }
@@ -8112,6 +8127,7 @@ function _renderMPEChart() {
       responsive:true, maintainAspectRatio:false,
       interaction:{ mode:'index', intersect:false },
       plugins: {
+        title:{ display:true, text:'P/E estimated from current EPS — reflects price trends, not historical earnings changes', color:'#4a5568', font:{size:8,family:"'IBM Plex Mono'"}, padding:{bottom:6} },
         legend:{ display:true, labels:{color:'#8a9ab5', font:fontOpts, boxWidth:10} },
         tooltip:{ backgroundColor:'rgba(24,28,34,0.97)', borderColor:'#2d3440', borderWidth:1,
           titleColor:'#e8eaed', bodyColor:'#8a9ab5',
