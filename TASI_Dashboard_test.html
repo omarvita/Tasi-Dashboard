@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260531e'; // bump this string on every deploy that matters
+  var V='20260531f'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -243,7 +243,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
   .sw { min-width:100%; max-width:100%; order:-1; flex-basis:100%; }
   .ctrl select,.ctrl button { font-size:9px; padding:5px 7px; }
   /* table: hide non-essential columns */
-  .col-co,.col-pe,.col-eg,.col-peg,.col-fu,.col-te,.col-bu,.col-tr,.col-st,.col-cp,.col-vw,.col-vs { display:none !important; }
+  .col-co,.col-pe,.col-eg,.col-peg,.col-fu,.col-te,.col-bu,.col-tr,.col-st,.col-cp,.col-vw { display:none !important; }
   table { table-layout:auto; }
   td { padding:10px 5px; }
   th { padding:6px 5px; font-size:8px; }
@@ -413,7 +413,6 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
       <option value="pe">Sort: P/E (low→high)</option>
       <option value="peg">Sort: PEG (low→high)</option>
       <option value="change">Sort: Daily Chg%</option>
-      <option value="vsTasi">Sort: vs TASI</option>
       <option value="dcfUpside">Sort: Fair Value Upside</option>
     </select>
     <select id="vs" onchange="doFilter()">
@@ -447,7 +446,6 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
         <th style="width:82px" onclick="sk('combined')">Score↕</th>
         <th style="width:48px">Signal</th>
         <th class="col-tr" style="width:66px" onclick="sk('dcfUpside')" title="DCF Fair Value vs current price↕">Fair Val↕</th>
-        <th class="col-vs" style="width:52px" onclick="sk('vsTasi')" title="6-month return vs TASI index">vs TASI↕</th>
         <th class="col-st" style="width:32px">★</th>
         <th class="col-cp" style="width:32px">⊕</th>
         <th class="col-vw" style="width:40px">Info</th>
@@ -4301,12 +4299,6 @@ function renderTable(){
         }
         return '<span class="nav" style="font-size:9px">—</span>';
       })()}</td>
-      <td class="col-vs">${(()=>{
-        const v=d.vsTasi;
-        if(v==null)return'<span class="nav" style="font-size:9px">—</span>';
-        const col=v>=0?'var(--green)':'var(--red)';
-        return`<span style="font-family:var(--mono);font-size:9px;color:${col}">${v>=0?'+':''}${v.toFixed(1)}%</span>`;
-      })()}</td>
       <td class="col-st"><span id="star-${d.ticker}" onclick="event.stopPropagation();toggleWatch('${d.ticker}')" style="cursor:pointer;font-size:14px;color:${watchlist.has(d.ticker)?'var(--amb)':'var(--tx3)'}">${watchlist.has(d.ticker)?'★':'☆'}</span></td>
       <td class="col-cp"><span onclick="event.stopPropagation();toggleCompare('${d.ticker}')" style="cursor:pointer;font-size:13px;color:${compareList.includes(d.ticker)?'var(--acc)':'var(--tx3)'}">${compareList.includes(d.ticker)?'✓':'⊕'}</span></td>
       <td class="col-vw"><button class="dbtn" onclick="event.stopPropagation();openModal(${start+i})">View</button></td>
@@ -7685,32 +7677,6 @@ async function fetchTASIIndex() {
     ytdEl.innerHTML = `<span style="color:var(--tx3)">YTD: <span style="color:${col}">${ytdReturn>=0?'+':''}${(ytdReturn*100).toFixed(1)}%</span></span>`;
   }
 
-  // Compute vsTASI — align TASI window to each stock's price history start date
-  // so both returns cover the same calendar period (fixes window-mismatch bias).
-  const tasiTS = tasiIndex.timestamps || [];
-  const tasiCL = tasiIndex.closes || [];
-  if (tasiCL.length > 0) {
-    allData.forEach(d => {
-      if (!d.closes || d.closes.length < 10) return;
-      const stockStartTS = (d.timestamps || [])[0];
-      let alignedTasiRet;
-      if (stockStartTS && tasiTS.length > 0) {
-        // Find earliest TASI close on or after the stock's first timestamp
-        const ti = tasiTS.findIndex(ts => ts >= stockStartTS);
-        if (ti >= 0 && ti < tasiCL.length - 1) {
-          alignedTasiRet = (tasiCL[tasiCL.length-1] - tasiCL[ti]) / tasiCL[ti];
-        }
-      }
-      if (alignedTasiRet == null) {
-        // Fallback: same full-window ratio as before
-        alignedTasiRet = (tasiCL[tasiCL.length-1] - tasiCL[0]) / tasiCL[0];
-      }
-      const sr = (d.closes[d.closes.length-1] - d.closes[0]) / d.closes[0];
-      d.vsTasi = parseFloat(((sr - alignedTasiRet)*100).toFixed(1));
-    });
-    if (window._fd) { const _m=new Map(allData.map(d=>[d.ticker,d])); window._fd=window._fd.map(d=>_m.get(d.ticker)||d); }
-    scheduleRender();
-  }
 
   // Refresh market P/E chart if open (uses tasiIndex.closes for historical line)
   if (marketPEChartVisible) _renderMPEChart();
