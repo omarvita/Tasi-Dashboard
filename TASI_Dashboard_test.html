@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260531k'; // bump this string on every deploy that matters
+  var V='20260531l'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531k · fix: 8 multi-agent review findings — macro calibration, data consistency, scores</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531l · feat: Recalculate All Scores button — applies cached statements, no re-fetch</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -7637,7 +7637,44 @@ async function fetchAllFinancials(){
   _fetchingAllFin = false;
 }
 
-// ── Change 5: TASI Index fetch ──
+// Apply all cached statement data to allData and recompute every stock's scores.
+// No network calls — works entirely from _stmtCache (Drive bulk) and d.rawTwelveData (in-memory).
+async function recalculateAllFromCache() {
+  const btn = document.getElementById('recalc-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Recalculating…'; }
+  tdLog('Applying cached statements to all stocks…', true);
+
+  let applied = 0, skipped = 0;
+  for (const d of allData) {
+    // Merge _stmtCache (Drive bulk) into d.rawTwelveData if not already there
+    const cached = _stmtCache[d.ticker];
+    if (cached) {
+      if (!d.rawTwelveData) d.rawTwelveData = {};
+      if (cached.annual   && !d.rawTwelveData.annual)   d.rawTwelveData.annual   = cached.annual;
+      if (cached.quarterly && !d.rawTwelveData.quarterly) d.rawTwelveData.quarterly = cached.quarterly;
+      // Prefer fresher data: overwrite only if cached has more rows
+      if (cached.annual?.is?.length   > (d.rawTwelveData.annual?.is?.length   || 0)) d.rawTwelveData.annual   = cached.annual;
+      if (cached.quarterly?.is?.length > (d.rawTwelveData.quarterly?.is?.length || 0)) d.rawTwelveData.quarterly = cached.quarterly;
+    }
+    // applyDerivedMetrics derives ROE/npm/de/fcf/rg/eg/eps/PE from rawTwelveData and recomputes all scores
+    if (d.rawTwelveData?.annual || d.rawTwelveData?.quarterly) {
+      try { applyDerivedMetrics(d); applied++; } catch(e) {}
+    } else {
+      skipped++;
+    }
+  }
+
+  // Recompute sector medians with refreshed P/E values, then update market stats
+  computeSectorMedianPE();
+  updateMarketPEStats();
+  if (window._fd) { const _m = new Map(allData.map(d=>[d.ticker,d])); window._fd = window._fd.map(d=>_m.get(d.ticker)||d); }
+  doFilter(); updateMetrics(); scheduleRender();
+
+  tdLog(`✓ Recalculated — ${applied} stocks updated from statements, ${skipped} skipped (no statements cached yet). Run "Retrieve All Financial Statements" first if scores look stale.`, true);
+  if (btn) { btn.disabled = false; btn.textContent = '⟳ Recalculate All Scores'; }
+}
+
+
 async function fetchTASIIndex() {
   let price = null, change = null, closes = [], timestamps = [], ytdReturn = null;
   try {
@@ -8356,6 +8393,7 @@ function buildSectorPerf() {
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
       <button class="sp-btn" id="fetch-all-fin-btn" onclick="fetchAllFinancials()" title="Fetch financial statements for ALL stocks, derive every overview metric (ROE, margin, D/E, growth…), recompute all scores (Fundamental, Buffett, PEG, Fair Value) and save everything to Google Drive. Takes a few minutes; makes future loads instant.">📊 Retrieve All Financial Statements</button>
+      <button class="sp-btn" id="recalc-btn" onclick="recalculateAllFromCache()" title="Apply already-retrieved statement data to every stock and recompute all scores. Instant — no network calls. Use after Retrieve All Financial Statements to see updated scores in the table.">⟳ Recalculate All Scores</button>
     </div>
     <div class="sp-log" id="td-log">Status will appear here after actions.</div>
 
