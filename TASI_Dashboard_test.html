@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260531h'; // bump this string on every deploy that matters
+  var V='20260531i'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531h · fix: Drive 404 recovery, cache stale-write guards, change fallback</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531i · fix: invalidate price-sensitive tab cache after refreshAll Phase 2</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -7180,6 +7180,12 @@ async function refreshAll(forceRefresh=false){
           rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
           combined: calcCombined({...allData[idx], price, pe: livePE, technical: tRes.score}),
         };
+        // Price changed — stale pre-rendered HTML for price-sensitive tabs must be discarded
+        if (allData[idx]._htmlCache) {
+          delete allData[idx]._htmlCache.breakdown;
+          delete allData[idx]._htmlCache.buffett;
+          delete allData[idx]._htmlCache.extra;
+        }
         // Quick P/E-relative fair value — shows in main table without needing full DCF
         if (!allData[idx].dcfPS && livePE > 0 && price > 0) {
           const _SFVPE = {'Banking':11,'Insurance':13,'Energy':18,'Petrochemicals':14,'Chemicals':13,'Materials':13,'Building Materials':14,'Real Estate':20,'REITs':16,'Telecom':20,'Technology':28,'Healthcare':25,'Consumer':18,'Utilities':16,'Transportation':14,'Industrial':16};
