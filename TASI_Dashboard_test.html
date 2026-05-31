@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260531c'; // bump this string on every deploy that matters
+  var V='20260531d'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531c · fix: no more duplicate Drive files, file IDs persist across reloads</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531d · fix: merge duplicate Drive files, no data loss</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1555,32 +1555,50 @@ async function gdLoadStatementsBulk() {
       );
       const sd = await _bodyJson(sr, 7000);
       const stmtFiles = sd?.files || [];
-      for (const f of stmtFiles.slice(1)) {
-        fetch(`https://www.googleapis.com/drive/v3/files/${f.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${GD_TOKEN}` } }).catch(() => {});
-      }
-      const file = stmtFiles[0];
-      if (!file) { _stmtBulkLoaded = true; return; }
-      _stmtBulkFileId = file.id;
-      localStorage.setItem('TASI_stmt_bulk_id', file.id);
-      const fr = await fetch(
-        `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
-        { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(60000) }
+      if (!stmtFiles.length) { _stmtBulkLoaded = true; return; }
+
+      // Primary file is the most recently modified one
+      _stmtBulkFileId = stmtFiles[0].id;
+      localStorage.setItem('TASI_stmt_bulk_id', stmtFiles[0].id);
+
+      // Load ALL files in parallel (oldest first so newest wins in merge)
+      const allBulks = await Promise.all(
+        [...stmtFiles].reverse().map(f =>
+          fetch(`https://www.googleapis.com/drive/v3/files/${f.id}?alt=media`,
+            { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(60000) }
+          ).then(r => _bodyJson(r, 55000)).catch(() => null)
+        )
       );
-      const bulk = await _bodyJson(fr, 55000);
-      if (bulk?.statements) {
-        for (const [ticker, data] of Object.entries(bulk.statements)) {
-          _stmtCache[ticker] = Object.assign(_stmtCache[ticker] || {}, data);
+
+      // Merge all files — oldest first so newest data wins per ticker
+      let totalMerged = 0, finLastFetched = null;
+      for (const bulk of allBulks) {
+        if (!bulk) continue;
+        if (bulk.statements) {
+          for (const [ticker, data] of Object.entries(bulk.statements)) {
+            _stmtCache[ticker] = Object.assign(_stmtCache[ticker] || {}, data);
+            totalMerged++;
+          }
         }
-        console.log(`[GD] Loaded statements for ${Object.keys(bulk.statements).length} stocks from Drive`);
-        // Invalidate tab cache for currently open stock if it now has Drive data
-        const openD = window._fd?.[window._curIdx];
-        if (openD && _stmtCache[openD.ticker]) {
-          openD._htmlCache = {};
-        }
+        if (bulk.finLastFetched && bulk.finLastFetched > (finLastFetched || 0)) finLastFetched = bulk.finLastFetched;
       }
-      if (bulk?.finLastFetched) {
-        localStorage.setItem('tasi_fin_last_fetched', bulk.finLastFetched);
-        _updateFinLastFetched(bulk.finLastFetched);
+
+      if (totalMerged) console.log(`[GD] Loaded statements for ${Object.keys(_stmtCache).length} stocks from Drive (${stmtFiles.length} file(s) merged)`);
+
+      // Delete duplicate files (fire-and-forget), then save merged result to primary file
+      if (stmtFiles.length > 1) {
+        for (const f of stmtFiles.slice(1)) {
+          fetch(`https://www.googleapis.com/drive/v3/files/${f.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${GD_TOKEN}` } }).catch(() => {});
+        }
+        gdScheduleStatementsSave();
+      }
+
+      const openD = window._fd?.[window._curIdx];
+      if (openD && _stmtCache[openD.ticker]) openD._htmlCache = {};
+
+      if (finLastFetched) {
+        localStorage.setItem('tasi_fin_last_fetched', finLastFetched);
+        _updateFinLastFetched(finLastFetched);
       }
     } catch(e) { console.warn('gdLoadStatementsBulk:', e); }
     finally { _stmtBulkLoaded = true; }
