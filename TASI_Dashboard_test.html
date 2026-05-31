@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260531g'; // bump this string on every deploy that matters
+  var V='20260531h'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531e · fix: preserve full statement history across re-fetches</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531h · fix: Drive 404 recovery, cache stale-write guards, change fallback</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1347,6 +1347,7 @@ let _gdBulkPriceFileId = localStorage.getItem('TASI_prices_bulk_id') || null;
 const _stmtCache = {};
 let _stmtBulkFileId = localStorage.getItem('TASI_stmt_bulk_id') || null;
 let _stmtBulkLoaded = false;
+let _stmtDupeIdsToDelete = []; // duplicate Drive file IDs to delete after successful save
 let _stmtBulkLoadPromise = null;
 let _stmtSaveTimer = null;
 const STMT_SAVE_DEBOUNCE = 12000; // 12s — coalesces many gdSetStatement() calls into one Drive write
@@ -1470,6 +1471,10 @@ async function gdSaveBulkPrices() {
     } else if (res.status === 401) {
       GD_TOKEN = null; sessionStorage.removeItem('TASI_gd_token'); updateGDStatus();
       showToast('⚠ Google Drive token expired — please reconnect in Settings');
+    } else if (res.status === 404 || res.status === 410) {
+      // File was deleted externally — clear stale ID so next save creates a fresh file
+      _gdBulkPriceFileId = null;
+      localStorage.removeItem('TASI_prices_bulk_id');
     }
   } catch(e) { console.warn('gdSaveBulkPrices:', e); }
 }
@@ -1553,7 +1558,13 @@ async function gdLoadStatementsBulk() {
       );
       const sd = await _bodyJson(sr, 7000);
       const stmtFiles = sd?.files || [];
-      if (!stmtFiles.length) { _stmtBulkLoaded = true; return; }
+      if (!stmtFiles.length) {
+        // No file on Drive — clear any stale localStorage ID so next save creates a fresh file
+        _stmtBulkFileId = null;
+        localStorage.removeItem('TASI_stmt_bulk_id');
+        _stmtBulkLoaded = true;
+        return;
+      }
 
       // Primary file is the most recently modified one
       _stmtBulkFileId = stmtFiles[0].id;
@@ -1583,11 +1594,9 @@ async function gdLoadStatementsBulk() {
 
       if (totalMerged) console.log(`[GD] Loaded statements for ${Object.keys(_stmtCache).length} stocks from Drive (${stmtFiles.length} file(s) merged)`);
 
-      // Delete duplicate files (fire-and-forget), then save merged result to primary file
+      // Save merged result first, then delete duplicates — avoids data loss if tab closes during debounce
       if (stmtFiles.length > 1) {
-        for (const f of stmtFiles.slice(1)) {
-          fetch(`https://www.googleapis.com/drive/v3/files/${f.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${GD_TOKEN}` } }).catch(() => {});
-        }
+        _stmtDupeIdsToDelete = stmtFiles.slice(1).map(f => f.id);
         gdScheduleStatementsSave();
       }
 
@@ -1637,9 +1646,19 @@ async function gdSaveStatementsBulk() {
         if (meta?.id) { _stmtBulkFileId = meta.id; localStorage.setItem('TASI_stmt_bulk_id', meta.id); }
       }
       console.log(`[GD] Saved statements bulk (${(body.length/1024).toFixed(0)}KB, ${Object.keys(_stmtCache).length} stocks)`);
+      // Now that save succeeded, delete any stale duplicate files
+      const dupes = _stmtDupeIdsToDelete.splice(0);
+      for (const id of dupes) {
+        fetch(`https://www.googleapis.com/drive/v3/files/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${GD_TOKEN}` } }).catch(() => {});
+      }
     } else if (res.status === 401) {
       GD_TOKEN = null; sessionStorage.removeItem('TASI_gd_token'); updateGDStatus();
       showToast('⚠ Google Drive token expired — please reconnect in Settings');
+    } else if (res.status === 404 || res.status === 410) {
+      // File was deleted externally — clear stale ID so next save creates a fresh file
+      _stmtBulkFileId = null;
+      localStorage.removeItem('TASI_stmt_bulk_id');
+      gdScheduleStatementsSave();
     }
   } catch(e) { console.warn('gdSaveStatementsBulk:', e); }
 }
@@ -4064,7 +4083,7 @@ async function fetchStockPrice(stock, skipDriveNetwork=false) {
     const quick = await fetchYahooPrice(ticker);
     if(quick.price){
       result.price = quick.price;
-      result.change = (quick.price && quick.prev) ? ((quick.price-quick.prev)/quick.prev)*100 : null;
+      result.change = (quick.price && quick.prev) ? ((quick.price-quick.prev)/quick.prev)*100 : dailyChangeFromCloses(quick.closes);
       result.dataSource = 'yahoo';
       result.dataDate = new Date().toISOString().slice(0,10);
     }
@@ -4534,9 +4553,6 @@ async function openModal(idx){
   window._curIdx=idx;
   const d=window._fd?.[idx];if(!d)return;
 
-  // Clear tab HTML cache when opening a new stock to prevent stale content
-  d._htmlCache = {};
-
   // Show modal immediately with whatever data we already have
   _renderModalShell(d);
   document.getElementById("modal").style.display="flex";
@@ -4545,6 +4561,9 @@ async function openModal(idx){
     switchTab("overview");
     return;
   }
+
+  // Clear tab HTML cache only for stocks not yet fully loaded — fresh fetch will rebuild it
+  d._htmlCache = {};
 
   // Show loading indicator in overview panel while fetching fundamentals
   const panelEl=document.getElementById("panel-content");
@@ -4684,6 +4703,7 @@ async function openModal(idx){
       const tabKey = period === 'annual' ? 'annual' : 'quarterly';
       if (_prefetchD.rawTwelveData?.[period] && !_prefetchD._htmlCache?.[tabKey]) {
         buildFinancials(_prefetchD, period).then(html => {
+          if (window._curIdx !== idx) return; // modal moved to a different stock — discard stale HTML
           if (!_prefetchD._htmlCache) _prefetchD._htmlCache = {};
           _prefetchD._htmlCache[tabKey] = html;
         }).catch(() => {});
@@ -5285,7 +5305,7 @@ function mergeStatementYears(newStmt, oldStmt) {
     if (!newRows?.length) { result[key] = oldRows || null; continue; }
     if (!oldRows?.length) { result[key] = newRows; continue; }
     const newDates = new Set(newRows.map(r => r.fiscal_date));
-    const extra = oldRows.filter(r => !newDates.has(r.fiscal_date));
+    const extra = oldRows.filter(r => r.fiscal_date && r.fiscal_date !== '—' && !newDates.has(r.fiscal_date));
     result[key] = [...newRows, ...extra].sort((a, b) =>
       (b.fiscal_date || '').localeCompare(a.fiscal_date || ''));
   }
