@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260531q'; // bump this string on every deploy that matters
+  var V='20260531r'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531q · fix: mktCap cross-derive from shares; chart 5Y/All range fetch</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531r · feat: Shiller CAPE, Market P/S, SMA-200 breadth, 52W H/L in market panel</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -7918,8 +7918,59 @@ function _marketConditions() {
   const aboveSMA50 = brStocks.filter(d=>d.price>d.sma50).length;
   const breadth = brStocks.length>0 ? aboveSMA50/brStocks.length : null;
 
+  // Breadth >SMA-200 — longer-term trend health
+  const br200Stocks = allData.filter(d=>d.priceLoaded && d.price>0 && (d.closes||[]).length>=200);
+  const aboveSMA200 = br200Stocks.filter(d=>{
+    const sma200 = d.closes.slice(-200).reduce((a,b)=>a+b,0)/200;
+    return d.price > sma200;
+  }).length;
+  const breadth200 = br200Stocks.length>0 ? aboveSMA200/br200Stocks.length : null;
+
+  // 52-Week New Highs vs Lows — sentiment indicator
+  const yr52Stocks = allData.filter(d=>d.priceLoaded && d.price>0 && (d.closes||[]).length>=50);
+  let near52High=0, near52Low=0;
+  yr52Stocks.forEach(d=>{
+    const c = d.closes.slice(-252);
+    if (!c.length) return;
+    const hi = Math.max(...c), lo = Math.min(...c);
+    if (d.price >= hi*0.95) near52High++;
+    if (d.price <= lo*1.05) near52Low++;
+  });
+  const hl52N = near52High + near52Low;
+  const hl52Ratio = hl52N > 0 ? near52High / hl52N : null;
+
+  // Market P/S — aggregate market cap ÷ aggregate TTM revenue (avoids cap-weight bias)
+  const psStocks = withMC.filter(d=>d.mktCap>0 && d.ttmRev>0);
+  const psTotalMC  = psStocks.reduce((s,d)=>s+d.mktCap,0);
+  const psTotalRev = psStocks.reduce((s,d)=>s+d.ttmRev,0);
+  const mktPS = psTotalMC>0 && psTotalRev>0 ? psTotalMC/psTotalRev : null;
+
+  // Shiller CAPE — 10-year inflation-adjusted average earnings yield, then invert.
+  // Uses the _mpeHistCache daily P/E series (grows as the app runs over time).
+  // Saudi CPI ≈ 2.5%/yr used to bring historical earnings to today's purchasing power.
+  const SAUDI_CPI = 0.025;
+  let cape = null, capeDataDays = 0;
+  if (typeof _mpeHistCache !== 'undefined' && _mpeHistCache && _mpeHistCache.length >= 30) {
+    const tenYrMs = 10*365.25*24*3600*1000;
+    const nowMs   = Date.now();
+    const hist = _mpeHistCache.filter(e => e.pe>0 && nowMs - new Date(e.d).getTime() < tenYrMs);
+    capeDataDays = hist.length;
+    if (hist.length >= 30) {
+      const eyAdj = hist.map(e=>{
+        const yrsAgo = (nowMs - new Date(e.d).getTime()) / (365.25*24*3600*1000);
+        return (1/e.pe) * Math.pow(1+SAUDI_CPI, yrsAgo);
+      });
+      const avgEY = eyAdj.reduce((a,b)=>a+b,0)/eyAdj.length;
+      if (avgEY > 0) cape = +(1/avgEY).toFixed(1);
+    }
+  }
+
   return { wtdAvg, median, mean, totalMC, exAramcoMC, buffettInd, buffettExAramco,
-           earningsYield, erp, wtdDY, wtdPB, breadth, breadthN: brStocks.length, count: r.count };
+           earningsYield, erp, wtdDY, wtdPB, breadth, breadthN: brStocks.length,
+           breadth200, breadth200N: br200Stocks.length,
+           near52High, near52Low, hl52Ratio,
+           mktPS, psN: psStocks.length,
+           cape, capeDataDays, count: r.count };
 }
 
 function _renderMarketConditions() {
@@ -7929,12 +7980,15 @@ function _renderMarketConditions() {
   if (!m || !tilesEl) return;
 
   // ── Composite valuation thermometer (0 = cheap/fear, 100 = expensive/greed) ──
-  const sP   = _clamp01((m.wtdAvg - 12) / (28 - 12));
-  const sERP = m.erp != null ? _clamp01((0.04 - m.erp) / 0.05) : null;
-  const sBr  = m.breadth != null ? _clamp01((m.breadth - 0.30) / 0.50) : null;
-  const sDY  = m.wtdDY != null ? _clamp01((0.05 - m.wtdDY) / 0.03) : null;
-  const sPB  = m.wtdPB != null ? _clamp01((m.wtdPB - 1.5) / 1.5) : null;
-  const parts = [sP, sERP, sBr, sDY, sPB].filter(x=>x!=null);
+  const sP    = _clamp01((m.wtdAvg - 12) / (28 - 12));
+  const sERP  = m.erp     != null ? _clamp01((0.04 - m.erp) / 0.05) : null;
+  const sBr   = m.breadth != null ? _clamp01((m.breadth - 0.30) / 0.50) : null;
+  const sDY   = m.wtdDY   != null ? _clamp01((0.05 - m.wtdDY) / 0.03) : null;
+  const sPB   = m.wtdPB   != null ? _clamp01((m.wtdPB - 1.5) / 1.5) : null;
+  const sCAPE = m.cape     != null ? _clamp01((m.cape - 15) / (35 - 15)) : null;
+  const sPS   = m.mktPS   != null ? _clamp01((m.mktPS - 1.0) / 2.5) : null;
+  const sBr200= m.breadth200 != null ? _clamp01((m.breadth200 - 0.30) / 0.50) : null;
+  const parts = [sP, sERP, sBr, sDY, sPB, sCAPE, sPS, sBr200].filter(x=>x!=null);
   const temp = parts.length ? Math.round(parts.reduce((a,b)=>a+b,0)/parts.length*100) : null;
 
   if (temp != null && bannerEl) {
@@ -8028,6 +8082,47 @@ function _renderMarketConditions() {
     tiles.push(tile('Breadth >SMA-50', (br*100).toFixed(0)+'%',
       `${verdict} · ${m.breadthN} stk`, col,
       'Percentage of stocks trading above their 50-day moving average — measures how broadly the market is participating in the trend. >60% healthy, <40% weak.'));
+  }
+
+  // 7. Breadth >SMA-200 — structural bull/bear regime
+  if (m.breadth200 != null) {
+    const br = m.breadth200;
+    const col = br > 0.60 ? '#2ed573' : br > 0.40 ? '#f5a623' : '#e74c3c';
+    const verdict = br > 0.60 ? 'Bull regime' : br > 0.40 ? 'Mixed' : 'Bear regime';
+    tiles.push(tile('Breadth >SMA-200', (br*100).toFixed(0)+'%',
+      `${verdict} · ${m.breadth200N} stk`, col,
+      'Percentage of stocks above their 200-day moving average — the structural trend indicator. >60% signals a healthy bull market; <40% is a bear-market regime. Slower-moving than SMA-50 breadth, more reliable as a regime filter.'));
+  }
+
+  // 8. Shiller CAPE — cyclically adjusted P/E (10-year inflation-adjusted)
+  if (m.cape != null) {
+    const c = m.cape;
+    const col = c < 18 ? '#2ed573' : c < 26 ? '#f5a623' : '#e74c3c';
+    const verdict = c < 18 ? 'Cheap' : c < 26 ? 'Modestly rich' : 'Expensive';
+    const coverage = m.capeDataDays >= 365 ? `${(m.capeDataDays/365).toFixed(1)}yr avg` : `${m.capeDataDays}d avg`;
+    tiles.push(tile('Shiller CAPE', c.toFixed(1)+'x',
+      `${verdict} · ${coverage}`, col,
+      `Cyclically-Adjusted P/E (Shiller PE): current market P/E normalised using ${m.capeDataDays} days of earnings history, inflation-adjusted at 2.5%/yr Saudi CPI. Smooths out earnings cycles — a market-wide CAPE <18 is historically cheap for TASI, >26 is expensive. Coverage grows the longer the app runs.`));
+  }
+
+  // 9. Market P/S — price-to-sales (less earnings-cycle distortion)
+  if (m.mktPS != null) {
+    const ps = m.mktPS;
+    const col = ps < 1.5 ? '#2ed573' : ps < 2.5 ? '#f5a623' : '#e74c3c';
+    const verdict = ps < 1.5 ? 'Cheap' : ps < 2.5 ? 'Fair' : 'Expensive';
+    tiles.push(tile('Market P/S', ps.toFixed(2)+'x',
+      `${verdict} · ${m.psN} stk`, col,
+      `Price-to-Sales: aggregate market cap ÷ aggregate TTM revenue for ${m.psN} stocks with revenue data. Revenue is less volatile than earnings — P/S is immune to earnings-manipulation and useful when many stocks are loss-making. TASI <1.5x historically cheap, >2.5x expensive.`));
+  }
+
+  // 10. 52-Week High vs Low ratio — near-term momentum breadth
+  if (m.hl52Ratio != null) {
+    const r = m.hl52Ratio;
+    const col = r > 0.65 ? '#2ed573' : r > 0.40 ? '#f5a623' : '#e74c3c';
+    const verdict = r > 0.65 ? 'Momentum strong' : r > 0.40 ? 'Mixed' : 'Momentum weak';
+    tiles.push(tile('52W High/Low', (r*100).toFixed(0)+'% highs',
+      `${verdict} · ${m.near52High}H ${m.near52Low}L`, col,
+      `Stocks within 5% of their 52-week high vs low. High % = broad momentum and rising market; low % = distribution and selling pressure. ${m.near52High} stocks near 52W high, ${m.near52Low} near 52W low.`));
   }
 
   tilesEl.innerHTML = tiles.join('');
