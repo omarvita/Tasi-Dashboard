@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260531m'; // bump this string on every deploy that matters
+  var V='20260531n'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531m · feat: derive P/B and Dividend Yield from financial statements</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531n · feat: total market cap (SAR T, ex-Aramco) in stats bar</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -330,6 +330,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
     <div class="mc"><div class="mc-l">Total</div><div class="mc-v" id="m-t">—</div></div>
     <div class="mc"><div class="mc-l">Equities</div><div class="mc-v" id="m-e">—</div></div>
     <div class="mc"><div class="mc-l">REITs</div><div class="mc-v" id="m-r">—</div></div>
+    <div class="mc" title="Total market capitalisation of all stocks with prices loaded (SAR). Ex-Aramco shown in brackets."><div class="mc-l">Mkt Cap</div><div class="mc-v" id="m-mc" style="font-size:10px">—</div></div>
     <div class="mc"><div class="mc-l">Avg Score</div><div class="mc-v" id="m-a">—</div></div>
     <div class="mc"><div class="mc-l">Buy Signals</div><div class="mc-v" id="m-b" style="color:var(--green)">—</div></div>
     <div class="mc"><div class="mc-l">Moat Stocks</div><div class="mc-v" id="m-m" style="color:var(--pur)">—</div></div>
@@ -4379,6 +4380,16 @@ function updateMetrics(){
   document.getElementById("m-t").textContent=allData.length;
   document.getElementById("m-e").textContent=allData.filter(d=>!d.isReit).length;
   document.getElementById("m-r").textContent=allData.filter(d=>d.isReit).length;
+  // Total market cap (SAR T) — show ex-Aramco in brackets for context
+  const mcEl = document.getElementById("m-mc");
+  if (mcEl) {
+    const withMC = allData.filter(d=>d.mktCap>0 && d.priceLoaded);
+    const totalT  = withMC.reduce((s,d)=>s+d.mktCap,0) / 1e12;
+    const exAramT = withMC.filter(d=>d.ticker!=='2222.SR').reduce((s,d)=>s+d.mktCap,0) / 1e12;
+    if (totalT > 0) {
+      mcEl.innerHTML = `${totalT.toFixed(1)}T <span style="font-size:9px;color:var(--tx3)">(ex-Aramco ${exAramT.toFixed(1)}T)</span>`;
+    }
+  }
   if(!filtData.length)return;
   document.getElementById("m-a").textContent=Math.round(filtData.reduce((s,d)=>s+d.combined,0)/filtData.length);
   document.getElementById("m-b").textContent=filtData.filter(d=>getSig(d.combined,d.buffett).label==="Buy").length;
