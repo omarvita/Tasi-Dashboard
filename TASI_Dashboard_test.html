@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260531r'; // bump this string on every deploy that matters
+  var V='20260531s'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531r · feat: Shiller CAPE, Market P/S, SMA-200 breadth, 52W H/L in market panel</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531s · fix: mktCap/shares persist in Drive; equal-weight fallback for market tiles</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1397,12 +1397,14 @@ async function gdLoadBulkPrices(onProgress) {
             });
             hits++;
           }
-          // Also load cached P/E/PB/EPS from bulk file (saved by gdSaveBulkPrices)
+          // Also load cached P/E/PB/EPS and mktCap/shares from bulk file (saved by gdSaveBulkPrices)
           if ((entry?.pe > 0 || entry?.fund) && entry.fundUpdated &&
               Date.now() - entry.fundUpdated < GD_FUND_TTL) {
             _gdCache[ticker] = Object.assign(_gdCache[ticker] || {}, {
               fundamentals: Object.assign((_gdCache[ticker]?.fundamentals || {}),
-                { pe: entry.pe, pb: entry.pb, eps: entry.eps }, entry.fund || {}),
+                { pe: entry.pe, pb: entry.pb, eps: entry.eps,
+                  mktCap: entry.mktCap ?? null, sharesOutstanding: entry.sharesOutstanding ?? null },
+                entry.fund || {}),
               fundUpdated: entry.fundUpdated,
               fundVersion: entry.fundVersion ?? GD_FUND_VER,
             });
@@ -1434,6 +1436,7 @@ async function gdSaveBulkPrices() {
         const F = c.fundamentals;
         prices[d.ticker] = Object.assign(prices[d.ticker] || {}, {
           pe: F.pe ?? null, pb: F.pb ?? null, eps: F.eps ?? null,
+          mktCap: F.mktCap ?? null, sharesOutstanding: F.sharesOutstanding ?? null,
           fund: { roe:F.roe??null, npm:F.npm??null, de:F.de??null, dy:F.dy??null,
                   fcf:F.fcf??null, cr:F.cr??null, rg:F.rg??null, eg:F.eg??null,
                   assets:F.assets??null, beta:F.beta??null,
@@ -7183,6 +7186,8 @@ async function refreshAll(forceRefresh=false){
         if (F.pe > 0) { d.pe = F.pe; d.livepeLoaded = true; }
         if (F.pb != null) d.pb = F.pb;
         if (F.eps != null) d.eps = F.eps;
+        if (F.mktCap > 0) d.mktCap = F.mktCap;
+        if (F.sharesOutstanding > 0) d.sharesOutstanding = F.sharesOutstanding;
         for (const k of ['roe','npm','de','dy','fcf','cr','rg','eg','assets','beta']) {
           if (F[k] != null) d[k] = F[k];
         }
@@ -7291,10 +7296,11 @@ async function refreshAll(forceRefresh=false){
   // The reliable source is TTM EPS from quarterly income statements (same as the stock modal).
   // We limit to 80 stocks to avoid Yahoo rate limiting; smaller stocks keep hardcoded P/E until modal open.
   const _allNeedsPE = allData.filter(d => d.priceLoaded && !d.livepeLoaded);
-  // Sort by market cap descending — prioritise largest stocks for accurate P/E
+  // Sort by market cap descending — fallback to revenue proxy when mktCap is null
+  // (Yahoo v7/quote often omits marketCap for .SR stocks; ttmRev is the best available proxy)
   const _needsPE = _allNeedsPE
     .slice()
-    .sort((a, b) => (b.mktCap || 0) - (a.mktCap || 0))
+    .sort((a, b) => (b.mktCap || b.ttmRev || 0) - (a.mktCap || a.ttmRev || 0))
     .slice(0, 80);
   if (_needsPE.length > 0) {
     document.getElementById("pl").textContent = `Fetching P/E ratios (top ${_needsPE.length} stocks by market cap)...`;
@@ -7337,16 +7343,22 @@ async function refreshAll(forceRefresh=false){
             pe = +sd.trailingPE.raw.toFixed(2);
           }
           const pb = (sd?.priceToBook?.raw > 0) ? +sd.priceToBook.raw.toFixed(2) : allData[idx].pb;
+          const shares2_5 = dk?.sharesOutstanding?.raw || null;
+          const mc2_5     = sd?.marketCap?.raw || (shares2_5 && livePrice > 0 ? shares2_5 * livePrice : null);
           allData[idx] = {
             ...allData[idx],
             pe, pb,
             livepeLoaded: true,
             combined: calcCombined({...allData[idx], pe, pb}),
+            ...(mc2_5     ? { mktCap: mc2_5 }                   : {}),
+            ...(shares2_5 ? { sharesOutstanding: shares2_5 }     : {}),
           };
-          // Persist P/E to Drive cache so next page load doesn't need Phase 2.5
+          // Persist P/E, mktCap, shares to Drive cache so next page load doesn't need Phase 2.5
           _gdCache[d.ticker] = Object.assign(_gdCache[d.ticker] || {}, {
             fundamentals: Object.assign((_gdCache[d.ticker]?.fundamentals || {}), {
-              pe, pb: pb || null, eps: eps || null
+              pe, pb: pb || null, eps: eps || null,
+              ...(mc2_5     ? { mktCap: mc2_5 }             : {}),
+              ...(shares2_5 ? { sharesOutstanding: shares2_5 } : {}),
             }),
             fundUpdated: Date.now(),
           });
@@ -7903,15 +7915,17 @@ function _marketConditions() {
   const earningsYield = wtdAvg > 0 ? 1/wtdAvg : null;
   const erp = earningsYield != null ? earningsYield - SAUDI_RF : null;
 
-  // Cap-weighted dividend yield
-  const dyStocks = withMC.filter(d=>d.dy>0);
-  const dyMC = dyStocks.reduce((s,d)=>s+d.mktCap,0);
-  const wtdDY = dyMC>0 ? dyStocks.reduce((s,d)=>s+d.dy*(d.mktCap/dyMC),0) : null;
+  // Cap-weighted dividend yield — fallback to equal-weight when mktCap absent
+  const dyStocks = allData.filter(d=>d.priceLoaded && d.dy>0);
+  const dyWt = d => d.mktCap > 0 ? d.mktCap : 1;
+  const dyTotalWt = dyStocks.reduce((s,d)=>s+dyWt(d),0);
+  const wtdDY = dyTotalWt>0 ? dyStocks.reduce((s,d)=>s+d.dy*(dyWt(d)/dyTotalWt),0) : null;
 
-  // Cap-weighted price-to-book
-  const pbStocks = withMC.filter(d=>d.pb>0 && d.pb<30);
-  const pbMC = pbStocks.reduce((s,d)=>s+d.mktCap,0);
-  const wtdPB = pbMC>0 ? pbStocks.reduce((s,d)=>s+d.pb*(d.mktCap/pbMC),0) : null;
+  // Cap-weighted price-to-book — fallback to equal-weight when mktCap absent
+  const pbStocks = allData.filter(d=>d.priceLoaded && d.pb>0 && d.pb<30);
+  const pbWt = d => d.mktCap > 0 ? d.mktCap : 1;
+  const pbTotalWt = pbStocks.reduce((s,d)=>s+pbWt(d),0);
+  const wtdPB = pbTotalWt>0 ? pbStocks.reduce((s,d)=>s+d.pb*(pbWt(d)/pbTotalWt),0) : null;
 
   // Breadth — % of stocks trading above their 50-day SMA (trend participation)
   const brStocks = allData.filter(d=>d.priceLoaded && d.price>0 && d.sma50>0);
@@ -7940,8 +7954,11 @@ function _marketConditions() {
   const hl52Ratio = hl52N > 0 ? near52High / hl52N : null;
 
   // Market P/S — aggregate market cap ÷ aggregate TTM revenue (avoids cap-weight bias)
-  const psStocks = withMC.filter(d=>d.mktCap>0 && d.ttmRev>0);
-  const psTotalMC  = psStocks.reduce((s,d)=>s+d.mktCap,0);
+  // Use derived mktCap (price × shares) when raw mktCap is null
+  const psStocks = allData.filter(d=>d.priceLoaded && d.price>0 && d.ttmRev>0);
+  const getMC = d => d.mktCap > 0 ? d.mktCap
+    : (d.sharesOutstanding > 0 ? d.price * d.sharesOutstanding : 0);
+  const psTotalMC  = psStocks.reduce((s,d)=>s+getMC(d),0);
   const psTotalRev = psStocks.reduce((s,d)=>s+d.ttmRev,0);
   const mktPS = psTotalMC>0 && psTotalRev>0 ? psTotalMC/psTotalRev : null;
 
