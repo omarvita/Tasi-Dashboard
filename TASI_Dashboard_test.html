@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260531o'; // bump this string on every deploy that matters
+  var V='20260531p'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531o · fix: persist recalculated scores to IndexedDB + Drive after Recalculate</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531p · feat: Market Cap + Shares Outstanding tiles in stock overview</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -4915,6 +4915,16 @@ function buildOverview(d){
   <div class="mgrid4">
     <div class="mi"><div class="mil">Price SAR</div><div class="miv">${d.price!=null?d.price.toFixed(2):"—"}</div></div>
     <div class="mi"><div class="mil">Daily Chg</div><div class="miv ${d.change!=null?(d.change>=0?'pos':'neg'):''}">${d.change!=null?(d.change>=0?"+":"")+d.change.toFixed(2)+"%":"—"}</div></div>
+    ${(()=>{
+      const mc=d.mktCap;
+      const mcStr=mc>=1e12?(mc/1e12).toFixed(2)+' T':mc>=1e9?(mc/1e9).toFixed(1)+' B':mc>=1e6?(mc/1e6).toFixed(0)+' M':null;
+      return `<div class="mi"><div class="mil" ${T('mktcap')}>Market Cap</div><div class="miv">${mcStr?`<span style="font-family:var(--mono)">${mcStr} SAR</span>${_capTier?` <span style="font-size:8px;color:${_capTier.color}">${_capTier.label}</span>`:''}` :'—'}</div></div>`;
+    })()}
+    ${(()=>{
+      const sh=d.sharesOutstanding||_gdCache[d.ticker]?.fundamentals?.sharesOutstanding;
+      const shStr=sh>=1e9?(sh/1e9).toFixed(3)+' B':sh>=1e6?(sh/1e6).toFixed(1)+' M':null;
+      return shStr?`<div class="mi"><div class="mil">Shares Out.</div><div class="miv" style="font-family:var(--mono)">${shStr}</div></div>`:'';
+    })()}
     <div class="mi"><div class="mil" ${T('pe')}>P/E Ratio${d.pe!=null&&sectorMedianPE[d.sector]?`<span style="font-size:8px;color:var(--tx3);margin-left:3px">sector med ${sectorMedianPE[d.sector].toFixed(1)}x</span>`:''}
     </div><div class="miv">${d.pe!=null?d.pe.toFixed(1):"—"}</div></div>
     <div class="mi"><div class="mil" ${T('pb')}>P/B Ratio</div><div class="miv">${d.pb!=null?d.pb.toFixed(2):"—"}</div></div>
