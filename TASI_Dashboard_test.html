@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260531f'; // bump this string on every deploy that matters
+  var V='20260531g'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -4026,6 +4026,17 @@ async function fetchYahooPrice(ticker){
 
 // ── PRICE-ONLY FETCH: used during main refresh (fast, 1 req per stock) ──
 const GD_PRICE_TTL = Infinity; // prices never expire — last known price is always valid; use Force to refresh
+
+// Compute daily % change from a closes array (oldest-first).
+// Skips trailing duplicate closes so a closed market shows the previous real move.
+function dailyChangeFromCloses(closes) {
+  if (!closes || closes.length < 2) return null;
+  const last = closes[closes.length - 1];
+  for (let i = closes.length - 2; i >= 0; i--) {
+    if (closes[i] !== last && closes[i] > 0) return (last - closes[i]) / closes[i] * 100;
+  }
+  return null;
+}
 // skipDriveNetwork=true during bulk refreshAll: use only in-memory cache, no Drive API calls
 // (prevents 238× Drive API calls which get throttled and cause hangs)
 async function fetchStockPrice(stock, skipDriveNetwork=false) {
@@ -4267,8 +4278,8 @@ function renderTable(){
   tb.innerHTML=page.map((d,i)=>{
     const sig=getSig(d.combined,d.buffett);
     const hasPx=d.price!=null;
-    const cc=hasPx?(d.change>=0?"pos":"neg"):"nav";
-    const cs=hasPx?((d.change>=0?"+":"")+d.change.toFixed(2)+"%"):"—";
+    const cc=hasPx&&d.change!=null?(d.change>=0?"pos":"neg"):"nav";
+    const cs=hasPx&&d.change!=null?((d.change>=0?"+":"")+d.change.toFixed(2)+"%"):"—";
     const moat=d.criteria?.hasMoat?`<span class="badge b-moat">Moat</span>`:"";
     const reit=d.isReit?`<span class="badge b-reit">REIT</span>`:"";
     const lv=d.priceLoaded?`<span class="badge b-live" style="margin-left:2px">LIVE</span>`:`<span class="badge b-est" style="margin-left:2px">EST</span>`;
