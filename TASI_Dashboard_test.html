@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260601e · feat: Market Valuation tiles clickable with per-indicator history charts; daily-expiry cache</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260601f · feat: reconstruct full history for all valuation indicators + per-term descriptions</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -366,7 +366,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
     </div>
     <!-- Market P/E time-series chart (hidden by default) -->
     <div id="market-pe-chart-wrap" style="display:none;margin-top:10px">
-      <div style="display:flex;align-items:center;gap:16px;margin-bottom:10px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:6px;flex-wrap:wrap">
         <div>
           <div style="font-size:28px;font-weight:700;color:var(--tx);line-height:1" id="mpe-big-val">—</div>
           <div style="font-size:9px;color:var(--tx3);margin-top:2px"><span id="mpe-ind-label">Saudi Market P/E</span> <span id="mpe-val-label" style="font-weight:600"></span></div>
@@ -395,8 +395,11 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
           <button class="tasi-rng-btn" id="mpe-r-5y"  onclick="setMPERange('5Y')">5Y</button>
         </div>
       </div>
+      <!-- Selected-indicator description (updates as you click a tile) -->
+      <div id="mpe-ind-desc" style="font-size:9px;color:var(--tx3);line-height:1.45;margin-bottom:10px;padding:6px 9px;background:var(--bg3);border:1px solid var(--b1);border-radius:5px"></div>
       <!-- Market valuation thermometer + indicator tiles -->
       <div id="mkt-cond-banner" style="display:none;margin-bottom:10px"></div>
+      <div style="font-size:8px;color:var(--tx3);margin-bottom:6px">👆 Click any tile below to see its history over time. Hover for a definition.</div>
       <div id="mkt-cond-tiles" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>
       <div style="height:180px"><canvas id="market-pe-chart"></canvas></div>
     </div>
@@ -7172,8 +7175,8 @@ async function refreshAll(forceRefresh=false){
     if(hit){
       document.getElementById("pf").style.width="100%";
       const loaded=allData.filter(d=>d.priceLoaded).length;
-      document.getElementById("pl").textContent=`✓ Restored ${loaded} stocks from cache`;
-      setTimeout(()=>{pw.style.display="none";},2000);
+      document.getElementById("pl").textContent=`✓ Restored ${loaded} stocks from today's cache — click ⟳ Force for fresh live prices`;
+      setTimeout(()=>{pw.style.display="none";},3500);
       btn.disabled=false;btn.textContent="↻ Reload Data";
       document.getElementById("lu").textContent=`${loaded}/${allData.length} from cache`;
       // Compute sector medians and fetch TASI index even from cache
@@ -8063,6 +8066,94 @@ function _computeOverallScore(m) {
   return parts.length ? Math.round(parts.reduce((a,b)=>a+b,0)/parts.length*100) : null;
 }
 
+// Plain-language definitions shown in the description caption when a tile is selected.
+const _MKT_IND_DESC = {
+  pe:      'Market P/E — the cap-weighted price-to-earnings ratio of the market (excl. Aramco & REITs). How many riyals investors pay per riyal of annual earnings. <15x is historically cheap for TASI, 15–25x fair, >25x expensive.',
+  overall: 'Overall Score — a single 0–100 valuation gauge blending all indicators below (P/E, ERP, breadth, dividend yield, P/B, CAPE, P/S). 0 = cheap / fearful market, 100 = expensive / greedy market. Equal-weighted average of every available signal.',
+  buffett: 'Buffett Indicator — total stock-market value ÷ GDP (ex-Aramco). Warren Buffett\'s favourite gauge of whether a whole market is cheap or rich. <80% undervalued, 80–110% fair, 110–150% modestly rich, >150% overvalued (Saudi-calibrated). Saudi GDP ≈ SAR 4.3T.',
+  ey:      'Earnings Yield — the inverse of the market P/E (1 ÷ P/E). The percentage of earnings the market produces per riyal invested. Directly comparable to bond yields: higher than the risk-free rate means equities are attractive.',
+  erp:     'Equity Risk Premium — earnings yield minus the risk-free rate (Saudi ≈ 5.5%). The extra reward you get for holding stocks instead of government bonds. Above +3% = equities clearly cheap vs bonds; negative = equities expensive vs bonds.',
+  dy:      'Dividend Yield — cap-weighted dividend yield across all dividend-paying stocks (annual dividend ÷ price). Higher yields usually accompany cheaper markets. The TASI long-run average is roughly 3–4%.',
+  pb:      'Price-to-Book — cap-weighted price ÷ book (net asset) value of the market. Less distorted by earnings cycles than P/E. Below 1.8x is historically cheap for TASI, above 2.5x rich.',
+  br50:    'Breadth >SMA-50 — the share of stocks trading above their own 50-day moving average. Measures how broadly the market is participating in the trend. >60% is a healthy broad uptrend, <40% is weak.',
+  br200:   'Breadth >SMA-200 — the share of stocks above their 200-day moving average. The structural bull/bear regime filter. >60% signals a healthy bull market, <40% a bear regime. Slower and more reliable than SMA-50 breadth.',
+  cape:    'Shiller CAPE — cyclically-adjusted P/E: the market P/E smoothed over years of inflation-adjusted earnings. Strips out short-term earnings swings. A market-wide CAPE <18 is historically cheap for TASI, >26 expensive.',
+  ps:      'Price-to-Sales — aggregate market value ÷ aggregate annual revenue. Revenue is far steadier than earnings, so P/S stays meaningful even when many companies are loss-making. TASI <1.5x is historically cheap, >2.5x expensive.',
+  hl52:    '52-Week High/Low — of the stocks near a 52-week extreme, the percentage near their HIGH (vs near their low). A momentum/sentiment gauge: a high reading means broad strength and a rising market; a low reading signals distribution and selling pressure.',
+};
+
+// Reconstruct each indicator's history from stored per-stock price closes — the same
+// price-scaling assumption the P/E chart uses (fundamentals held at today's values,
+// scaled by each stock's historical close). Returns Map<dateStr, {t, ...indicators}>.
+function _buildMktValHistory(cutoffMs) {
+  const GD = SAUDI_GDP_SAR, RF = SAUDI_RF;
+  const agg = new Map();
+  const getA = (d, t) => {
+    let a = agg.get(d);
+    if (!a) { a = { t, capExA:0, peCap:0, peW:0, pbCap:0, pbW:0, dyCap:0, dyW:0,
+                    psCap:0, revSum:0, a50:0, v50:0, a200:0, v200:0, nh:0, nl:0 }; agg.set(d, a); }
+    return a;
+  };
+  for (const s of allData) {
+    const closes = s.closes || [], stamps = s.timestamps || [];
+    const n = closes.length;
+    if (n < 5 || stamps.length !== n || !(s.price > 0)) continue;
+    const shares = s.sharesOutstanding || (s.mktCap > 0 ? s.mktCap / s.price : 0);
+    const curMC  = s.mktCap > 0 ? s.mktCap : (shares > 0 ? s.price * shares : 0);
+    const isAramco = s.ticker === '2222.SR';
+    const isReit   = s.isReit || s.sector === 'REITs';
+    const pe = (s.pe > 0 && s.pe < 200 && !isReit) ? s.pe : null;
+    const pb = (s.pb > 0 && s.pb < 30) ? s.pb : null;
+    const dy = (s.dy > 0 && s.dy < 0.25) ? s.dy : null;
+    const rev = s.ttmRev > 0 ? s.ttmRev : null;
+    // Prefix sums for fast SMA-50 / SMA-200
+    const pref = new Float64Array(n + 1);
+    for (let i = 0; i < n; i++) pref[i + 1] = pref[i] + closes[i];
+    for (let i = 0; i < n; i++) {
+      const c = closes[i], ts = stamps[i];
+      if (!(c > 0) || !ts) continue;
+      const tMs = ts * 1000;
+      if (tMs < cutoffMs) continue;
+      const ratio  = c / s.price;
+      const dateStr = new Date(tMs).toISOString().slice(0, 10);
+      const A = getA(dateStr, tMs);
+      const histMC = curMC > 0 ? curMC * ratio : 0;
+      if (histMC > 0) {
+        if (!isAramco) A.capExA += histMC;
+        if (pe != null) { const hp = pe * ratio; if (hp > 0 && hp < 200) { A.peCap += histMC; A.peW += histMC * hp; } }
+        if (pb != null) { A.pbCap += histMC; A.pbW += histMC * pb * ratio; }
+        if (dy != null) { A.dyCap += histMC; A.dyW += histMC * Math.min(dy / ratio, 0.6); }
+        if (rev != null) { A.psCap += histMC; A.revSum += rev; }
+      }
+      if (i >= 49)  { const sma = (pref[i + 1] - pref[i - 49])  / 50;  A.v50++;  if (c > sma) A.a50++; }
+      if (i >= 199) { const sma = (pref[i + 1] - pref[i - 199]) / 200; A.v200++; if (c > sma) A.a200++; }
+      // 52-week (trailing 252 sessions) high/low proximity
+      const lo = Math.max(0, i - 251);
+      let hi = -Infinity, low = Infinity;
+      for (let j = lo; j <= i; j++) { const v = closes[j]; if (v > hi) hi = v; if (v < low) low = v; }
+      if (hi > 0 && low > 0) { if (c >= hi * 0.95) A.nh++; else if (c <= low * 1.05) A.nl++; }
+    }
+  }
+  const out = new Map();
+  for (const [d, A] of agg) {
+    const wtdPE = A.peCap > 0 ? A.peW / A.peCap : null;
+    const ey    = wtdPE > 0 ? 1 / wtdPE : null;
+    const erp   = ey != null ? ey - RF : null;
+    const pb    = A.pbCap > 0 ? A.pbW / A.pbCap : null;
+    const dy    = A.dyCap > 0 ? A.dyW / A.dyCap : null;
+    const ps    = (A.psCap > 0 && A.revSum > 0) ? A.psCap / A.revSum : null;
+    const br50  = A.v50  >= 20 ? A.a50  / A.v50  : null;
+    const br200 = A.v200 >= 20 ? A.a200 / A.v200 : null;
+    const hl52N = A.nh + A.nl;
+    const hl52  = hl52N > 0 ? A.nh / hl52N : null;
+    const buffett = A.capExA > 0 ? A.capExA / GD : null;
+    const overall = _computeOverallScore({ wtdAvg: wtdPE, erp, breadth: br50, wtdDY: dy,
+                                           wtdPB: pb, cape: null, mktPS: ps, breadth200: br200 });
+    out.set(d, { t: A.t, pe: wtdPE, buffett, ey, erp, dy, pb, ps, br50, br200, hl52, overall });
+  }
+  return out;
+}
+
 function _renderMarketConditions() {
   const m = _marketConditions();
   const tilesEl = document.getElementById('mkt-cond-tiles');
@@ -8323,9 +8414,11 @@ function _renderMPEChart() {
   const bigEl = document.getElementById('mpe-big-val');
   const lblEl = document.getElementById('mpe-val-label');
   const indLblEl = document.getElementById('mpe-ind-label');
+  const descEl = document.getElementById('mpe-ind-desc');
   const ptr   = document.getElementById('mpe-gauge-ptr');
   if (bigEl) bigEl.textContent = curveVal.toFixed(1)+'x';
   if (indLblEl) indLblEl.textContent = 'Saudi Market P/E';
+  if (descEl) descEl.textContent = _MKT_IND_DESC.pe || '';
   if (lblEl) {
     const label = curveVal < 15 ? `(${curveLabel} — Undervalued)` : curveVal < 25 ? `(${curveLabel} — Fair Value)` : curveVal < 32 ? `(${curveLabel} — Overvalued)` : `(${curveLabel} — Expensive)`;
     const col   = curveVal < 15 ? 'var(--green)' : curveVal < 25 ? '#f5a623' : 'var(--red)';
@@ -8516,8 +8609,10 @@ function _renderIndicatorHistChart(ctx) {
   const bigEl = document.getElementById('mpe-big-val');
   const lblEl = document.getElementById('mpe-val-label');
   const indLblEl = document.getElementById('mpe-ind-label');
+  const descEl = document.getElementById('mpe-ind-desc');
   const ptr = document.getElementById('mpe-gauge-ptr');
   if (indLblEl) indLblEl.textContent = meta.label;
+  if (descEl) descEl.textContent = _MKT_IND_DESC[_mktValIndicator] || '';
   if (ptr) ptr.style.left = '50%';
   if (lblEl) { lblEl.textContent = ''; }
 
@@ -8532,22 +8627,38 @@ function _renderIndicatorHistChart(ctx) {
 
   const rangeDays = { '3M':90, '6M':180, '1Y':365, '2Y':730, '5Y':1825 }[_mpeRange] || 365;
   const cutoffMs  = Date.now() - rangeDays * 864e5;
-  const rawHist   = _mpeHistCache || JSON.parse(localStorage.getItem('tasi_mpe_hist')||'[]');
-  const hist = rawHist
-    .filter(e => e[_mktValIndicator] != null && new Date(e.d).getTime() >= cutoffMs)
-    .sort((a,b) => a.d < b.d ? -1 : 1);
+
+  // Merge two sources, stored daily snapshots (authoritative) win over reconstruction.
+  const recon   = _buildMktValHistory(cutoffMs);              // Map<dateStr,{...}>
+  const rawHist = _mpeHistCache || JSON.parse(localStorage.getItem('tasi_mpe_hist')||'[]');
+  const merged  = new Map();
+  for (const [d, v] of recon) {
+    const val = v[_mktValIndicator];
+    if (val != null && isFinite(val)) merged.set(d, { t: v.t, v: val });
+  }
+  for (const e of rawHist) {
+    const val = e[_mktValIndicator];
+    if (val == null || !isFinite(val)) continue;
+    const t = new Date(e.d).getTime();
+    if (t < cutoffMs) continue;
+    merged.set(e.d, { t, v: val });        // stored value overrides reconstruction
+  }
+
+  const hist = [...merged.entries()]
+    .map(([d, o]) => ({ d, v: o.v }))
+    .sort((a, b) => a.d < b.d ? -1 : 1);
 
   if (!hist.length) {
     const c2 = ctx.getContext('2d');
     c2.clearRect(0, 0, ctx.width, ctx.height);
     c2.fillStyle = '#4a5568'; c2.font = "11px 'IBM Plex Mono'"; c2.textAlign = 'center';
-    c2.fillText('No historical data for this indicator yet.', ctx.width/2, ctx.height/2 - 8);
-    c2.fillText('Data is recorded each day as you use the app.', ctx.width/2, ctx.height/2 + 10);
+    c2.fillText('Loading price history — chart appears once stock data finishes loading.', ctx.width/2, ctx.height/2 - 8);
+    c2.fillText(curVal != null ? `Current: ${meta.fmt(curVal)}` : '', ctx.width/2, ctx.height/2 + 10);
     return;
   }
 
   const labels   = hist.map(e => e.d);
-  const values   = hist.map(e => e[_mktValIndicator]);
+  const values   = hist.map(e => e.v);
   const fontOpts = { size:8, family:"'IBM Plex Mono'" };
 
   marketPEChartInst = new Chart(ctx, {
