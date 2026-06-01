@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260601j · fix: deduplicate _IND_HIST_META, cache _buildMktValHistory by range, invalidate on refresh</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260601k · feat: tooltips on all Fair Value tab labels (P/E, EV/EBITDA, P/B, Composite, Model Inputs)</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -3140,6 +3140,21 @@ const TIPS = {
   shares_out:     'Total number of ordinary shares issued by the company. Dividing equity value by this gives intrinsic value per share.',
   fcf_growth:     'Projected annual FCF growth rate for the 5-year forecast. Based on historical earnings growth and analyst estimates. Small changes have a large valuation impact.',
   tax_zakat:      'Saudi domestic companies pay Zakat (~2.5% of net assets ≈ 5% effective income rate). Some subsidiaries pay 20% CIT. Reduces effective cost of debt via tax shield.',
+  de_ratio:       'Debt-to-Equity ratio used in WACC — how much debt the company uses relative to equity. High D/E raises WACC, which lowers the DCF fair value. For Saudi non-banks this is sourced from the balance sheet; deposits are excluded.',
+  fcf:            'The base Free Cash Flow input for DCF projections — operating cash flow minus capital expenditure. Sourced from the most recent annual report or trailing 12 months. The quality of the entire DCF output depends on this starting figure.',
+  pe_relative:    'Compares this stock\'s P/E to its sector peers. Fair value = EPS × sector median P/E. A premium to peers may be justified by higher growth; a discount may signal an overlooked opportunity or a genuine risk.',
+  ev_ebitda_method:'EV/EBITDA values the whole business (equity + net debt) as a multiple of operating profit before interest, tax, depreciation and amortisation. Fair value = (EBITDA × sector target multiple − net debt) ÷ shares. Best for asset-heavy cyclical companies.',
+  pb_method:      'P/B values the company relative to the net assets on its balance sheet. Fair value = Book Value Per Share × sector target P/B. Most relevant for banks, real estate and REITs where assets are measured at near-market values.',
+  composite_method:'Sector-weighted blend of all available methods (DCF, P/E, EV/EBITDA, P/B, DDM). Weights reflect what each sector is conventionally valued on — cyclicals lean on EV/EBITDA, banks on DDM+P/B, growth stocks on DCF. More methods = a more robust estimate.',
+  stock_pe_label: 'This stock\'s current trailing P/E ratio — the price per SAR of the last 12 months\' earnings. Compare to the sector median to see if it trades at a premium or discount.',
+  sector_median:  'The cap-weighted median P/E of comparable Saudi stocks in this sector. Multiplying this by the stock\'s EPS gives the P/E-based fair value estimate.',
+  pe_fair_val:    'P/E-derived fair value = EPS × Sector Median P/E. This answers: what would the stock trade at if it were valued in line with its peers?',
+  ev_ebitda_cur:  'Enterprise Value ÷ EBITDA — the company\'s current market multiple. Enterprise Value = market cap + net debt. Lower values vs the sector target suggest undervaluation.',
+  ev_sector_tgt:  'The sector\'s typical EV/EBITDA multiple, used as a fair-value anchor. Fair value equity = EBITDA × this target − net debt, divided by shares outstanding.',
+  pb_current:     'Price-to-Book ratio — share price ÷ net asset value per share. Below 1.0 means trading below balance-sheet liquidation value. A persistently low P/B can signal low ROE expectations.',
+  pb_sector_tgt:  'The sector\'s typical P/B range used as a fair-value anchor. Multiplying book value per share by this target gives the P/B-based fair value estimate.',
+  pb_fair_val:    'P/B-derived fair value = Book Value Per Share × Sector Target P/B. Most reliable for asset-heavy sectors where book value closely tracks economic value.',
+  upside_label:   'Percentage gap between the method\'s fair value estimate and the current market price. Positive = model sees upside (potentially undervalued); negative = model sees downside (potentially overvalued). Treat as a range, not a price target.',
   upside:         'Difference between DCF intrinsic value and current market price as a percentage. Positive = undervalued vs model; negative = overvalued. Treat as a range, not a precise target.',
   dps:            'Dividends Per Share — estimated annual cash dividend paid per ordinary share. Formula: Dividend Yield × Share Price.',
   rev_momentum:   'Whether the most recent year\'s revenue growth rate is accelerating (above) or decelerating (below) the prior-year average.',
@@ -6159,17 +6174,17 @@ async function buildDCF(d) {
   <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">${primaryMethod} — Market Price vs Fair Value</div>
   <div style="display:flex;gap:10px;flex-wrap:wrap">
     <div style="flex:1;min-width:90px;text-align:center;background:var(--bg3);border-radius:7px;padding:10px 8px;border:1px solid var(--b1)">
-      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:5px">Market Price</div>
+      <div ${T('price')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:5px;cursor:help">Market Price</div>
       <div style="font-size:24px;font-weight:700;color:var(--tx1);font-family:var(--mono)">${d.price.toFixed(2)}</div>
       <div style="font-family:var(--mono);font-size:9px;color:var(--tx3)">SAR</div>
     </div>
     <div style="flex:1;min-width:90px;text-align:center;background:var(--bg3);border-radius:7px;padding:10px 8px;border:1px solid ${uColor}55">
-      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:5px">Fair Value (${primaryMethod})</div>
+      <div ${T('intrinsic')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:5px;cursor:help">Fair Value (${primaryMethod})</div>
       <div style="font-size:24px;font-weight:700;color:${uColor};font-family:var(--mono)">${primaryPS.toFixed(2)}</div>
       <div style="font-family:var(--mono);font-size:9px;color:var(--tx3)">SAR</div>
     </div>
     <div style="flex:1;min-width:90px;text-align:center;background:var(--bg3);border-radius:7px;padding:10px 8px;border:1px solid ${uColor}55">
-      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:5px">Upside / Downside</div>
+      <div ${T('upside')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:5px;cursor:help">Upside / Downside</div>
       <div style="font-size:24px;font-weight:700;color:${uColor};font-family:var(--mono)">${primaryUpside>=0?'+':''}${(primaryUpside*100).toFixed(1)}%</div>
       <div style="font-family:var(--mono);font-size:9px;color:${uColor};font-weight:600">${uLabel}</div>
     </div>
@@ -6190,22 +6205,22 @@ async function buildDCF(d) {
     const peLabel = pePremium > 0.20 ? '▼ Expensive vs peers' : pePremium > -0.10 ? '● In line with peers' : '▲ Cheap vs peers';
     const peUColor = peUpside > 0.10 ? 'var(--green)' : peUpside > -0.10 ? 'var(--amb)' : 'var(--red)';
     html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
-  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">P/E Relative Valuation — vs ${d.sector||'Market'} Peers</div>
+  <div ${T('pe_relative')} style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;cursor:help">P/E Relative Valuation — vs ${d.sector||'Market'} Peers ⓘ</div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
     <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
-      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">Stock P/E</div>
+      <div ${T('stock_pe_label')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px;cursor:help">Stock P/E</div>
       <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${peColor}">${stockPE.toFixed(1)}×</div>
     </div>
     <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
-      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">Sector Median</div>
+      <div ${T('sector_median')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px;cursor:help">Sector Median</div>
       <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:var(--tx2)">${sectorPE}×</div>
     </div>
     <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
-      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">P/E Fair Value</div>
+      <div ${T('pe_fair_val')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px;cursor:help">P/E Fair Value</div>
       <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${peUColor}">${peFairValue.toFixed(2)} SAR</div>
     </div>
     <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
-      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">Upside</div>
+      <div ${T('upside_label')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px;cursor:help">Upside</div>
       <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${peUColor}">${peUpside>=0?'+':''}${(peUpside*100).toFixed(1)}%</div>
     </div>
   </div>
@@ -6222,22 +6237,22 @@ async function buildDCF(d) {
     const evLabel = evUpside > 0.10 ? '▲ Undervalued vs EBITDA' : evUpside > -0.10 ? '● Fair vs EBITDA' : '▼ Overvalued vs EBITDA';
     const evColor = currentEVEBITDA && currentEVEBITDA > sectorEVEBITDA * 1.2 ? 'var(--red)' : currentEVEBITDA && currentEVEBITDA < sectorEVEBITDA * 0.8 ? 'var(--green)' : 'var(--amb)';
     html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
-  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">EV/EBITDA Valuation — ${d.sector||'Sector'} Benchmark</div>
+  <div ${T('ev_ebitda_method')} style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;cursor:help">EV/EBITDA Valuation — ${d.sector||'Sector'} Benchmark ⓘ</div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
     <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
-      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">Current EV/EBITDA</div>
+      <div ${T('ev_ebitda_cur')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px;cursor:help">Current EV/EBITDA</div>
       <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${evColor}">${currentEVEBITDA?currentEVEBITDA.toFixed(1)+'×':'—'}</div>
     </div>
     <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
-      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">Sector Target</div>
+      <div ${T('ev_sector_tgt')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px;cursor:help">Sector Target</div>
       <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:var(--tx2)">${sectorEVEBITDA}×</div>
     </div>
     <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
-      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">Fair Value</div>
+      <div ${T('ev_ebitda_method')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px;cursor:help">Fair Value</div>
       <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${evUColor}">${evFairValue.toFixed(2)} SAR</div>
     </div>
     <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
-      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">Upside</div>
+      <div ${T('upside_label')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px;cursor:help">Upside</div>
       <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${evUColor}">${evUpside>=0?'+':''}${(evUpside*100).toFixed(1)}%</div>
     </div>
   </div>
@@ -6254,22 +6269,22 @@ async function buildDCF(d) {
     const pbLabel = pbUpside > 0.10 ? '▲ Trading below book target' : pbUpside > -0.10 ? '● In line with book target' : '▼ Trading above book target';
     const curPBColor = d.pb && d.pb < sectorPBMid * 0.8 ? 'var(--green)' : d.pb && d.pb > sectorPBMid * 1.2 ? 'var(--red)' : 'var(--amb)';
     html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
-  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">P/B Valuation — Book Value Anchor</div>
+  <div ${T('pb_method')} style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;cursor:help">P/B Valuation — Book Value Anchor ⓘ</div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
     <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
-      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">Current P/B</div>
+      <div ${T('pb_current')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px;cursor:help">Current P/B</div>
       <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${curPBColor}">${d.pb?d.pb.toFixed(2)+'×':'—'}</div>
     </div>
     <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
-      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">Sector Target P/B</div>
+      <div ${T('pb_sector_tgt')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px;cursor:help">Sector Target P/B</div>
       <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:var(--tx2)">${sectorPBMid}×</div>
     </div>
     <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
-      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">P/B Fair Value</div>
+      <div ${T('pb_fair_val')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px;cursor:help">P/B Fair Value</div>
       <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${pbUColor}">${pbFairValue.toFixed(2)} SAR</div>
     </div>
     <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
-      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px">Upside</div>
+      <div ${T('upside_label')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px;cursor:help">Upside</div>
       <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${pbUColor}">${pbUpside>=0?'+':''}${(pbUpside*100).toFixed(1)}%</div>
     </div>
   </div>
@@ -6285,7 +6300,7 @@ async function buildDCF(d) {
     const cColor = compositeUpside > 0.10 ? 'var(--green)' : compositeUpside > -0.10 ? 'var(--amb)' : 'var(--red)';
     const _tw = _methods.reduce((s,m)=>s+m.w,0);
     html += `<div style="background:var(--bg3);border:2px solid ${cColor}44;border-radius:7px;padding:10px 12px;margin-bottom:10px">
-  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Composite Fair Value — ${_sectorType.charAt(0).toUpperCase()+_sectorType.slice(1)} Sector Weights</div>
+  <div ${T('composite_method')} style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;cursor:help">Composite Fair Value — ${_sectorType.charAt(0).toUpperCase()+_sectorType.slice(1)} Sector Weights ⓘ</div>
   <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
     ${_methods.map(m=>{
       const mColor = (m.fv-d.price)/d.price>0.05?'var(--green)':(m.fv-d.price)/d.price<-0.05?'var(--red)':'var(--amb)';
@@ -6307,7 +6322,7 @@ async function buildDCF(d) {
 
   // MODEL INPUTS TABLE
   html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
-  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">Model Inputs</div>
+  <div data-tip="Assumptions driving all DCF, DDM, and WACC calculations. Risk-Free Rate and ERP set the cost-of-equity baseline; Beta adjusts for this stock's sensitivity to the market. WACC is the all-in hurdle rate — the higher it is, the lower the fair value." style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;cursor:help">Model Inputs ⓘ</div>
   <div class="mgrid4">
     <div class="mi"><div class="mil" ${T('rfr')}>Risk-Free Rate</div><div class="miv">${(rfRate*100).toFixed(1)}%</div></div>
     <div class="mi"><div class="mil" ${T('erp')}>Equity Risk Premium</div><div class="miv">${(erp*100).toFixed(1)}%</div></div>
