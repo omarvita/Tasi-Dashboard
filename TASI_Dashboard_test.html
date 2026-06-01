@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260601h · fix: Fair Value now populates after refresh from cached DCF + live-price upside recompute</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260601i · feat: Recalculate All now computes & populates Fair Value (DCF) offline from cached statements</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -7855,21 +7855,42 @@ async function recalculateAllFromCache() {
     }
   }
 
+  // First apply any DCF fair values already cached on Drive (instant, recomputes upside vs live price)
+  _applyDriveValuations();
+
+  // Compute Fair Value (DCF) for stocks that have statements but no fair value yet.
+  // buildDCF works offline from the cached statements (no network) and saves the result to Drive.
+  const needDCF = allData.filter(d => (d.rawTwelveData?.annual || d.rawTwelveData?.quarterly) && !(d.dcfPS > 0));
+  let dcfDone = 0;
+  const DCONC = 6;
+  for (let i = 0; i < needDCF.length; i += DCONC) {
+    await Promise.all(needDCF.slice(i, i + DCONC).map(async d => {
+      try { await Promise.race([buildDCF(d), new Promise(r => setTimeout(r, 8000))]); } catch(e) {}
+      try { d.combined = calcCombined(d); } catch(e) {}
+      dcfDone++;
+    }));
+    if (btn) btn.textContent = `⏳ Fair Value ${dcfDone}/${needDCF.length}…`;
+    tdLog(`Computing Fair Value… ${dcfDone}/${needDCF.length}`, true);
+    scheduleRender();
+  }
+
   // Recompute sector medians with refreshed P/E values, then update market stats
   computeSectorMedianPE();
   updateMarketPEStats();
   if (window._fd) { const _m = new Map(allData.map(d=>[d.ticker,d])); window._fd = window._fd.map(d=>_m.get(d.ticker)||d); }
   doFilter(); updateMetrics(); scheduleRender();
 
-  tdLog(`✓ Recalculated — ${applied} stocks updated from statements, ${skipped} skipped (no statements cached yet). Saving to cache…`, true);
+  const fvCount = allData.filter(d => d.dcfPS > 0).length;
+  tdLog(`✓ Recalculated — ${applied} stocks updated from statements, ${fvCount} with Fair Value, ${skipped} skipped (no statements cached yet). Saving to cache…`, true);
 
   // Persist updated scores and fundamentals so they survive a page refresh.
   // saveCache() writes allData (with new pe/pb/dy/roe/scores) to IndexedDB.
   // gdSaveBulkPrices() writes _gdCache fundamentals (updated by applyDerivedMetrics) to Drive.
+  // gdSaveStatementsBulk() persists the freshly-computed dcfResult so future loads restore it.
   try { await saveCache(); } catch(e){}
-  try { if (typeof GD_TOKEN !== 'undefined' && GD_TOKEN) gdSaveBulkPrices(); } catch(e){}
+  try { if (typeof GD_TOKEN !== 'undefined' && GD_TOKEN) await Promise.all([gdSaveBulkPrices(), gdSaveStatementsBulk()]); } catch(e){}
 
-  tdLog(`✓ Done — ${applied} stocks recalculated and saved. Values will persist after refresh.`, true);
+  tdLog(`✓ Done — ${applied} stocks recalculated, ${fvCount} fair values computed and saved. Values will persist after refresh.`, true);
   if (btn) { btn.disabled = false; btn.textContent = '⟳ Recalculate All Scores'; }
 }
 
