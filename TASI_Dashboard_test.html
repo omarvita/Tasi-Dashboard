@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260601g · fix: financial statements lost after Force refresh; Drive reload now awaited with status</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260601h · fix: Fair Value now populates after refresh from cached DCF + live-price upside recompute</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1537,6 +1537,31 @@ function saveGDClientId() {
 // Get statement data for ticker from in-memory cache (sync, no network)
 function gdGetStatement(ticker) {
   return _stmtCache[ticker] || null;
+}
+
+// Apply Drive-cached valuations (DCF fair value + earnings trend) to allData.
+// The fair-value-per-share (dcfPS) is price-independent and stable for ~a quarter, so we
+// keep it for the statement TTL (30d) and recompute the upside% against today's live price.
+// This makes Fair Value populate across the table/overview without opening each modal.
+function _applyDriveValuations() {
+  let n = 0;
+  for (const d of allData) {
+    const st = _stmtCache[d.ticker];
+    if (!st) continue;
+    if (st.earningsTrend?.length && (Date.now() - (st.trendUpdated || 0) < GD_TREND_TTL))
+      d.earningsTrend = st.earningsTrend;
+    const r = st.dcfResult;
+    if (r && r.dcfPS > 0 && (Date.now() - (st.dcfUpdated || 0) < GD_STMT_TTL)) {
+      d.dcfPS = r.dcfPS;
+      d.dcfMethod = r.dcfMethod;
+      d.dcfUpside = d.price > 0 ? (r.dcfPS - d.price) / d.price : r.dcfUpside;
+      try { d.combined = calcCombined(d); } catch(e) {}
+      n++;
+    }
+  }
+  if (window._fd) { const _m = new Map(allData.map(d=>[d.ticker,d])); window._fd = window._fd.map(d=>_m.get(d.ticker)||d); }
+  if (n) console.log(`[Fair Value] Applied ${n} cached DCF valuations from Drive`);
+  return n;
 }
 
 // Update statement data for ticker and schedule a debounced bulk Drive save
@@ -4676,10 +4701,11 @@ async function openModal(idx){
           // Restore earningsTrend and DCF result from Drive if available
           if (driveStock.earningsTrend?.length && (Date.now() - (driveStock.trendUpdated||0) < GD_TREND_TTL))
             realD.earningsTrend = driveStock.earningsTrend;
-          if (driveStock.dcfResult && (Date.now() - (driveStock.dcfUpdated||0) < GD_DCF_TTL)) {
+          if (driveStock.dcfResult?.dcfPS > 0 && (Date.now() - (driveStock.dcfUpdated||0) < GD_STMT_TTL)) {
             realD.dcfPS = driveStock.dcfResult.dcfPS;
-            realD.dcfUpside = driveStock.dcfResult.dcfUpside;
             realD.dcfMethod = driveStock.dcfResult.dcfMethod;
+            // dcfPS is price-independent; recompute upside against current live price
+            realD.dcfUpside = realD.price > 0 ? (realD.dcfPS - realD.price) / realD.price : driveStock.dcfResult.dcfUpside;
           }
           if (driveStock.ohlcvData && (Date.now() - (driveStock.ohlcvUpdated||0) < GD_OHLCV_TTL) && driveStock.ohlcvData.volumes?.length > 0) {
             realD.volumes = driveStock.ohlcvData.volumes;
@@ -7193,7 +7219,8 @@ async function refreshAll(forceRefresh=false){
       if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
       clearTimeout(_hardStop); // cache hit — no need for failsafe
       fetchTASIIndex();
-      if (GD_TOKEN) gdLoadStatementsBulk(); // start loading statements in background
+      // Load statements in background, then apply cached Fair Value once ready
+      if (GD_TOKEN) gdLoadStatementsBulk().then(() => { _applyDriveValuations(); doFilter(); updateMetrics(); });
       doFilter();updateMetrics();
       return;
     }
@@ -7485,11 +7512,13 @@ async function refreshAll(forceRefresh=false){
       document.getElementById("pl").textContent = 'Loading financial statements from Google Drive...';
       await Promise.race([gdLoadStatementsBulk(), new Promise(r=>setTimeout(r, 45000))]);
       const stmtCount = Object.keys(_stmtCache).length;
+      const dcfN = _applyDriveValuations(); // populate Fair Value from cached DCF + live price
       document.getElementById("pl").textContent = stmtCount > 0
-        ? `✓ ${loaded} stocks · ${stmtCount} statements loaded from Drive`
+        ? `✓ ${loaded} stocks · ${stmtCount} statements${dcfN?` · ${dcfN} fair values`:''} loaded from Drive`
         : `✓ ${loaded} stocks loaded — no statements found on Drive (use 📊 Retrieve All)`;
+      doFilter(); updateMetrics();
     } else {
-      gdLoadStatementsBulk(); // background load — modal opens trigger gdAwaitStatements
+      gdLoadStatementsBulk().then(() => { _applyDriveValuations(); doFilter(); updateMetrics(); });
       document.getElementById("pl").textContent=`✓ ${loaded}/${allData.length} stocks saved to cache`;
     }
   } else {
