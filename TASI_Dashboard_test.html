@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260601b'; // bump this string on every deploy that matters
+  var V='20260601c'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260601b · fix: 13 bugs — EV/EBITDA units, neg-PEG score, WACC D/E=0, avg score, TTM EPS, null guards</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260601c · fix: all review findings — XSS, net-debt zero-guard, PE falsy, cache wipe, double-score</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -946,7 +946,6 @@ function saveScoreWeights() {
   WEIGHT_KEYS.forEach(k => { SCORE_WEIGHTS[k] = +(document.getElementById('ws-'+k)?.value||0); });
   localStorage.setItem('tasi_score_weights', JSON.stringify(SCORE_WEIGHTS));
   allData.forEach(d => { d.combined = calcCombined(d); });
-  if (window._fd) window._fd.forEach(d => { d.combined = calcCombined(d); });
   doFilter();
   document.getElementById('td-log').innerHTML = '<span style="color:var(--green)">✓ Weights saved and scores recalculated.</span>';
 }
@@ -955,7 +954,6 @@ function resetScoreWeights() {
   SCORE_WEIGHTS = {fundamental:30, technical:20, buffett:35, peg:15, dcf:0};
   localStorage.removeItem('tasi_score_weights');
   allData.forEach(d => { d.combined = calcCombined(d); });
-  if (window._fd) window._fd.forEach(d => { d.combined = calcCombined(d); });
   doFilter();
   renderWeightsUI();
   document.getElementById('td-log').innerHTML = '<span style="color:var(--tx3)">Weights reset to defaults.</span>';
@@ -982,7 +980,7 @@ async function testFMPKey() {
       if (logEl) logEl.innerHTML = `<span style="color:var(--green)">✓ Key works! Got ${data.length} year(s) for Aramco — ready to load financial statements.</span>`;
     }
   } catch(e) {
-    if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ Network error: ${e.message}</span>`;
+    if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ Network error: ${escapeHTML(String(e.message||e))}</span>`;
   }
 }
 
@@ -1506,7 +1504,7 @@ function connectGoogleDrive() {
         if (logEl) logEl.innerHTML = '<span style="color:var(--green)">✓ Connected — all stock data (statements + fundamentals) will be cached in your Drive.</span>';
       }
     }).requestAccessToken();
-  } catch(e) { if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ ${e.message}</span>`; }
+  } catch(e) { if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ ${escapeHTML(String(e.message||e))}</span>`; }
 }
 
 function disconnectGoogleDrive() {
@@ -4167,7 +4165,7 @@ async function fetchStockFull(stock) {
     if(qs){
       const sd=qs.summaryDetail, fd=qs.financialData, dk=qs.defaultKeyStatistics;
       // Live fundamentals
-      if(sd?.trailingPE?.raw||sd?.forwardPE?.raw) result.pe=sd.trailingPE?.raw??sd.forwardPE?.raw;
+      if(sd?.trailingPE?.raw!=null||sd?.forwardPE?.raw!=null) result.pe=sd.trailingPE?.raw??sd.forwardPE?.raw;
       if(sd?.priceToBook?.raw)      result.pb=sd.priceToBook.raw;
       if(fd?.returnOnEquity?.raw)   result.roe=fd.returnOnEquity.raw;
       if(fd?.profitMargins?.raw)    result.npm=fd.profitMargins.raw;
@@ -4731,7 +4729,12 @@ async function openModal(idx){
   // If modal is still showing this stock, refresh header + overview with new data
   if(window._curIdx===idx && document.getElementById('modal')?.style.display!=='none'){
     const freshD=window._fd?.[idx];
-    if(freshD){ freshD._htmlCache = {}; _renderModalShell(freshD); switchTab("overview"); }
+    if(freshD){
+      // Preserve statement tabs pre-built by the prefetch; only clear score-derived tabs
+      const prev = freshD._htmlCache || {};
+      freshD._htmlCache = { quarterly: prev.quarterly, annual: prev.annual };
+      _renderModalShell(freshD); switchTab("overview");
+    }
   }
 
   // Pre-fetch both statement periods in background so tabs open instantly
@@ -4852,7 +4855,7 @@ function switchTab(tab){
       if(!d._htmlCache)d._htmlCache={};
       d._htmlCache[tab]=html;
       if(body.isConnected)body.innerHTML=html;
-    });
+    }).catch(e=>{console.error('buildQuarterly failed:',e);if(body.isConnected)body.innerHTML=`<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">⚠ Error: ${escapeHTML(String(e?.message||e))}. <button onclick="switchTab('quarterly')" style="background:var(--acc);color:#000;border:none;border-radius:3px;padding:2px 8px;cursor:pointer;font-family:var(--mono);font-size:10px">Retry</button></div>`;});
   }
   else if(tab==="annual"){
     body.innerHTML=`<div class="tab-loading"><span class="spin"></span> Loading annual statements…</div>`;
@@ -5975,7 +5978,7 @@ async function buildDCF(d) {
     termVal = fcfProj[4] * (1+termGrowth) / (wacc - termGrowth);
     pvTerm = termVal / Math.pow(1+wacc, 5);
     enterpriseValue = sumPvFCF + pvTerm;
-    if (d.assets && d.de) {
+    if (d.assets && d.de != null) {
       const totalDebt = (d.de/100) * (d.assets*1e9 / (1+d.de/100));
       const cash = annualData?.bs?.[0]?.cash_and_equivalents ? parseFloat(annualData.bs[0].cash_and_equivalents) : totalDebt * 0.15;
       netDebt = totalDebt - (!isNaN(cash) ? cash : 0);
@@ -7397,6 +7400,8 @@ async function refreshAll(forceRefresh=false){
   }), 10000));
   const _needsCloses = allData.filter(d => (d.closes||[]).length < 6);
   const _tickerIdx = new Map(allData.map((d,i) => [d.ticker, i]));
+  // Build _fd position map once so per-batch sync is O(batch) not O(N)
+  const _fdPosMap = window._fd ? new Map(window._fd.map((d,i) => [d.ticker, i])) : null;
   for(let i = 0; i < _needsCloses.length; i += B){
     const pct = 60 + Math.round((i / Math.max(_needsCloses.length,1)) * 40);
     document.getElementById("pf").style.width = pct + "%";
@@ -7435,7 +7440,7 @@ async function refreshAll(forceRefresh=false){
         }
       } catch(e) {}
     }));
-    if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
+    if(_fdPosMap){for(const d of _needsCloses.slice(i,i+B)){const fp=_fdPosMap.get(d.ticker),ap=_tickerIdx.get(d.ticker);if(fp!=null&&ap!=null)window._fd[fp]=allData[ap];}}
     scheduleRender();
   }
 
@@ -8547,7 +8552,7 @@ function buildSectorPerf() {
     const bg    = pos ? 'var(--gdim)'  : 'var(--rdim)';
     const border= pos ? '#166534'      : '#991b1b';
     const isActive = activeSector === name;
-    return `<span class="sp-pill${isActive?' sp-active':''}" data-s="${name}" style="color:${color};background:${bg};border-color:${border}" onclick="setSector('${name}')" title="${count} stocks · daily avg">
+    return `<span class="sp-pill${isActive?' sp-active':''}" data-s="${escapeHTML(name)}" style="color:${color};background:${bg};border-color:${border}" onclick="setSector(this.dataset.s)" title="${count} stocks · daily avg">
       ${name} <strong>${avg>=0?'+':''}${avg.toFixed(1)}%</strong>
     </span>`;
   };
