@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260601f · feat: reconstruct full history for all valuation indicators + per-term descriptions</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260601g · fix: financial statements lost after Force refresh; Drive reload now awaited with status</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -7193,6 +7193,7 @@ async function refreshAll(forceRefresh=false){
       if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
       clearTimeout(_hardStop); // cache hit — no need for failsafe
       fetchTASIIndex();
+      if (GD_TOKEN) gdLoadStatementsBulk(); // start loading statements in background
       doFilter();updateMetrics();
       return;
     }
@@ -7200,7 +7201,13 @@ async function refreshAll(forceRefresh=false){
   } else {
     await clearCache();
     document.getElementById("pl").textContent="Cache cleared — fetching fresh data...";
+    // Force-refresh reloads statements from Drive too — reset state so load is retried
+    _stmtBulkLoaded = false;
+    _stmtBulkLoadPromise = null;
   }
+
+  // On force-refresh: kick off statement reload in background now (runs in parallel with price fetch)
+  if (GD_TOKEN && forceRefresh) gdLoadStatementsBulk();
 
   // ── Phase 1: Bulk Drive price cache (2 API calls for all 238 stocks) ────
   if (GD_TOKEN && !forceRefresh) {
@@ -7472,10 +7479,23 @@ async function refreshAll(forceRefresh=false){
   document.getElementById("pl").textContent=`✓ Done: ${loaded}/${allData.length} stocks loaded. Saving to cache...`;
   // Save to IndexedDB and Drive bulk file in parallel
   await Promise.all([saveCache(), gdSaveBulkPrices()]);
-  // Load statements bulk in background so modal opens are instant
-  if (GD_TOKEN) gdLoadStatementsBulk();
-  document.getElementById("pl").textContent=`✓ ${loaded}/${allData.length} stocks saved to cache`;
-  setTimeout(()=>{pw.style.display="none";},3000);
+  // Load / await statements from Drive — fire-and-forget for normal load, awaited for force
+  if (GD_TOKEN) {
+    if (forceRefresh) {
+      document.getElementById("pl").textContent = 'Loading financial statements from Google Drive...';
+      await Promise.race([gdLoadStatementsBulk(), new Promise(r=>setTimeout(r, 45000))]);
+      const stmtCount = Object.keys(_stmtCache).length;
+      document.getElementById("pl").textContent = stmtCount > 0
+        ? `✓ ${loaded} stocks · ${stmtCount} statements loaded from Drive`
+        : `✓ ${loaded} stocks loaded — no statements found on Drive (use 📊 Retrieve All)`;
+    } else {
+      gdLoadStatementsBulk(); // background load — modal opens trigger gdAwaitStatements
+      document.getElementById("pl").textContent=`✓ ${loaded}/${allData.length} stocks saved to cache`;
+    }
+  } else {
+    document.getElementById("pl").textContent=`✓ ${loaded}/${allData.length} stocks saved to cache`;
+  }
+  setTimeout(()=>{pw.style.display="none";},4000);
   btn.disabled=false;btn.textContent="↻ Reload Data";
   document.getElementById("lu").textContent=`${loaded}/${allData.length} prices · ${new Date().toLocaleTimeString("en-SA",{hour:"2-digit",minute:"2-digit"})}`;
   // ── Change 7: Compute sector-relative P/E medians after all prices loaded ──
