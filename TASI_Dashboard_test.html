@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260601c'; // bump this string on every deploy that matters
+  var V='20260601d'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260601c · fix: all review findings — XSS, net-debt zero-guard, PE falsy, cache wipe, double-score</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260601d · fix: P/E missing when Yahoo omits quarterly basicEPS — derive from NI÷shares fallback</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -3649,11 +3649,19 @@ function deriveMetricsFromStatements(annual, quarterly){
     if(n0!=null && n1>0) out.eg=(n0-n1)/n1;
   }
   // TTM EPS — sum last 4 quarters' basic EPS (most current), else latest annual EPS.
+  // Falls back to NI/shares per quarter when basicEPS is missing (Yahoo often omits it for Saudi stocks).
   // Used to recompute P/E (= price / TTM EPS) so the main table P/E reflects statements.
   let ttmEPS=null;
   if (Array.isArray(qIS) && qIS.length>=4){
     const e4=qIS.slice(0,4); let s=0,n=0;
-    for(const q of e4){ const e=_num(q.eps); if(e!=null){s+=e;n++;} }
+    // Try to derive shares from any quarter that has both eps and net_income
+    let stmtShares=null;
+    for(const q of e4){ const ep=_num(q.eps), ni=_num(q.net_income); if(ep&&ni&&Math.abs(ep)>0) { stmtShares=ni/ep; break; } }
+    for(const q of e4){
+      let e=_num(q.eps);
+      if(e==null && stmtShares>0){ const ni=_num(q.net_income); if(ni!=null) e=ni/stmtShares; }
+      if(e!=null){s+=e;n++;}
+    }
     if(n===4) ttmEPS=s;
   }
   if (ttmEPS==null && Array.isArray(aIS) && _num(aIS[0]?.eps)!=null) ttmEPS=_num(aIS[0].eps);
@@ -3692,7 +3700,10 @@ function applyDerivedMetrics(d){
 
   // EPS & P/E from statements — TTM EPS (statement basicEPS) or TTM NI / shares.
   // P/E = live price / TTM EPS, matching Yahoo. Drives the main-table P/E and PEG.
-  const shares = d.sharesOutstanding || _gdCache[d.ticker]?.fundamentals?.sharesOutstanding;
+  // shares: prefer explicit count, fall back to mktCap÷price so PE always computes when mktCap known
+  const shares = d.sharesOutstanding
+    || _gdCache[d.ticker]?.fundamentals?.sharesOutstanding
+    || (d.mktCap > 0 && d.price > 0 ? Math.round(d.mktCap / d.price) : 0);
   let eps = (m.eps!=null && m.eps>0) ? m.eps : null;
   if (eps==null && m.ttmNI>0 && shares>0) eps = m.ttmNI/shares;
   if (eps>0){
