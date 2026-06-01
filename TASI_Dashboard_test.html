@@ -4935,7 +4935,8 @@ function buildOverview(d){
     ${(()=>{
       const mc=d.mktCap;
       const mcStr=mc>=1e12?(mc/1e12).toFixed(2)+' T':mc>=1e9?(mc/1e9).toFixed(1)+' B':mc>=1e6?(mc/1e6).toFixed(0)+' M':null;
-      return `<div class="mi"><div class="mil" ${T('mktcap')}>Market Cap</div><div class="miv">${mcStr?`<span style="font-family:var(--mono)">${mcStr} SAR</span>${_capTier?` <span style="font-size:8px;color:${_capTier.color}">${_capTier.label}</span>`:''}` :'—'}</div></div>`;
+      const capTier=mc>=50e9?{label:'Large Cap',color:'var(--acc)'}:mc>=5e9?{label:'Mid Cap',color:'var(--tx2)'}:mc>0?{label:'Small Cap',color:'var(--tx3)'}:null;
+      return `<div class="mi"><div class="mil" ${T('mktcap')}>Market Cap</div><div class="miv">${mcStr?`<span style="font-family:var(--mono)">${mcStr} SAR</span>${capTier?` <span style="font-size:8px;color:${capTier.color}">${capTier.label}</span>`:''}` :'—'}</div></div>`;
     })()}
     ${(()=>{
       const sh=d.sharesOutstanding||_gdCache[d.ticker]?.fundamentals?.sharesOutstanding;
