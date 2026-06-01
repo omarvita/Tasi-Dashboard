@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260601i · feat: Recalculate All now computes & populates Fair Value (DCF) offline from cached statements</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260601j · fix: deduplicate _IND_HIST_META, cache _buildMktValHistory by range, invalidate on refresh</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1337,8 +1337,8 @@ function mergeStatements(primary, secondary) {
 let GD_TOKEN = null;
 const GD_FUND_TTL  = 90 * 24 * 60 * 60 * 1000;  // 90 days TTL for fundamentals (quarterly data)
 const GD_FUND_VER  = 3;                          // bump to invalidate old Drive caches
-const GD_STMT_TTL  = 30 * 24 * 60 * 60 * 1000;  // 30 days TTL for financial statements
-const GD_DCF_TTL   = 24 * 60 * 60 * 1000;       // 1 day TTL for DCF result
+const GD_STMT_TTL  = 30 * 24 * 60 * 60 * 1000;  // 30 days TTL for financial statements + DCF
+const GD_DCF_TTL   = GD_STMT_TTL;               // DCF fair value stored with statements; same 30d TTL
 const GD_TREND_TTL =  7 * 24 * 60 * 60 * 1000;  // 7 day TTL for earnings trend
 const GD_OHLCV_TTL =  8 * 60 * 60 * 1000;       // 8 hours TTL for OHLCV chart data
 
@@ -5872,11 +5872,12 @@ async function buildDCF(d) {
   // ── FAST PATH: return cached DCF result from Drive if fresh ──
   if (GD_TOKEN) {
     const driveStock = gdGetStatement(d.ticker);
-    if (driveStock?.dcfResult && driveStock.dcfUpdated && (Date.now() - driveStock.dcfUpdated < GD_DCF_TTL)) {
+    if (driveStock?.dcfResult?.dcfPS > 0 && driveStock.dcfUpdated && (Date.now() - driveStock.dcfUpdated < GD_DCF_TTL)) {
       const r = driveStock.dcfResult;
-      d.dcfPS = r.dcfPS; d.dcfUpside = r.dcfUpside; d.dcfMethod = r.dcfMethod;
-      // Re-run HTML build with cached data stored back on d — annualData still needed for tables
-      // so fall through but populate d then rebuild; cheaper than storing full HTML
+      d.dcfPS = r.dcfPS;
+      d.dcfUpside = d.price > 0 ? (r.dcfPS - d.price) / d.price : r.dcfUpside;
+      d.dcfMethod = r.dcfMethod;
+      // Fall through to rebuild HTML from annualData — dcfPS is already set above
     }
     // Also populate annual statements from Drive if not in memory/localStorage
     if (!d.rawTwelveData?.annual && !tdCacheGet(d.ticker)?.annual) {
@@ -7178,6 +7179,7 @@ function init(){
 }
 
 async function refreshAll(forceRefresh=false){
+  _mktValHistCache = null; // invalidate history cache — prices about to change
   const btn=document.getElementById("rbtn");
   if(btn){btn.disabled=true;btn.textContent="Loading...";}
   const pw=document.getElementById("pw");if(pw)pw.style.display="block";
@@ -7233,8 +7235,8 @@ async function refreshAll(forceRefresh=false){
     _stmtBulkLoadPromise = null;
   }
 
-  // On force-refresh: kick off statement reload in background now (runs in parallel with price fetch)
-  if (GD_TOKEN && forceRefresh) gdLoadStatementsBulk();
+  // On force-refresh: kick off statement reload now (runs in parallel with price fetch)
+  if (GD_TOKEN && forceRefresh) gdLoadStatementsBulk().catch(() => {});
 
   // ── Phase 1: Bulk Drive price cache (2 API calls for all 238 stocks) ────
   if (GD_TOKEN && !forceRefresh) {
@@ -8152,6 +8154,24 @@ const _MKT_IND_DESC = {
   hl52:    '52-Week High/Low — of the stocks near a 52-week extreme, the percentage near their HIGH (vs near their low). A momentum/sentiment gauge: a high reading means broad strength and a rising market; a low reading signals distribution and selling pressure.',
 };
 
+// Module-level metadata for non-P/E indicator charts (keyed by _mktValIndicator value).
+const _IND_HIST_META = {
+  overall: { label:'Overall Score',       yLabel:'Score (0–100)',   color:'#a78bfa', fmt: v => Math.round(v)+'/100',           mField: null              },
+  buffett: { label:'Buffett Indicator',   yLabel:'Mkt Cap / GDP',   color:'#4f9cf9', fmt: v => (v*100).toFixed(1)+'%',         mField: 'buffettExAramco' },
+  ey:      { label:'Earnings Yield',      yLabel:'Earnings Yield',  color:'#22c55e', fmt: v => (v*100).toFixed(2)+'%',         mField: 'earningsYield'   },
+  erp:     { label:'Equity Risk Premium', yLabel:'ERP',             color:'#22c55e', fmt: v => (v>=0?'+':'')+(v*100).toFixed(2)+'%', mField: 'erp'        },
+  dy:      { label:'Div Yield',           yLabel:'Dividend Yield',  color:'#f59e0b', fmt: v => (v*100).toFixed(2)+'%',         mField: 'wtdDY'           },
+  pb:      { label:'Market P/B',          yLabel:'P/B Ratio',       color:'#4f9cf9', fmt: v => v.toFixed(2)+'x',               mField: 'wtdPB'           },
+  br50:    { label:'Breadth >SMA-50',     yLabel:'% Above SMA-50',  color:'#22c55e', fmt: v => (v*100).toFixed(0)+'%',         mField: 'breadth'         },
+  br200:   { label:'Breadth >SMA-200',    yLabel:'% Above SMA-200', color:'#22c55e', fmt: v => (v*100).toFixed(0)+'%',         mField: 'breadth200'      },
+  cape:    { label:'Shiller CAPE',        yLabel:'CAPE Ratio',      color:'#f59e0b', fmt: v => v.toFixed(1)+'x',               mField: 'cape'            },
+  ps:      { label:'Market P/S',          yLabel:'P/S Ratio',       color:'#4f9cf9', fmt: v => v.toFixed(2)+'x',               mField: 'mktPS'           },
+  hl52:    { label:'52W High/Low',        yLabel:'% Near 52W High', color:'#22c55e', fmt: v => (v*100).toFixed(0)+'%',         mField: 'hl52Ratio'       },
+};
+
+// Cache for _buildMktValHistory — invalidated when range changes.
+let _mktValHistCache = null; // { cutoffMs, data: Map }
+
 // Reconstruct each indicator's history from stored per-stock price closes — the same
 // price-scaling assumption the P/E chart uses (fundamentals held at today's values,
 // scaled by each stock's historical close). Returns Map<dateStr, {t, ...indicators}>.
@@ -8176,9 +8196,30 @@ function _buildMktValHistory(cutoffMs) {
     const pb = (s.pb > 0 && s.pb < 30) ? s.pb : null;
     const dy = (s.dy > 0 && s.dy < 0.25) ? s.dy : null;
     const rev = s.ttmRev > 0 ? s.ttmRev : null;
-    // Prefix sums for fast SMA-50 / SMA-200
+    // Prefix sums for O(1) SMA-50/SMA-200 per point
     const pref = new Float64Array(n + 1);
     for (let i = 0; i < n; i++) pref[i + 1] = pref[i] + closes[i];
+    // Prefix max/min arrays for O(1) 52-week (252-session) rolling window
+    const prefMax = new Float64Array(n + 1);
+    const prefMin = new Float64Array(n + 1);
+    prefMax[0] = -Infinity; prefMin[0] = Infinity;
+    for (let i = 0; i < n; i++) {
+      const v = closes[i] > 0 ? closes[i] : NaN;
+      prefMax[i + 1] = Math.max(prefMax[i], v);
+      prefMin[i + 1] = Math.min(prefMin[i], v);
+    }
+    // Build sparse suffix structures for windowed max/min in O(n log n) via sparse table
+    // For simplicity use a two-pass O(n) sliding-window approach via pre-computed block max/min
+    const W = 252, BLK = 16;
+    const nb = Math.ceil(n / BLK);
+    const blkMax = new Float64Array(nb).fill(-Infinity);
+    const blkMin = new Float64Array(nb).fill(Infinity);
+    for (let i = 0; i < n; i++) {
+      const v = closes[i]; if (!(v > 0)) continue;
+      const b = (i / BLK) | 0;
+      if (v > blkMax[b]) blkMax[b] = v;
+      if (v < blkMin[b]) blkMin[b] = v;
+    }
     for (let i = 0; i < n; i++) {
       const c = closes[i], ts = stamps[i];
       if (!(c > 0) || !ts) continue;
@@ -8197,10 +8238,17 @@ function _buildMktValHistory(cutoffMs) {
       }
       if (i >= 49)  { const sma = (pref[i + 1] - pref[i - 49])  / 50;  A.v50++;  if (c > sma) A.a50++; }
       if (i >= 199) { const sma = (pref[i + 1] - pref[i - 199]) / 200; A.v200++; if (c > sma) A.a200++; }
-      // 52-week (trailing 252 sessions) high/low proximity
-      const lo = Math.max(0, i - 251);
+      // 52-week rolling max/min via block decomposition — O(n/BLK) instead of O(252)
+      const lo = Math.max(0, i - W + 1);
+      const bLo = (lo / BLK) | 0, bHi = (i / BLK) | 0;
       let hi = -Infinity, low = Infinity;
-      for (let j = lo; j <= i; j++) { const v = closes[j]; if (v > hi) hi = v; if (v < low) low = v; }
+      if (bLo === bHi) {
+        for (let j = lo; j <= i; j++) { const v = closes[j]; if (v > 0) { if (v > hi) hi = v; if (v < low) low = v; } }
+      } else {
+        for (let j = lo, end = (bLo + 1) * BLK - 1; j <= end; j++) { const v = closes[j]; if (v > 0) { if (v > hi) hi = v; if (v < low) low = v; } }
+        for (let b = bLo + 1; b < bHi; b++) { if (blkMax[b] > hi) hi = blkMax[b]; if (blkMin[b] < low) low = blkMin[b]; }
+        for (let j = bHi * BLK; j <= i; j++) { const v = closes[j]; if (v > 0) { if (v > hi) hi = v; if (v < low) low = v; } }
+      }
       if (hi > 0 && low > 0) { if (c >= hi * 0.95) A.nh++; else if (c <= low * 1.05) A.nl++; }
     }
   }
@@ -8647,32 +8695,7 @@ function _renderMPEChart() {
 }
 
 function _renderIndicatorHistChart(ctx) {
-  const META = {
-    overall: { label:'Overall Score',       yLabel:'Score (0–100)',   color:'#a78bfa',
-               fmt: v => Math.round(v)+'/100',   mField: null },
-    buffett: { label:'Buffett Indicator',   yLabel:'Mkt Cap / GDP',   color:'#4f9cf9',
-               fmt: v => (v*100).toFixed(1)+'%', mField: 'buffettExAramco' },
-    ey:      { label:'Earnings Yield',      yLabel:'Earnings Yield',  color:'#22c55e',
-               fmt: v => (v*100).toFixed(2)+'%', mField: 'earningsYield' },
-    erp:     { label:'Equity Risk Premium', yLabel:'ERP',             color:'#22c55e',
-               fmt: v => (v>=0?'+':'')+(v*100).toFixed(2)+'%', mField: 'erp' },
-    dy:      { label:'Div Yield',           yLabel:'Dividend Yield',  color:'#f59e0b',
-               fmt: v => (v*100).toFixed(2)+'%', mField: 'wtdDY' },
-    pb:      { label:'Market P/B',          yLabel:'P/B Ratio',       color:'#4f9cf9',
-               fmt: v => v.toFixed(2)+'x',       mField: 'wtdPB' },
-    br50:    { label:'Breadth >SMA-50',     yLabel:'% Above SMA-50',  color:'#22c55e',
-               fmt: v => (v*100).toFixed(0)+'%', mField: 'breadth' },
-    br200:   { label:'Breadth >SMA-200',    yLabel:'% Above SMA-200', color:'#22c55e',
-               fmt: v => (v*100).toFixed(0)+'%', mField: 'breadth200' },
-    cape:    { label:'Shiller CAPE',        yLabel:'CAPE Ratio',      color:'#f59e0b',
-               fmt: v => v.toFixed(1)+'x',       mField: 'cape' },
-    ps:      { label:'Market P/S',          yLabel:'P/S Ratio',       color:'#4f9cf9',
-               fmt: v => v.toFixed(2)+'x',       mField: 'mktPS' },
-    hl52:    { label:'52W High/Low',        yLabel:'% Near 52W High', color:'#22c55e',
-               fmt: v => (v*100).toFixed(0)+'%', mField: 'hl52Ratio' },
-  };
-
-  const meta = META[_mktValIndicator];
+  const meta = _IND_HIST_META[_mktValIndicator];
   if (!meta) return;
 
   // Update big-number display for this indicator
@@ -8699,7 +8722,10 @@ function _renderIndicatorHistChart(ctx) {
   const cutoffMs  = Date.now() - rangeDays * 864e5;
 
   // Merge two sources, stored daily snapshots (authoritative) win over reconstruction.
-  const recon   = _buildMktValHistory(cutoffMs);              // Map<dateStr,{...}>
+  if (!_mktValHistCache || _mktValHistCache.cutoffMs !== cutoffMs) {
+    _mktValHistCache = { cutoffMs, data: _buildMktValHistory(cutoffMs) };
+  }
+  const recon = _mktValHistCache.data;              // Map<dateStr,{...}>
   const rawHist = _mpeHistCache || JSON.parse(localStorage.getItem('tasi_mpe_hist')||'[]');
   const merged  = new Map();
   for (const [d, v] of recon) {
