@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260531s'; // bump this string on every deploy that matters
+  var V='20260531t'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531s · fix: mktCap/shares persist in Drive; equal-weight fallback for market tiles</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260531t · fix: derive mktCap=PE×NI and shares=mktCap÷price at init+price load</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -4391,6 +4391,8 @@ function updatePager(){
 }
 
 function updateMetrics(){
+  // Ensure mktCap is derived for any stock that still has it missing
+  allData.forEach(_deriveSharesMktCap);
   const loaded=allData.filter(d=>d.priceLoaded).length;
   document.getElementById("m-t").textContent=allData.length;
   document.getElementById("m-e").textContent=allData.filter(d=>!d.isReit).length;
@@ -7106,6 +7108,10 @@ function init(){
       dataDate:'2024-2025 est.',dataSource:'hardcoded',w52high:null,w52low:null,mktCap:null,beta:null
     };
   });
+  // Derive mktCap and sharesOutstanding immediately from hardcoded fundamentals.
+  // Market Cap = P/E × Net Income — an exact identity if PE and NI are from the same period.
+  // Shares = Market Cap ÷ Price (price is null at init, filled once Phase 2 runs).
+  allData.forEach(_deriveSharesMktCap);
   try{buildSectors();}catch(e){console.error('buildSectors:',e);}
   try{setSector("All");}catch(e){console.error('setSector:',e);}
   // Update stock count in header
@@ -7153,6 +7159,7 @@ async function refreshAll(forceRefresh=false){
           d.combined = (d.noHardcodedData && !d.priceLoaded) ? null : calcCombined(d);
         }
       });
+      allData.forEach(_deriveSharesMktCap); // fill mktCap/shares from cached pe+ni+price
       if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
       clearTimeout(_hardStop); // cache hit — no need for failsafe
       fetchTASIIndex();
@@ -7288,6 +7295,8 @@ async function refreshAll(forceRefresh=false){
     document.getElementById("pf").style.width = Math.round(((qi + _QBATCH) / allData.length) * 60) + '%';
     scheduleRender();
   }
+  // Derive mktCap (PE×NI) and shares (mktCap÷price) now that live prices are available
+  allData.forEach(_deriveSharesMktCap);
   // Show market P/E stats with whatever P/E values we have so far (Phase 2.5 will refine them)
   updateMarketPEStats();
 
@@ -7370,6 +7379,9 @@ async function refreshAll(forceRefresh=false){
       scheduleRender();
     }
   }
+  // Phase 2.5 may have added real sharesOutstanding from quoteSummary — re-derive
+  allData.forEach(_deriveSharesMktCap);
+  updateMarketPEStats();
 
   // ── Phase 3: Per-stock chart fetch for historical closes (technical scores) ──
   // Only fetch stocks missing closes — prices already loaded above.
@@ -7455,6 +7467,25 @@ async function refreshAll(forceRefresh=false){
 
   doFilter();updateMetrics();
   checkAlerts();
+}
+
+// Derive mktCap and sharesOutstanding whenever the inputs are available.
+// Market Cap = P/E × Net Income  (fundamental identity: PE = MktCap / NI)
+// Shares     = Market Cap ÷ Price
+// Called at init (gives mktCap before price loads) and after each price update.
+function _deriveSharesMktCap(d) {
+  // Prefer live/statement data; fall back to hardcoded estimates
+  if (!d.mktCap) {
+    const niRaw = d.ttmNI > 0 ? d.ttmNI : (d.ni > 0 ? d.ni * 1e9 : 0);
+    const pe    = d.pe > 0 ? d.pe : 0;
+    if (pe > 0 && niRaw > 0) d.mktCap = Math.round(pe * niRaw);
+  }
+  if (!d.mktCap && d.sharesOutstanding > 0 && d.price > 0) {
+    d.mktCap = Math.round(d.price * d.sharesOutstanding);
+  }
+  if (!d.sharesOutstanding && d.mktCap > 0 && d.price > 0) {
+    d.sharesOutstanding = Math.round(d.mktCap / d.price);
+  }
 }
 
 // ── Change 7: Sector-relative P/E median computation ──
