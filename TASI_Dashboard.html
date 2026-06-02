@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602e · feat: portfolio — daily P&L, best/worst performer, CSV export; fix stale sector betas</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602f · fix: Volume/Stoch chart panels (range-slice align); P/E chart toggle isolates selected curve + its period avg; tighten market P/E outlier cap</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -7125,6 +7125,7 @@ function drawChart(d){
   if(macdChartInst){try{macdChartInst.destroy();}catch(e){}}
   if(stochChartInst){try{stochChartInst.destroy();}catch(e){}}
   let closes=d.closes||[];let timestamps=d.timestamps||[];
+  let volumes=d.volumes||[];let highs=d.highs||[];let lows=d.lows||[];
   if(closes.length<2){
     // Show placeholder
     const ctx2=document.getElementById("price-chart");
@@ -7133,13 +7134,14 @@ function drawChart(d){
   }
   // Apply range filter — use calendar-time cutoff so the range is correct even when Yahoo
   // returns weekly/monthly bars for older history (count-based slice would undercount).
+  // Volume/high/low arrays are sliced in lockstep so they stay aligned with the price labels.
   const _rng=RANGES[chartRangeIdx]||RANGES[6];
   if(_rng.calDays<99999 && timestamps.length>0){
     const cutoffSec=Math.floor(Date.now()/1000)-_rng.calDays*86400;
     const idx=timestamps.findIndex(t=>t>=cutoffSec);
-    if(idx>0){closes=closes.slice(idx);timestamps=timestamps.slice(idx);}
+    if(idx>0){closes=closes.slice(idx);timestamps=timestamps.slice(idx);volumes=volumes.slice(idx);highs=highs.slice(idx);lows=lows.slice(idx);}
   } else if(closes.length>_rng.days){
-    closes=closes.slice(-_rng.days);timestamps=timestamps.slice(-_rng.days);
+    closes=closes.slice(-_rng.days);timestamps=timestamps.slice(-_rng.days);volumes=volumes.slice(-_rng.days);highs=highs.slice(-_rng.days);lows=lows.slice(-_rng.days);
   }
   setTimeout(()=>{
     try{
@@ -7202,14 +7204,14 @@ function drawChart(d){
           const volCtx=document.getElementById("vol-chart");
           if(!volCtx)return;
           if(volumeChartInst){try{volumeChartInst.destroy();}catch(e){}}
-          const vols=(d.volumes||[]).slice(-maxDays);
-          if(!vols.length){
+          const vols=volumes;
+          if(!vols.length||!vols.some(v=>v!=null)){
             const c2=volCtx.getContext("2d");
             if(c2){c2.fillStyle="#4a5568";c2.font="10px IBM Plex Mono";c2.fillText("No volume data — click '↓ Load OHLCV' button above",14,38);}
             return;
           }
-          const volSMA20=vols.map((_,i)=>{if(i<19)return null;const sl=vols.slice(i-19,i+1).filter(v=>v!=null);return sl.reduce((a,b)=>a+b,0)/sl.length;});
-          const slicedCloses=closes; // already sliced by maxDays above
+          const volSMA20=vols.map((_,i)=>{if(i<19)return null;const sl=vols.slice(i-19,i+1).filter(v=>v!=null);return sl.length?sl.reduce((a,b)=>a+b,0)/sl.length:null;});
+          const slicedCloses=closes; // already sliced by range above
           const upClr='rgba(34,197,94,0.75)',dnClr='rgba(239,68,68,0.70)',neutClr='rgba(99,102,241,0.65)';
           const volColors=slicedCloses.map((_,i)=>i===0?neutClr:slicedCloses[i]>=slicedCloses[i-1]?upClr:dnClr);
           const volBorderColors=slicedCloses.map((_,i)=>i===0?'rgba(99,102,241,0.4)':slicedCloses[i]>=slicedCloses[i-1]?'rgba(34,197,94,0.4)':'rgba(239,68,68,0.4)');
@@ -7255,7 +7257,8 @@ function drawChart(d){
       // Stochastic chart
       const stochPanel=document.getElementById("stoch-panel");
       if(stochPanel) stochPanel.style.display=chartShowStoch?"block":"none";
-      if(chartShowStoch&&(d.highs||[]).length<17){
+      const _stochHasData=highs.filter(v=>v!=null).length>=17;
+      if(chartShowStoch&&!_stochHasData){
         setTimeout(()=>{
           const stCtx=document.getElementById("stoch-chart");if(!stCtx)return;
           if(stochChartInst){try{stochChartInst.destroy();}catch(e){}}
@@ -7263,12 +7266,11 @@ function drawChart(d){
           if(c2){c2.fillStyle="#4a5568";c2.font="10px IBM Plex Mono";c2.fillText("No OHLCV data — click '↓ Load OHLCV' button above",14,42);}
         },80);
       }
-      if(chartShowStoch&&(d.highs||[]).length>=17){
+      if(chartShowStoch&&_stochHasData){
         setTimeout(()=>{
           const stCtx=document.getElementById("stoch-chart");
           if(!stCtx)return;
           if(stochChartInst){try{stochChartInst.destroy();}catch(e){}}
-          const highs=(d.highs||[]).slice(-maxDays),lows=(d.lows||[]).slice(-maxDays);
           const {kLine,dLine}=computeStochastic(highs,lows,closes);
           stochChartInst=new Chart(stCtx,{
             type:"line",
@@ -8268,8 +8270,10 @@ let _mpeHistCache = null; // in-memory cache to avoid repeated localStorage pars
 let _mktValIndicator = 'pe'; // active tile: 'pe'|'overall'|'buffett'|'ey'|'erp'|'dy'|'pb'|'br50'|'br200'|'cape'|'ps'|'hl52'
 
 function _mpeCalc() {
-  // Exclude REITs — their P/E is structurally incomparable to equities
-  const valid = allData.filter(d => d.pe > 0 && d.pe < 200 && d.priceLoaded && !d.isReit && d.sector !== 'REITs');
+  // Exclude REITs (P/E structurally incomparable to equities) and cap per-stock P/E at 60:
+  // above that a stock is essentially a near-zero-earnings outlier whose multiple would
+  // distort the market mean (was 200, which let a single P/E≈150 name skew the average).
+  const valid = allData.filter(d => d.pe > 0 && d.pe < 60 && d.priceLoaded && !d.isReit && d.sector !== 'REITs');
   if (!valid.length) return null;
   const mean = valid.reduce((s,d)=>s+d.pe,0)/valid.length;
   const sorted = valid.map(d=>d.pe).sort((a,b)=>a-b);
@@ -8926,19 +8930,27 @@ function _renderMPEChart() {
   const wtdVals  = allDates.map(d => wtdMap.get(d)?.pe  ?? null);
   const medVals  = allDates.map(d => medMap.get(d)?.pe  ?? null);
   const meanVals = allDates.map(d => meanMap.get(d)?.pe ?? null);
-  const validWtd = wtdVals.filter(v => v != null);
-  const avgPE    = validWtd.length ? validWtd.reduce((s,v)=>s+v,0)/validWtd.length : wtdAvg;
   const fontOpts = { size:8, family:"'IBM Plex Mono'" };
+
+  // Show only the curve selected by the Wtd Avg / Median / Mean toggle, plus the
+  // average of THAT curve over the visible period (so "Median" shows the median line
+  // and its multi-year average, not all three curves at once).
+  const CURVES = {
+    wtd:  { vals:wtdVals,  cur:wtdAvg, label:'Wtd Avg', color:'#4f9cf9', fill:'rgba(79,156,249,0.07)' },
+    med:  { vals:medVals,  cur:median, label:'Median',  color:'#22c55e', fill:'rgba(34,197,94,0.07)'  },
+    mean: { vals:meanVals, cur:mean,   label:'Mean',    color:'#f59e0b', fill:'rgba(245,158,11,0.07)' },
+  };
+  const sel = CURVES[_mpeCurve] || CURVES.wtd;
+  const validSel = sel.vals.filter(v => v != null);
+  const avgPE = validSel.length ? validSel.reduce((s,v)=>s+v,0)/validSel.length : sel.cur;
 
   marketPEChartInst = new Chart(ctx, {
     type: 'line',
     data: {
       labels: allDates,
       datasets: [
-        { label:`Wtd Avg ${wtdAvg.toFixed(1)}x`,  data:wtdVals,  borderColor:'#4f9cf9', backgroundColor:'rgba(79,156,249,0.06)', fill:true,  pointRadius:0, borderWidth:2,   tension:0.2, spanGaps:true },
-        { label:`Median ${median.toFixed(1)}x`,    data:medVals,  borderColor:'#22c55e', backgroundColor:'transparent',           fill:false, pointRadius:0, borderWidth:1.5, tension:0.2, spanGaps:true },
-        { label:`Mean ${mean.toFixed(1)}x`,        data:meanVals, borderColor:'#f59e0b', backgroundColor:'transparent',           fill:false, pointRadius:0, borderWidth:1.5, tension:0.2, spanGaps:true, borderDash:[4,3] },
-        { label:`Period Avg ${avgPE.toFixed(1)}x`, data:new Array(allDates.length).fill(+avgPE.toFixed(2)), borderColor:'#4a5568', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:1, borderDash:[5,4], spanGaps:true }
+        { label:`${sel.label} ${sel.cur.toFixed(1)}x`, data:sel.vals, borderColor:sel.color, backgroundColor:sel.fill, fill:true, pointRadius:0, borderWidth:2, tension:0.2, spanGaps:true },
+        { label:`${sel.label} Avg ${avgPE.toFixed(1)}x`, data:new Array(allDates.length).fill(+avgPE.toFixed(2)), borderColor:'#7a8aa5', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:1.2, borderDash:[5,4], spanGaps:true }
       ]
     },
     options: {
