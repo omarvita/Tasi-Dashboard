@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602k · feat: 3-stage DCF fade, small-cap WACC premium, analyst consensus target in table + Fair Value tab</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602l · fix: analyst target now propagates to d in fresh-fetch path; show "no coverage" when absent</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -5012,6 +5012,13 @@ async function openModal(idx){
         if(full.volatility != null) realD.volatility = full.volatility;
         if(full.volume != null) realD.volume = full.volume;
         if(full.avgVolume3M != null) realD.avgVolume3M = full.avgVolume3M;
+        if(full.analystTarget > 0) {
+          realD.analystTarget = full.analystTarget;
+          realD.analystHigh   = full.analystHigh   ?? null;
+          realD.analystLow    = full.analystLow    ?? null;
+          realD.analystCount  = full.analystCount  ?? null;
+          realD.analystRec    = full.analystRec    ?? null;
+        }
         realD.fullLoaded = true;
         const fRes = scoreFundamental(realD);
         const bRes = scoreBuffett(realD);
@@ -6544,6 +6551,10 @@ async function buildDCF(d) {
   ${divergeWarn ? `<div style="background:#1a1000;border:1px solid var(--amb);border-radius:5px;padding:6px 10px;font-family:var(--mono);font-size:8.5px;color:var(--amb);line-height:1.5">
     ⚠ DCF fair value (${primaryPS?.toFixed(1)} SAR) is ${Math.abs(dcfVsAt*100).toFixed(0)}% ${dcfVsAt>0?'above':'below'} analyst consensus (${d.analystTarget.toFixed(1)} SAR). Large DCF vs consensus divergence usually signals optimistic growth assumptions — treat the DCF upside with caution.
   </div>` : ''}
+</div>`;
+  } else if (d.fullLoaded) {
+    html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:8px 12px;margin-bottom:10px;font-family:var(--mono);font-size:8.5px;color:var(--tx3)">
+  <span style="font-weight:600;color:var(--tx2)">Analyst Consensus:</span> No analyst price targets available on Yahoo Finance for this stock.
 </div>`;
   }
 
