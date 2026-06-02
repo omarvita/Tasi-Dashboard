@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602h · fix: prevent partial cache from overwriting full Drive statements file (data loss)</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602i · fix: 6 economic accuracy issues (volatility outliers, GDP, beta cap, CAPE label, P/E disclaimer, FCF source indicator)</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -6207,8 +6207,10 @@ async function buildDCF(d) {
   };
   const sectorBeta = SECTOR_BETA[d.sector] || 1.0;
   // Sanity-filter Yahoo beta: reject extreme outliers (data errors, thin float)
-  const beta = (d.beta != null && d.beta > 0.1 && d.beta < 4.0) ? d.beta : sectorBeta;
-  const betaSource = (d.beta != null && d.beta > 0.1 && d.beta < 4.0) ? 'Yahoo Finance' : `sector default (${d.sector||'unknown'})`;
+  // Cap raw beta at 2.5: above that the figure almost always reflects thin float/illiquidity
+  // noise on Tadawul rather than true systematic risk. Sector default is used instead.
+  const beta = (d.beta != null && d.beta > 0.1 && d.beta < 2.5) ? d.beta : sectorBeta;
+  const betaSource = (d.beta != null && d.beta > 0.1 && d.beta < 2.5) ? 'Yahoo Finance' : `sector default (${d.sector||'unknown'})`;
   const ke = rfRate + beta * erp;
   // Sector-specific liabilities→financial-debt haircuts.
   // d.de = (total_liabilities / total_equity) × 100 — overstates financial leverage.
@@ -6609,7 +6611,7 @@ async function buildDCF(d) {
     <div class="mi"><div class="mil" ${T('wacc')}>WACC</div><div class="miv" style="color:var(--acc);font-weight:600">${(wacc*100).toFixed(1)}%</div></div>
     <div class="mi"><div class="mil" ${T('term_growth')}>Terminal Growth</div><div class="miv">${(termGrowth*100).toFixed(1)}%</div></div>
     <div class="mi"><div class="mil" ${T('fcf_growth')}>FCF Growth (5Y)</div><div class="miv ${growthRate>=0?'pos':'neg'}">${growthRate>=0?'+':''}${(growthRate*100).toFixed(1)}%<span style="font-size:8px;color:var(--tx3);font-weight:400;margin-left:4px">${growthSource}</span></div></div>
-    <div class="mi"><div class="mil" ${T('fcf')}>FCF Source</div><div class="miv" style="font-size:9px">${fcfSource}</div></div>
+    <div class="mi"><div class="mil" ${T('fcf')}>FCF Source</div><div class="miv" style="font-size:9px;color:${fcfSource==='financial statements'?'var(--green)':'var(--amb)'}">${fcfSource}${fcfSource!=='financial statements'?'<span title="FCF estimated from net income using a sector-average conversion factor. Retrieve financial statements for a more precise result." style="cursor:help;margin-left:3px">⚠</span>':''}</div></div>
   </div></div>`;
 
   if (negativeFCFNote) {
@@ -8308,7 +8310,13 @@ async function fetchTASIIndex() {
 // ── Change 6: Compute annualized historical volatility from daily closes ──
 function computeVolatility(closes) {
   if(!closes || closes.length < 20) return null;
-  const returns = closes.slice(1).map((c, i) => Math.log(c / closes[i]));
+  // Only compute log-returns between valid consecutive prices.
+  // Filter out extreme moves (|r| > ln(1.5) ≈ 50%/day): these are data artifacts
+  // such as unadjusted rights issues or stale zero-price entries — not real daily moves.
+  // Tadawul circuit breakers cap real daily changes at ±10%, so ±50% is a safe artifact floor.
+  const raw = closes.slice(1).map((c, i) => (closes[i] > 0 && c > 0) ? Math.log(c / closes[i]) : null);
+  const returns = raw.filter(r => r != null && isFinite(r) && Math.abs(r) < Math.log(1.5));
+  if(returns.length < 15) return null;
   const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
   const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / (returns.length - 1);
   return Math.sqrt(variance * 252) * 100; // annualized in %
@@ -8341,8 +8349,9 @@ function _mpeCalc() {
 }
 
 // ── Macro / whole-market valuation context ────────────────────────────────
-// Saudi nominal GDP ≈ SAR 4.55 trillion (2025 actual, SAMA/GaStat). Risk-free ≈ 4.8% (10Y SAR sukuk, June 2026).
-const SAUDI_GDP_SAR = 4.55e12;
+// Saudi nominal GDP ≈ SAR 4.83 trillion (2025 IMF/SAMA estimate; 2024 actual was 4.55T).
+// Update annually from: https://www.sama.gov.sa/en-US/EconomicReports
+const SAUDI_GDP_SAR = 4.83e12;
 const SAUDI_RF = 0.048;
 const _clamp01 = x => Math.max(0, Math.min(1, x));
 
@@ -8466,14 +8475,14 @@ function _computeOverallScore(m) {
 const _MKT_IND_DESC = {
   pe:      'Market P/E — the cap-weighted price-to-earnings ratio of the market (excl. Aramco & REITs). How many riyals investors pay per riyal of annual earnings. <14x is historically cheap for TASI, 14–26x fair, >26x expensive.',
   overall: 'Overall Score — a single 0–100 valuation gauge blending all indicators below (P/E, ERP, breadth, dividend yield, P/B, CAPE, P/S). 0 = cheap / fearful market, 100 = expensive / greedy market. Equal-weighted average of every available signal.',
-  buffett: 'Buffett Indicator — total stock-market value ÷ GDP (ex-Aramco). Warren Buffett\'s favourite gauge of whether a whole market is cheap or rich. <80% undervalued, 80–110% fair, 110–150% modestly rich, >150% overvalued (Saudi-calibrated). Saudi GDP ≈ SAR 4.55T (2025).',
+  buffett: 'Buffett Indicator — total stock-market value ÷ GDP (ex-Aramco). Warren Buffett\'s favourite gauge of whether a whole market is cheap or rich. <80% undervalued, 80–110% fair, 110–150% modestly rich, >150% overvalued (Saudi-calibrated). Saudi GDP ≈ SAR 4.83T (2025 est.).',
   ey:      'Earnings Yield — the inverse of the market P/E (1 ÷ P/E). The percentage of earnings the market produces per riyal invested. Directly comparable to bond yields: higher than the risk-free rate means equities are attractive.',
   erp:     'Equity Risk Premium — earnings yield minus the Saudi risk-free rate (10Y sukuk ≈ 4.8%). The extra reward you get for holding stocks instead of government bonds. Above +2% = equities attractive vs bonds; negative = equities expensive vs bonds.',
   dy:      'Dividend Yield — cap-weighted dividend yield across all dividend-paying stocks (annual dividend ÷ price). Higher yields usually accompany cheaper markets. The TASI long-run average is roughly 3.5%; below 2% is expensive, above 4% is cheap.',
   pb:      'Price-to-Book — cap-weighted price ÷ book (net asset) value of the market. Less distorted by earnings cycles than P/E. Below 1.8x is historically cheap for TASI, above 2.5x rich.',
   br50:    'Breadth >SMA-50 — the share of stocks trading above their own 50-day moving average. Measures how broadly the market is participating in the trend. >60% is a healthy broad uptrend, <40% is weak.',
   br200:   'Breadth >SMA-200 — the share of stocks above their 200-day moving average. The structural bull/bear regime filter. >60% signals a healthy bull market, <40% a bear regime. Slower and more reliable than SMA-50 breadth.',
-  cape:    'Shiller CAPE — cyclically-adjusted P/E: the market P/E smoothed over years of inflation-adjusted earnings. Strips out short-term earnings swings. A market-wide CAPE <16 is historically cheap for TASI, >27 expensive.',
+  cape:    'Shiller CAPE — cyclically-adjusted P/E: the market P/E smoothed over years of inflation-adjusted earnings. Strips out short-term earnings swings. A market-wide CAPE <16 is historically cheap for TASI, >27 expensive. Note: a true Shiller CAPE needs 10 years of earnings history; this figure uses whatever history is available (shown as "Xyr avg" on the tile) and grows more reliable as the app accumulates data over time.',
   ps:      'Price-to-Sales — aggregate market value ÷ aggregate annual revenue. Revenue is far steadier than earnings, so P/S stays meaningful even when many companies are loss-making. TASI <1x is historically cheap, >2.5x expensive.',
   hl52:    '52-Week High/Low — of the stocks near a 52-week extreme, the percentage near their HIGH (vs near their low). A momentum/sentiment gauge: a high reading means broad strength and a rising market; a low reading signals distribution and selling pressure.',
 };
@@ -8730,9 +8739,10 @@ function _renderMarketConditions() {
     const col = c < 16 ? '#2ed573' : c < 27 ? '#f5a623' : '#e74c3c';
     const verdict = c < 16 ? 'Cheap' : c < 27 ? 'Modestly rich' : 'Expensive';
     const coverage = m.capeDataDays >= 365 ? `${(m.capeDataDays/365).toFixed(1)}yr avg` : `${m.capeDataDays}d avg`;
-    tiles.push(tile('cape', 'Shiller CAPE', c.toFixed(1)+'x',
+    const capeShortNote = m.capeDataDays < 1825 ? ` ⚠ Only ${(m.capeDataDays/365).toFixed(1)}yr of data — true Shiller CAPE needs 10yr; treat with caution.` : '';
+    tiles.push(tile('cape', 'CAPE', c.toFixed(1)+'x',
       `${verdict} · ${coverage}`, col,
-      `Cyclically-Adjusted P/E (Shiller PE): current market P/E normalised using ${m.capeDataDays} days of earnings history, inflation-adjusted at 2.5%/yr Saudi CPI. Smooths out earnings cycles — a market-wide CAPE <16 is historically cheap for TASI, >27 is expensive. Coverage grows the longer the app runs.`));
+      `Cyclically-Adjusted P/E: market P/E normalised using ${m.capeDataDays} days of earnings history, inflation-adjusted at 2.5%/yr Saudi CPI. Smooths out earnings cycles — CAPE <16 is historically cheap for TASI, >27 expensive. Classic Shiller CAPE uses 10 years; this figure has ${(m.capeDataDays/365).toFixed(1)}yr and becomes more reliable as the app accumulates more data.${capeShortNote}`));
   }
 
   // 9. Market P/S — price-to-sales (less earnings-cycle distortion)
@@ -9010,7 +9020,7 @@ function _renderMPEChart() {
       responsive:true, maintainAspectRatio:false,
       interaction:{ mode:'index', intersect:false },
       plugins: {
-        title:{ display:true, text:'P/E estimated from current EPS — reflects price trends, not historical earnings changes', color:'#4a5568', font:{size:8,family:"'IBM Plex Mono'"}, padding:{bottom:6} },
+        title:{ display:true, text:['Price-trend proxy: P/E reconstructed from current EPS held constant.', 'Historical earnings changes are NOT captured — do not use as a true earnings-cycle indicator.'], color:'#7a8aa5', font:{size:8,family:"'IBM Plex Mono'"}, padding:{bottom:4} },
         legend:{ display:true, labels:{color:'#8a9ab5', font:fontOpts, boxWidth:10} },
         tooltip:{ backgroundColor:'rgba(24,28,34,0.97)', borderColor:'#2d3440', borderWidth:1,
           titleColor:'#e8eaed', bodyColor:'#8a9ab5',
