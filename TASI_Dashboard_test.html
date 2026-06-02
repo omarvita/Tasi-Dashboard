@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602b · fix: market valuation — exclude Aramco from cap-wtd DY/PB (consistent w/ P/E), align tile thresholds</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602c · fix: chart range filter uses calendar-time cutoff; align timestamps with null-filtered closes</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -4131,8 +4131,11 @@ async function fetchYahooPrice(ticker){
   try{
     const data = await fetchWithProxy(url);
     const meta = data?.chart?.result?.[0]?.meta;
-    const closes = (data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
-    const timestamps = data?.chart?.result?.[0]?.timestamp||[];
+    const _rc = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close||[];
+    const _rt = data?.chart?.result?.[0]?.timestamp||[];
+    const _vi2 = _rc.map((v,i)=>v!=null?i:null).filter(i=>i!==null);
+    const closes = _vi2.map(i=>_rc[i]);
+    const timestamps = _vi2.map(i=>_rt[i]);
     // regularMarketPreviousClose = yesterday's official close (correct for 1-day % change)
     // chartPreviousClose = close before chart period starts (6 months ago for range=6mo → wrong for daily change)
     const prev = meta?.regularMarketPreviousClose ?? null;
@@ -4324,8 +4327,13 @@ async function fetchStockFull(stock) {
     }
     // Also get longer chart data for 2-year history
     const meta = raw.chart?.chart?.result?.[0]?.meta;
-    const closes = (raw.chart?.chart?.result?.[0]?.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
-    const timestamps = raw.chart?.chart?.result?.[0]?.timestamp||[];
+    const _rawClose = raw.chart?.chart?.result?.[0]?.indicators?.quote?.[0]?.close||[];
+    const _rawTs    = raw.chart?.chart?.result?.[0]?.timestamp||[];
+    // Use valid-index filtering so timestamps[i] always corresponds to closes[i]
+    // (same pattern as fetchChartData; without this, null-gap dates would misalign the chart x-axis)
+    const _vi = _rawClose.map((v,i)=>v!=null?i:null).filter(i=>i!==null);
+    const closes    = _vi.map(i=>_rawClose[i]);
+    const timestamps = _vi.map(i=>_rawTs[i]);
     if(closes.length>0){
       result.closes=closes;
       result.timestamps=timestamps;
@@ -6565,7 +6573,16 @@ function buildBuffett(d){
 // Chart state
 let chartRangeIdx=0,chartShowRSI=false,chartShowSMA20=true,chartShowSMA50=false,chartShowBollinger=false,chartShowVolume=true,chartShowMACD=false,chartShowStoch=false;
 let volumeChartInst=null,macdChartInst=null,stochChartInst=null;
-const RANGES=[{label:"1M",days:21},{label:"3M",days:63},{label:"6M",days:126},{label:"1Y",days:252},{label:"2Y",days:504},{label:"5Y",days:1260},{label:"All",days:9999}];
+// calDays used for timestamp-based range filtering (robust to weekly/monthly bars from Yahoo's max-range API).
+const RANGES=[
+  {label:"1M",  days:21,   calDays:31},
+  {label:"3M",  days:63,   calDays:92},
+  {label:"6M",  days:126,  calDays:183},
+  {label:"1Y",  days:252,  calDays:366},
+  {label:"2Y",  days:504,  calDays:731},
+  {label:"5Y",  days:1260, calDays:1827},
+  {label:"All", days:9999, calDays:99999},
+];
 function selectChartRange(idx){
   chartRangeIdx=idx;
   const r=RANGES[idx];
@@ -6974,9 +6991,16 @@ function drawChart(d){
     if(ctx2){const c=ctx2.getContext("2d");if(c){c.fillStyle="#4a5568";c.font="11px IBM Plex Mono";c.fillText("No price data — click 'Load chart data'",20,80);}}
     return;
   }
-  // Apply range filter
-  const maxDays=RANGES[chartRangeIdx]?.days||9999;
-  if(closes.length>maxDays){closes=closes.slice(-maxDays);timestamps=timestamps.slice(-maxDays);}
+  // Apply range filter — use calendar-time cutoff so the range is correct even when Yahoo
+  // returns weekly/monthly bars for older history (count-based slice would undercount).
+  const _rng=RANGES[chartRangeIdx]||RANGES[6];
+  if(_rng.calDays<99999 && timestamps.length>0){
+    const cutoffSec=Math.floor(Date.now()/1000)-_rng.calDays*86400;
+    const idx=timestamps.findIndex(t=>t>=cutoffSec);
+    if(idx>0){closes=closes.slice(idx);timestamps=timestamps.slice(idx);}
+  } else if(closes.length>_rng.days){
+    closes=closes.slice(-_rng.days);timestamps=timestamps.slice(-_rng.days);
+  }
   setTimeout(()=>{
     try{
       const ctx=document.getElementById("price-chart");if(!ctx)return;
