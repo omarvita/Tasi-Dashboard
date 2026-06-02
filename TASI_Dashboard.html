@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602g · fix: Volume/Stoch chart; P/E chart toggle; Drive statements force-reload button</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602h · fix: prevent partial cache from overwriting full Drive statements file (data loss)</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1715,6 +1715,13 @@ async function gdLoadStatementsBulk() {
         )
       );
 
+      // Preserve any statement data already fetched THIS session — Drive is the base layer
+      // and fresh in-memory entries win, so a background load can never revert data the user
+      // just fetched (e.g. mid "Retrieve All"). On a normal page load _stmtCache is empty,
+      // so this snapshot is empty and has no effect.
+      const _localSnapshot = {};
+      for (const [t, v] of Object.entries(_stmtCache)) _localSnapshot[t] = { ...v };
+
       // Merge all files — oldest first so newest data wins per ticker
       let totalMerged = 0, finLastFetched = null;
       for (const bulk of allBulks) {
@@ -1727,6 +1734,8 @@ async function gdLoadStatementsBulk() {
         }
         if (bulk.finLastFetched && bulk.finLastFetched > (finLastFetched || 0)) finLastFetched = bulk.finLastFetched;
       }
+      // Re-apply session-fresh entries on top so local data wins over Drive per key.
+      for (const [t, v] of Object.entries(_localSnapshot)) _stmtCache[t] = Object.assign(_stmtCache[t] || {}, v);
 
       if (totalMerged) console.log(`[GD] Loaded statements for ${Object.keys(_stmtCache).length} stocks from Drive (${stmtFiles.length} file(s) merged)`);
 
@@ -1790,10 +1799,19 @@ async function gdSaveStatementsBulk() {
   clearTimeout(_stmtSaveTimer);
   _stmtSaveTimer = null;
   if (!Object.keys(_stmtCache).length) return;
-  // If we don't know the file ID yet, wait for the ongoing load to resolve it before saving.
-  // Without this, a save that fires before load completes would POST a new file instead of PATCHing the existing one.
-  if (!_stmtBulkFileId && _stmtBulkLoadPromise) {
-    await Promise.race([_stmtBulkLoadPromise, new Promise(r => setTimeout(r, 15000))]);
+  // CRITICAL — never write a partial cache over the full Drive file.
+  // _stmtBulkFileId is restored from localStorage on every page load, so on a returning
+  // session the file ID is already known while the full cache is still downloading in the
+  // background. A stray gdSetStatement() (e.g. an OHLCV/dividend/DCF write from just browsing)
+  // would otherwise PATCH the complete 238-stock file down to those few entries. So we always
+  // wait for the background load to finish first, merging Drive's data into _stmtCache before
+  // any save. If it still hasn't loaded, reschedule rather than risk overwriting.
+  if (GD_TOKEN && !_stmtBulkLoaded) {
+    if (!_stmtBulkLoadPromise) gdLoadStatementsBulk();
+    if (_stmtBulkLoadPromise) {
+      await Promise.race([_stmtBulkLoadPromise, new Promise(r => setTimeout(r, 65000))]);
+    }
+    if (!_stmtBulkLoaded) { gdScheduleStatementsSave(); return; }
   }
   try {
     const finLastFetched = +localStorage.getItem('tasi_fin_last_fetched') || null;
