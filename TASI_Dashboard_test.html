@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602c · fix: chart range filter uses calendar-time cutoff; align timestamps with null-filtered closes</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602d · feat: portfolio synced to Google Drive (auto-save + load on connect/refresh)</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -641,11 +641,95 @@ function checkAlerts() {
 // ── PORTFOLIO SIMULATOR ──
 let portfolio = {}; // ticker -> {shares, avgCost}
 
+// ── Google Drive persistence for portfolio ──
+let _portfolioFileId = localStorage.getItem('TASI_portfolio_gd_id') || null;
+let _portfolioSaveTimer = null;
+
+async function gdSavePortfolio() {
+  if (!GD_TOKEN) return;
+  clearTimeout(_portfolioSaveTimer);
+  _portfolioSaveTimer = null;
+  try {
+    const body = JSON.stringify({ savedAt: Date.now(), portfolio });
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify({ name: 'TASI_portfolio.json' })], { type: 'application/json' }));
+    form.append('file', new Blob([body], { type: 'application/json' }));
+    const method = _portfolioFileId ? 'PATCH' : 'POST';
+    const url = _portfolioFileId
+      ? `https://www.googleapis.com/upload/drive/v3/files/${_portfolioFileId}?uploadType=multipart`
+      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+    const res = await fetch(url, { method, headers: { Authorization: `Bearer ${GD_TOKEN}` }, body: form, signal: AbortSignal.timeout(15000) });
+    if (res.ok) {
+      if (!_portfolioFileId) {
+        const meta = await res.json().catch(() => ({}));
+        if (meta?.id) { _portfolioFileId = meta.id; localStorage.setItem('TASI_portfolio_gd_id', meta.id); }
+      }
+      console.log('[GD] Portfolio saved to Drive');
+    } else if (res.status === 401) {
+      GD_TOKEN = null; sessionStorage.removeItem('TASI_gd_token'); updateGDStatus();
+    } else if (res.status === 404 || res.status === 410) {
+      _portfolioFileId = null; localStorage.removeItem('TASI_portfolio_gd_id');
+      gdSchedulePortfolioSave(); // retry as new file
+    }
+  } catch(e) { console.warn('gdSavePortfolio:', e); }
+}
+
+function gdSchedulePortfolioSave() {
+  if (!GD_TOKEN) return;
+  clearTimeout(_portfolioSaveTimer);
+  _portfolioSaveTimer = setTimeout(gdSavePortfolio, 3000); // 3s debounce
+}
+
+async function gdLoadPortfolio() {
+  if (!GD_TOKEN) return false;
+  try {
+    // Try cached file ID first; fall back to search
+    let fileId = _portfolioFileId;
+    if (!fileId) {
+      const sr = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=name%3D'TASI_portfolio.json'%20and%20trashed%3Dfalse&fields=files(id,modifiedTime)`,
+        { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(8000) }
+      );
+      const sj = await sr.json().catch(() => ({}));
+      if (sj.files?.length) {
+        fileId = sj.files[0].id;
+        _portfolioFileId = fileId;
+        localStorage.setItem('TASI_portfolio_gd_id', fileId);
+      }
+    }
+    if (!fileId) return false;
+    const fr = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+      { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(10000) }
+    );
+    if (!fr.ok) {
+      if (fr.status === 404 || fr.status === 410) { _portfolioFileId = null; localStorage.removeItem('TASI_portfolio_gd_id'); }
+      return false;
+    }
+    const data = await fr.json().catch(() => null);
+    if (data?.portfolio && typeof data.portfolio === 'object') {
+      // Merge: Drive wins for tickers present in Drive; keep local-only positions
+      const localPortfolio = { ...portfolio };
+      portfolio = { ...localPortfolio, ...data.portfolio };
+      localStorage.setItem('TASI_portfolio', JSON.stringify(portfolio));
+      console.log(`[GD] Portfolio loaded from Drive (${Object.keys(portfolio).length} positions)`);
+      if (document.getElementById('portfolio-panel')) renderPortfolioPanel();
+      return true;
+    }
+  } catch(e) { console.warn('gdLoadPortfolio:', e); }
+  return false;
+}
+
+function _savePortfolio() {
+  try { localStorage.setItem('TASI_portfolio', JSON.stringify(portfolio)); } catch(e) {}
+  gdSchedulePortfolioSave();
+}
+
 function setPortfolioPosition(ticker, shares, avgCost) {
   const sh = parseFloat(shares);
   if (!isFinite(sh) || sh <= 0) { delete portfolio[ticker]; }
   else portfolio[ticker] = {shares: sh, avgCost: parseFloat(avgCost)||0};
-  try { localStorage.setItem('TASI_portfolio', JSON.stringify(portfolio)); } catch(e){}
+  _savePortfolio();
   if(document.getElementById('portfolio-panel')) renderPortfolioPanel();
 }
 
@@ -660,7 +744,7 @@ function addPortfolioLot(ticker, newShares, buyPrice) {
   } else {
     portfolio[ticker] = {shares: ns, avgCost: bp};
   }
-  try { localStorage.setItem('TASI_portfolio', JSON.stringify(portfolio)); } catch(e){}
+  _savePortfolio();
   if(document.getElementById('portfolio-panel')) renderPortfolioPanel();
 }
 
@@ -1506,6 +1590,7 @@ function connectGoogleDrive() {
         sessionStorage.setItem('TASI_gd_token', GD_TOKEN);
         updateGDStatus();
         showToast('✓ Google Drive connected');
+        gdLoadPortfolio(); // pull portfolio from Drive on first connect
         if (logEl) logEl.innerHTML = '<span style="color:var(--green)">✓ Connected — all stock data (statements + fundamentals) will be cached in your Drive.</span>';
       }
     }).requestAccessToken();
@@ -2543,7 +2628,7 @@ function renderPortfolioHTML(stats) {
 </div>`;
 
   html += _renderAddForm();
-  html += `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:8px">Portfolio saved locally in your browser. Not connected to any brokerage. Dividend dates are estimates only.</div>`;
+  html += `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:8px">${typeof GD_TOKEN!=='undefined'&&GD_TOKEN?'☁ Portfolio synced to Google Drive (auto-saved).':'💾 Portfolio saved locally in your browser — connect Google Drive in Settings to sync across devices.'} Not connected to any brokerage. Dividend dates are estimates only.</div>`;
   return html;
 }
 
@@ -2647,7 +2732,7 @@ function _portConfirmSell(overrideShares) {
     portfolio[ticker] = {shares: remaining, avgCost: pos.avgCost};
     showToast(`Sold ${toSell} shares — ${remaining} remaining`);
   }
-  try { localStorage.setItem('TASI_portfolio', JSON.stringify(portfolio)); } catch(e) {}
+  _savePortfolio();
   window._portSellTicker = null;
   document.getElementById('portfolio-panel').innerHTML = renderPortfolioHTML(getPortfolioStats());
 }
@@ -7335,7 +7420,10 @@ async function refreshAll(forceRefresh=false){
       clearTimeout(_hardStop); // cache hit — no need for failsafe
       fetchTASIIndex();
       // Load statements in background, then apply cached Fair Value once ready
-      if (GD_TOKEN) gdLoadStatementsBulk().then(() => { _applyDriveValuations(); doFilter(); updateMetrics(); });
+      if (GD_TOKEN) {
+        gdLoadStatementsBulk().then(() => { _applyDriveValuations(); doFilter(); updateMetrics(); });
+        gdLoadPortfolio(); // restore portfolio from Drive if available
+      }
       doFilter();updateMetrics();
       return;
     }
@@ -7623,6 +7711,7 @@ async function refreshAll(forceRefresh=false){
   await Promise.all([saveCache(), gdSaveBulkPrices()]);
   // Load / await statements from Drive — fire-and-forget for normal load, awaited for force
   if (GD_TOKEN) {
+    gdLoadPortfolio(); // restore portfolio from Drive (runs in background, non-blocking)
     if (forceRefresh) {
       document.getElementById("pl").textContent = 'Loading financial statements from Google Drive...';
       await Promise.race([gdLoadStatementsBulk(), new Promise(r=>setTimeout(r, 45000))]);
