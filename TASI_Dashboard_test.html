@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602a · feat: economist review — recalibrated WACC, ERP, tax shield, betas, net debt, CAPE/score anchors</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602b · fix: market valuation — exclude Aramco from cap-wtd DY/PB (consistent w/ P/E), align tile thresholds</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -8138,14 +8138,18 @@ function _marketConditions() {
   const earningsYield = wtdAvg > 0 ? 1/wtdAvg : null;
   const erp = earningsYield != null ? earningsYield - SAUDI_RF : null;
 
-  // Cap-weighted dividend yield — fallback to equal-weight when mktCap absent
-  const dyStocks = allData.filter(d=>d.priceLoaded && d.dy>0);
+  // Cap-weighted dividend yield — fallback to equal-weight when mktCap absent.
+  // Exclude Aramco (2222.SR): its ~2% free float makes full-cap weighting unrepresentative,
+  // and its huge cap × high yield otherwise pushes market DY above earnings yield (impossible
+  // market-wide). Same exclusion rationale as the cap-weighted P/E.
+  const dyStocks = allData.filter(d=>d.priceLoaded && d.dy>0 && d.ticker!=='2222.SR');
   const dyWt = d => d.mktCap > 0 ? d.mktCap : 1;
   const dyTotalWt = dyStocks.reduce((s,d)=>s+dyWt(d),0);
   const wtdDY = dyTotalWt>0 ? dyStocks.reduce((s,d)=>s+d.dy*(dyWt(d)/dyTotalWt),0) : null;
 
-  // Cap-weighted price-to-book — fallback to equal-weight when mktCap absent
-  const pbStocks = allData.filter(d=>d.priceLoaded && d.pb>0 && d.pb<30);
+  // Cap-weighted price-to-book — fallback to equal-weight when mktCap absent.
+  // Exclude Aramco for the same free-float / cap-dominance reason as P/E and DY.
+  const pbStocks = allData.filter(d=>d.priceLoaded && d.pb>0 && d.pb<30 && d.ticker!=='2222.SR');
   const pbWt = d => d.mktCap > 0 ? d.mktCap : 1;
   const pbTotalWt = pbStocks.reduce((s,d)=>s+pbWt(d),0);
   const wtdPB = pbTotalWt>0 ? pbStocks.reduce((s,d)=>s+d.pb*(pbWt(d)/pbTotalWt),0) : null;
@@ -8326,9 +8330,13 @@ function _buildMktValHistory(cutoffMs) {
       const histMC = curMC > 0 ? curMC * ratio : 0;
       if (histMC > 0) {
         if (!isAramco) A.capExA += histMC;
-        if (pe != null) { const hp = pe * ratio; if (hp > 0 && hp < 200) { A.peCap += histMC; A.peW += histMC * hp; } }
-        if (pb != null) { A.pbCap += histMC; A.pbW += histMC * pb * ratio; }
-        if (dy != null) { A.dyCap += histMC; A.dyW += histMC * Math.min(dy / ratio, 0.6); }
+        // Exclude Aramco from cap-weighted P/E, P/B and DY — matches _mpeCalc / _marketConditions
+        // headline methodology (Aramco's ~2% free float makes full-cap weighting unrepresentative).
+        if (!isAramco) {
+          if (pe != null) { const hp = pe * ratio; if (hp > 0 && hp < 200) { A.peCap += histMC; A.peW += histMC * hp; } }
+          if (pb != null) { A.pbCap += histMC; A.pbW += histMC * pb * ratio; }
+          if (dy != null) { A.dyCap += histMC; A.dyW += histMC * Math.min(dy / ratio, 0.6); }
+        }
         if (rev != null) { A.psCap += histMC; A.revSum += rev; }
       }
       if (i >= 49)  { const sma = (pref[i + 1] - pref[i - 49])  / 50;  A.v50++;  if (c > sma) A.a50++; }
@@ -8415,14 +8423,13 @@ function _renderMarketConditions() {
 
   const tiles = [];
 
-  // 0. Market P/E tile
-  const _r = _mpeCalc();
-  if (_r) {
-    const p = _r.wtdAvg;
-    const col = p < 15 ? '#2ed573' : p < 25 ? '#f5a623' : '#e74c3c';
-    const verdict = p < 15 ? 'Undervalued' : p < 25 ? 'Fair Value' : 'Expensive';
+  // 0. Market P/E tile — reuse m.wtdAvg (already computed by _marketConditions, avoids a second _mpeCalc sort)
+  if (m.wtdAvg > 0) {
+    const p = m.wtdAvg;
+    const col = p < 14 ? '#2ed573' : p < 26 ? '#f5a623' : '#e74c3c';
+    const verdict = p < 14 ? 'Undervalued' : p < 26 ? 'Fair Value' : 'Expensive';
     tiles.push(tile('pe', 'Market P/E', p.toFixed(1)+'x', verdict, col,
-      'Cap-weighted market P/E (ex-Aramco). The primary valuation multiple for the market. <15x historically cheap for TASI, 15–25x fair, >25x expensive.'));
+      'Cap-weighted market P/E (ex-Aramco). The primary valuation multiple for the market. <14x historically cheap for TASI, 14–26x fair, >26x expensive.'));
   }
 
   // 1. Buffett Indicator (ex-Aramco headline; Aramco's 2% float distorts the total)
@@ -8432,7 +8439,7 @@ function _renderMarketConditions() {
     const verdict = b < 0.80 ? 'Undervalued' : b < 1.1 ? 'Fair' : b < 1.5 ? 'Modestly rich' : 'Overvalued';
     tiles.push(tile('buffett', 'Buffett Indicator', (b*100).toFixed(0)+'%',
       `${verdict} · incl. Aramco ${(m.buffettInd*100).toFixed(0)}%`, col,
-      'Liquid market cap (ex-Aramco) ÷ GDP. Thresholds calibrated for Saudi/EM norms: <80% undervalued, 80–110% fair, 110–150% modestly rich, >150% overvalued. Covers app\'s ~238 liquid stocks; full TASI has additional micro-caps. GDP ≈ SAR 4.3T (2026 est.).'));
+      'Liquid market cap (ex-Aramco) ÷ GDP. Thresholds calibrated for Saudi/EM norms: <80% undervalued, 80–110% fair, 110–150% modestly rich, >150% overvalued. Covers app\'s ~238 liquid stocks; full TASI has additional micro-caps. GDP ≈ SAR 4.55T (2025 actual).'));
   }
 
   // 2. Earnings Yield
@@ -8457,10 +8464,10 @@ function _renderMarketConditions() {
   // 4. Market Dividend Yield
   if (m.wtdDY != null) {
     const dy = m.wtdDY;
-    const col = dy > 0.04 ? '#2ed573' : dy > 0.025 ? '#f5a623' : '#e74c3c';
+    const col = dy > 0.04 ? '#2ed573' : dy > 0.02 ? '#f5a623' : '#e74c3c';
     tiles.push(tile('dy', 'Market Div Yield', (dy*100).toFixed(2)+'%',
-      'cap-weighted', col,
-      'Market-cap weighted dividend yield across all dividend-paying stocks. Higher yields generally accompany cheaper markets. TASI long-run ≈ 3–4%.'));
+      'cap-weighted, ex-Aramco', col,
+      'Market-cap weighted dividend yield across dividend-paying stocks (ex-Aramco, to stay consistent with the ex-Aramco earnings yield). Higher yields generally accompany cheaper markets. TASI long-run ≈ 3.5%.'));
   }
 
   // 5. Market P/B
@@ -8468,8 +8475,8 @@ function _renderMarketConditions() {
     const pb = m.wtdPB;
     const col = pb < 1.8 ? '#2ed573' : pb < 2.5 ? '#f5a623' : '#e74c3c';
     tiles.push(tile('pb', 'Market P/B', pb.toFixed(2)+'x',
-      'cap-weighted', col,
-      'Market-cap weighted price-to-book. <1.8x is historically cheap for TASI, >2.5x rich. Less distorted by earnings cycles than P/E.'));
+      'cap-weighted, ex-Aramco', col,
+      'Market-cap weighted price-to-book (ex-Aramco). <1.8x is historically cheap for TASI, >2.5x rich. Less distorted by earnings cycles than P/E.'));
   }
 
   // 6. Breadth (% above SMA-50)
@@ -8495,22 +8502,22 @@ function _renderMarketConditions() {
   // 8. Shiller CAPE — cyclically adjusted P/E (10-year inflation-adjusted)
   if (m.cape != null) {
     const c = m.cape;
-    const col = c < 18 ? '#2ed573' : c < 26 ? '#f5a623' : '#e74c3c';
-    const verdict = c < 18 ? 'Cheap' : c < 26 ? 'Modestly rich' : 'Expensive';
+    const col = c < 16 ? '#2ed573' : c < 27 ? '#f5a623' : '#e74c3c';
+    const verdict = c < 16 ? 'Cheap' : c < 27 ? 'Modestly rich' : 'Expensive';
     const coverage = m.capeDataDays >= 365 ? `${(m.capeDataDays/365).toFixed(1)}yr avg` : `${m.capeDataDays}d avg`;
     tiles.push(tile('cape', 'Shiller CAPE', c.toFixed(1)+'x',
       `${verdict} · ${coverage}`, col,
-      `Cyclically-Adjusted P/E (Shiller PE): current market P/E normalised using ${m.capeDataDays} days of earnings history, inflation-adjusted at 2.5%/yr Saudi CPI. Smooths out earnings cycles — a market-wide CAPE <18 is historically cheap for TASI, >26 is expensive. Coverage grows the longer the app runs.`));
+      `Cyclically-Adjusted P/E (Shiller PE): current market P/E normalised using ${m.capeDataDays} days of earnings history, inflation-adjusted at 2.5%/yr Saudi CPI. Smooths out earnings cycles — a market-wide CAPE <16 is historically cheap for TASI, >27 is expensive. Coverage grows the longer the app runs.`));
   }
 
   // 9. Market P/S — price-to-sales (less earnings-cycle distortion)
   if (m.mktPS != null) {
     const ps = m.mktPS;
-    const col = ps < 1.5 ? '#2ed573' : ps < 2.5 ? '#f5a623' : '#e74c3c';
-    const verdict = ps < 1.5 ? 'Cheap' : ps < 2.5 ? 'Fair' : 'Expensive';
+    const col = ps < 1.0 ? '#2ed573' : ps < 2.5 ? '#f5a623' : '#e74c3c';
+    const verdict = ps < 1.0 ? 'Cheap' : ps < 2.5 ? 'Fair' : 'Expensive';
     tiles.push(tile('ps', 'Market P/S', ps.toFixed(2)+'x',
       `${verdict} · ${m.psN} stk`, col,
-      `Price-to-Sales: aggregate market cap ÷ aggregate TTM revenue for ${m.psN} stocks with revenue data. Revenue is less volatile than earnings — P/S is immune to earnings-manipulation and useful when many stocks are loss-making. TASI <1.5x historically cheap, >2.5x expensive.`));
+      `Price-to-Sales: aggregate market cap ÷ aggregate TTM revenue for ${m.psN} stocks with revenue data. Revenue is less volatile than earnings — P/S is immune to earnings-manipulation and useful when many stocks are loss-making. TASI <1x historically cheap, >2.5x expensive.`));
   }
 
   // 10. 52-Week High vs Low ratio — near-term momentum breadth
