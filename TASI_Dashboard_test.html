@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260601k · feat: tooltips on all Fair Value tab labels (P/E, EV/EBITDA, P/B, Composite, Model Inputs)</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602a · feat: economist review — recalibrated WACC, ERP, tax shield, betas, net debt, CAPE/score anchors</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -3239,12 +3239,12 @@ function scoreFundamental(d){
       else if(relPE<1.3)add("P/E Ratio",pe.toFixed(1)+'x',-8,`Slightly expensive vs sector (P/E ${(relPE*100).toFixed(0)}% of ${medLabel})`,`Trading at a 10–30% premium to ${d.sector} sector peers (median ${secMed.toFixed(1)}x). Requires demonstrably superior growth or margins to justify. Watch for sector rotation that could compress the premium.`);
       else add("P/E Ratio",pe.toFixed(1)+'x',-15,`Expensive vs sector (P/E ${(relPE*100).toFixed(0)}% of ${medLabel})`,`Trading at a 30%+ premium to ${d.sector} sector peers (median ${secMed.toFixed(1)}x). Speculative premium that requires sustained superior growth. High risk of de-rating if expectations disappoint.`);
     } else {
-      // Absolute P/E scoring (fallback when sector median not yet available)
-      if(pe<10)add("P/E Ratio",pe.toFixed(1),+22,"Very cheap (P/E < 10)","A P/E below 10 means you pay less than 10 years of earnings. Historically signals deep value or a recovering business. Verify earnings are real — not a one-time event. On Tadawul this is rare for quality stocks and deserves investigation.");
-      else if(pe<15)add("P/E Ratio",pe.toFixed(1),+14,"Below market avg (P/E 10–15)","P/E of 10–15 is the classic Buffett-Graham value zone. You are paying a fair price for a profitable business. TASI average P/E is around 17–20x, so this stock is meaningfully cheaper than the market. Strong buy indicator on valuation alone.");
-      else if(pe<20)add("P/E Ratio",pe.toFixed(1),+8,"Fair value (P/E 15–20)","P/E of 15–20 is in line with the TASI market average. Not cheap, not expensive. Only worth buying if ROE is above 15% and earnings are growing consistently. At this P/E you need growth to generate good returns.");
-      else if(pe<28)add("P/E Ratio",pe.toFixed(1),+3,"Slightly premium (P/E 20–28)","Above market average. You are paying for expected growth. Requires 10–15% annual earnings growth to deliver good returns. At P/E 25 with 10% growth you earn a ~5% earnings yield — acceptable but not exciting. One disappointing quarter can cause a 15–20% correction.");
-      else if(pe<=40)add("P/E Ratio",pe.toFixed(1),-5,"Premium valuation (P/E 28–40)","Expensive by most standards. The market has priced in strong growth already. You need consistent 15%+ earnings growth just to keep the stock flat. Any earnings miss triggers a sharp correction. Requires exceptional conviction in the long-term growth story before buying.");
+      // Absolute P/E scoring — anchored to TASI historical average of 17–20x.
+      if(pe<12)add("P/E Ratio",pe.toFixed(1),+22,"Very cheap (P/E < 12)","A P/E below 12 is well below the TASI historical average of 17–20x — deep value territory. Verify earnings are real and not a one-time event. Rare for quality Saudi stocks and worth investigating carefully.");
+      else if(pe<18)add("P/E Ratio",pe.toFixed(1),+14,"Below market avg (P/E 12–18)","P/E of 12–18 is meaningfully below the TASI long-run average. You are paying a fair to attractive price for earnings. A stock at 15x while the market trades at 18–20x is the classic Buffett-Graham value zone.");
+      else if(pe<23)add("P/E Ratio",pe.toFixed(1),+8,"Fair value (P/E 18–23)","P/E of 18–23 is in line with the TASI market average. Not cheap, not expensive. Only worth buying if ROE is above 15% and earnings are growing consistently. At this P/E you need growth to generate good returns.");
+      else if(pe<28)add("P/E Ratio",pe.toFixed(1),+3,"Slightly premium (P/E 23–28)","Above TASI average. You are paying for expected growth. Requires 10–15% annual earnings growth to deliver good returns. One disappointing quarter can cause a 15–20% correction.");
+      else if(pe<=40)add("P/E Ratio",pe.toFixed(1),-5,"Premium valuation (P/E 28–40)","Expensive by most standards. The market has priced in strong growth already. You need consistent 15%+ earnings growth just to keep the stock flat. Any earnings miss triggers a sharp correction.");
       else add("P/E Ratio",pe.toFixed(1),-18,"Very expensive (P/E > 40)","Speculative valuation. You would need 25%+ annual earnings growth sustained for many years to justify this price. Most companies fail at this. On TASI this signals either a high-growth tech/healthcare company or a bubble. Treat with extreme caution.");
     }
   } else add("P/E Ratio","N/A",-5,"No earnings data available","P/E cannot be calculated — company may be loss-making or data is unavailable. Check Tadawul.com.sa directly for the latest income statement. Cannot assess valuation without this — treat as a significant data gap and investigate before any investment decision.");
@@ -3321,7 +3321,11 @@ function scoreBuffett(d){
   const{pe,pb,roe,npm,de,dy,fcf,cr,rg,eg}=d;
   // Seed objects carry .r; allData/realD objects carry .isReit — accept either
   const isReit = d.isReit ?? d.r;
-  const roeT=isReit?0.06:0.15,npmT=isReit?0.35:0.12,deT=isReit?120:70,dyT=isReit?0.045:0.025,pbT=isReit?1.3:2.5;
+  // Regulated/capital-intensive sectors have structurally lower ROEs — use sector-specific thresholds
+  // so these companies are not unfairly penalised vs higher-margin service businesses.
+  const _roeThreshBF = {'Utilities':0.08,'Energy':0.10,'Petrochemicals':0.10,'Chemicals':0.10,'Building Materials':0.10,'Transportation':0.10,'Materials':0.10};
+  const roeT = isReit ? 0.06 : (_roeThreshBF[d.sector] ?? 0.15);
+  const npmT=isReit?0.35:0.12,deT=isReit?120:70,dyT=isReit?0.045:0.025,pbT=isReit?1.3:2.5;
 
   // ── ROE: most important criterion ──
   crit.highROE=roe!=null&&roe>=roeT;
@@ -5954,12 +5958,26 @@ async function buildDCF(d) {
     }
   }
   if (baseFCF === null && d.ni != null) {
-    baseFCF = d.fcf ? d.ni * 0.85e9 : d.ni * 0.3e9;
-    fcfSource = `estimated (NI ${d.ni?.toFixed(2)}B × factor)`;
+    // Sector-specific NI→FCF conversion — reflects how much of accounting profit
+    // becomes distributable cash after capex, working capital, and D&A adjustments.
+    const _NI_FCF = {
+      'Technology':0.85,'REITs':1.10,'Real Estate':0.75,'Healthcare':0.70,
+      'Consumer':0.70,'Telecom':0.65,'Utilities':0.60,'Transportation':0.50,
+      'Industrial':0.55,'Building Materials':0.50,'Materials':0.50,
+      'Petrochemicals':0.50,'Chemicals':0.50,'Energy':0.55,
+      'Banking':0.30,'Insurance':0.30,
+    };
+    const niFcfFactor = _NI_FCF[d.sector] ?? 0.55;
+    baseFCF = d.ni * niFcfFactor * 1e9;
+    fcfSource = `estimated (NI ${d.ni?.toFixed(2)}B × ${(niFcfFactor*100).toFixed(0)}% sector factor)`;
   }
 
   // ── WACC ──
-  const rfRate=0.055, erp=0.065, kd=0.055;
+  // rfRate: SAMA/10Y SAR sukuk (June 2026). erp: Damodaran 2025 Saudi total ERP (mature 4.6% + CRP 2.5%).
+  // kd: rfRate + 150 bps credit spread (investment-grade Saudi corporate sukuk).
+  const rfRate = 0.048;
+  const erp    = 0.071;
+  const kd     = Math.max(rfRate + 0.015, 0.05);
   // Sector-aware terminal growth — Vision 2030 tailwinds lift domestic sectors;
   // commodities/petrochem mean-revert to global cycle; banking/consumer = TASI long-run.
   const TERM_GROWTH_BY_SECTOR = {
@@ -5969,31 +5987,46 @@ async function buildDCF(d) {
     'Energy':0.020,'Petrochemicals':0.020,'Chemicals':0.020,
   };
   const termGrowth = TERM_GROWTH_BY_SECTOR[d.sector] ?? 0.025;
-  const _energyTaxTickers = ['2222.SR','2010.SR'];
-  const taxRate = _energyTaxTickers.includes(d.ticker) ? 0.20 : 0.05;
-  // Sector-specific beta defaults — used when Yahoo Finance has not provided a measured beta.
-  // Saudi banks are quasi-sovereign (Basel-regulated, government-linked); Energy = Aramco-anchored.
-  // Higher beta for Real Estate / Technology reflects earnings cyclicality and leverage sensitivity.
+  // CIT payers (20% rate, interest is tax-deductible). All others pay Zakat — no interest tax shield.
+  // Banks pay Zakat but regulators apply a partial effective shield ≈ 7% (capital adequacy overlay).
+  const _citTickers = ['2222.SR','2010.SR','2380.SR','8210.SR','8170.SR','8180.SR','8240.SR'];
+  const taxRate = _citTickers.includes(d.ticker) ? 0.20
+                : d.sector === 'Banking' ? 0.07
+                : 0.0;
+  // Sector-specific beta defaults — calibrated to Damodaran 2025 MENA betas.
+  // Banking lifted 0.70→0.80 (higher rate sensitivity post-SAMA hikes).
+  // REITs lifted 1.05→1.20 (real-asset leverage + rate exposure).
+  // Utilities lifted 0.70→0.75 (ACWA Power inclusion raises sector vol).
   const SECTOR_BETA = {
-    'Banking':0.70,'Insurance':0.85,'Energy':0.80,
+    'Banking':0.80,'Insurance':0.85,'Energy':0.80,
     'Petrochemicals':1.10,'Chemicals':1.05,'Materials':1.10,
-    'Building Materials':1.05,'Real Estate':1.20,'REITs':1.05,
+    'Building Materials':1.05,'Real Estate':1.20,'REITs':1.20,
     'Telecom':0.85,'Technology':1.20,'Healthcare':0.90,
-    'Consumer':0.95,'Utilities':0.70,'Transportation':0.95,'Industrial':1.00,
+    'Consumer':0.95,'Utilities':0.75,'Transportation':0.95,'Industrial':1.00,
   };
   const sectorBeta = SECTOR_BETA[d.sector] || 1.0;
-  const beta = d.beta || sectorBeta;
-  const betaSource = d.beta ? 'Yahoo Finance' : `sector default (${d.sector||'unknown'})`;
+  // Sanity-filter Yahoo beta: reject extreme outliers (data errors, thin float)
+  const beta = (d.beta != null && d.beta > 0.1 && d.beta < 4.0) ? d.beta : sectorBeta;
+  const betaSource = (d.beta != null && d.beta > 0.1 && d.beta < 4.0) ? 'Yahoo Finance' : `sector default (${d.sector||'unknown'})`;
   const ke = rfRate + beta * erp;
-  // D/E ratio: prefer net financial debt over total liabilities
-  // d.de = (total_liabilities / total_equity) * 100 — overstates leverage
-  // Apply 35% haircut to convert total liabilities estimate to financial debt
+  // Sector-specific liabilities→financial-debt haircuts.
+  // d.de = (total_liabilities / total_equity) × 100 — overstates financial leverage.
+  // Each sector factor converts total-liabilities/equity to net-financial-debt/equity.
+  const LIAB_TO_FINDEBT = {
+    'Banking':0.05,'Insurance':0.10,       // deposits/reserves ≠ financial debt
+    'REITs':0.65,'Real Estate':0.50,        // mostly mortgage/sukuk debt
+    'Telecom':0.50,'Utilities':0.50,        // network capex bonds
+    'Energy':0.45,'Petrochemicals':0.40,'Chemicals':0.35,
+    'Transportation':0.40,'Industrial':0.35,'Building Materials':0.35,
+    'Materials':0.35,'Technology':0.30,'Healthcare':0.30,'Consumer':0.30,
+  };
   let deRatio;
   const _deOverride = d._deOverride != null ? d._deOverride / 100 : null;
   if (_deOverride != null) {
     deRatio = _deOverride;
   } else if (d.de != null) {
-    deRatio = (d.de / 100) * 0.35; // haircut to estimate financial debt portion
+    const sectorHaircut = LIAB_TO_FINDEBT[d.sector] ?? 0.35;
+    deRatio = (d.de / 100) * sectorHaircut;
   } else {
     deRatio = 0.3;
   }
@@ -6001,7 +6034,8 @@ async function buildDCF(d) {
   const eWeight = 1 / (1 + deRatio);
   const dWeight = deRatio / (1 + deRatio);
   const wacc = ke * eWeight + kd * dWeight * (1 - taxRate);
-  // Compute average YoY growth from statements if available (handles negatives better than CAGR)
+  // CAGR is more accurate than arithmetic-mean YoY for revenue (compounds correctly, no survivorship bias).
+  // Falls back to arithmetic mean when any period is negative (CAGR undefined for sign changes).
   function _avgYoY(vals) {
     const rates = [];
     for (let i = 0; i < vals.length - 1; i++) {
@@ -6010,10 +6044,17 @@ async function buildDCF(d) {
     }
     return rates.length ? rates.reduce((s,r)=>s+r,0)/rates.length : null;
   }
+  function _cagr(vals) {
+    const numeric = vals.map(v => parseFloat(v)).filter(v => !isNaN(v));
+    if (numeric.length < 2) return null;
+    const first = numeric[numeric.length - 1], last = numeric[0];
+    if (first <= 0 || last <= 0) return _avgYoY(vals); // negative periods → fall back
+    return Math.pow(last / first, 1 / (numeric.length - 1)) - 1;
+  }
   let growthRate, growthSource;
   const revVals = annualData?.is?.map(r=>r.revenue).filter(v=>v!=null) || [];
   const fcfVals = annualData?.cf?.map(r=>r.free_cash_flow).filter(v=>v!=null) || [];
-  const revGrowth = revVals.length >= 2 ? _avgYoY(revVals) : null;
+  const revGrowth = revVals.length >= 2 ? _cagr(revVals) : null;
   const fcfGrowth = fcfVals.length >= 2 ? _avgYoY(fcfVals.filter(v=>parseFloat(v)>0)) : null;
   if (revGrowth != null || fcfGrowth != null) {
     // Use revenue growth as primary; blend with FCF growth if both exist
@@ -6039,14 +6080,29 @@ async function buildDCF(d) {
     for (let i=1;i<=5;i++) { fcf *= (1+growthRate); fcfProj.push(fcf); }
     pvFCFs = fcfProj.map((f,i) => f / Math.pow(1+wacc, i+1));
     sumPvFCF = pvFCFs.reduce((a,b) => a+b, 0);
-    termVal = fcfProj[4] * (1+termGrowth) / (wacc - termGrowth);
+    const tvSpread = Math.max(wacc - termGrowth, 0.02); // floor spread at 200 bps — avoids blowup when WACC ≈ g
+    termVal = fcfProj[4] * (1 + termGrowth) / tvSpread;
     pvTerm = termVal / Math.pow(1+wacc, 5);
     enterpriseValue = sumPvFCF + pvTerm;
-    if (d.assets && d.de != null) {
-      const totalDebt = (d.de/100) * (d.assets*1e9 / (1+d.de/100));
-      const cash = annualData?.bs?.[0]?.cash_and_equivalents ? parseFloat(annualData.bs[0].cash_and_equivalents) : totalDebt * 0.15;
-      netDebt = totalDebt - (!isNaN(cash) ? cash : 0);
-      netDebtNote = `total debt ${(totalDebt/1e9).toFixed(1)}B − cash ${(!isNaN(cash)?cash/1e9:0).toFixed(1)}B`;
+    {
+      const bsRow = annualData?.bs?.[0];
+      const ltDebt = bsRow?.long_term_debt   != null ? parseFloat(bsRow.long_term_debt)   : NaN;
+      const stDebt = bsRow?.short_term_debt  != null ? parseFloat(bsRow.short_term_debt)  : NaN;
+      const cashBS = bsRow?.cash_and_equivalents != null ? parseFloat(bsRow.cash_and_equivalents) : NaN;
+      if (!isNaN(ltDebt) || !isNaN(stDebt)) {
+        // Prefer explicit balance-sheet debt lines (most accurate)
+        const totalDebt = (isNaN(ltDebt) ? 0 : ltDebt) + (isNaN(stDebt) ? 0 : stDebt);
+        const cash = !isNaN(cashBS) ? cashBS : totalDebt * 0.15;
+        netDebt = totalDebt - cash;
+        netDebtNote = `LT debt ${((isNaN(ltDebt)?0:ltDebt)/1e9).toFixed(1)}B + ST ${((isNaN(stDebt)?0:stDebt)/1e9).toFixed(1)}B − cash ${(cash/1e9).toFixed(1)}B`;
+      } else if (d.assets && d.de != null) {
+        // Fallback: estimate from D/E ratio × assets with sector haircut
+        const sectorHaircut = LIAB_TO_FINDEBT[d.sector] ?? 0.35;
+        const totalDebt = (d.de / 100) * sectorHaircut * (d.assets * 1e9);
+        const cash = !isNaN(cashBS) ? cashBS : totalDebt * 0.15;
+        netDebt = totalDebt - cash;
+        netDebtNote = `est. debt (${(sectorHaircut*100).toFixed(0)}% liab. haircut) ${(totalDebt/1e9).toFixed(1)}B − cash ${(cash/1e9).toFixed(1)}B`;
+      }
     }
     equityValue = Math.max(enterpriseValue - netDebt, 0);
     shareCount = d.sharesOutstanding
@@ -6101,17 +6157,29 @@ async function buildDCF(d) {
   const peUpside = (peFairValue && d.price) ? (peFairValue - d.price) / d.price : null;
 
   // ── EV/EBITDA VALUATION ──
+  // REITs excluded — they are valued on NAV/FFO multiples, not EV/EBITDA.
+  // Banks & Insurance excluded — net interest income makes EBITDA meaningless.
   const _isFinancialSector = d.sector === 'Banking' || d.sector === 'Insurance';
   const SECTOR_EVEBITDA = {
     'Transportation':8,'Industrial':8,'Petrochemicals':7,'Chemicals':7,
-    'Materials':7,'Building Materials':8,'Real Estate':13,'REITs':14,
+    'Materials':7,'Building Materials':8,'Real Estate':13,
     'Healthcare':15,'Technology':20,'Consumer':9,'Utilities':10,
     'Telecom':10,'Energy':9,
   };
-  const sectorEVEBITDA = _isFinancialSector ? null : (SECTOR_EVEBITDA[d.sector] || null);
+  const sectorEVEBITDA = (_isFinancialSector || d.sector === 'REITs') ? null : (SECTOR_EVEBITDA[d.sector] || null);
   const ebitdaFromStmt = annualData?.is?.[0]?.ebitda ? parseFloat(annualData.is[0].ebitda) : null;
+  // Sector-specific D&A margins: heavy-asset sectors (Telecom, Energy, Utilities) have higher D&A.
+  const _DA_MARGIN = {
+    'Telecom':0.12,'Energy':0.10,'Utilities':0.10,
+    'Petrochemicals':0.08,'Chemicals':0.08,'Materials':0.08,
+    'Transportation':0.08,'Building Materials':0.07,
+    'Industrial':0.06,'Healthcare':0.06,
+    'Technology':0.05,'Real Estate':0.04,
+    'Consumer':0.03,'REITs':0.03,
+  };
+  const daMargin = _DA_MARGIN[d.sector] ?? 0.06;
   const ebitdaEst = (!ebitdaFromStmt && d.ni && d.npm && d.npm > 0)
-    ? (d.ni * 1e9 / d.npm) * (d.npm + 0.06) : null;
+    ? (d.ni * 1e9 / d.npm) * (d.npm + daMargin) : null;
   const ebitda = ebitdaFromStmt || ebitdaEst;
   const mktCapEst = d.mktCap || (d.price && shareCount ? d.price * shareCount : null);
   const evCurrent = mktCapEst ? mktCapEst + netDebt : null;
@@ -6131,7 +6199,13 @@ async function buildDCF(d) {
   const totalEquityStmt = annualData?.bs?.[0]?.total_equity ? parseFloat(annualData.bs[0].total_equity) : null;
   const bvpsFromStmt = (totalEquityStmt && shareCount) ? totalEquityStmt / shareCount : null;
   const bookValuePS = bvpsFromStmt || bvpsFromRatio;
-  const pbFairValue = (bookValuePS && sectorPBMid && bookValuePS > 0) ? bookValuePS * sectorPBMid : null;
+  // For banks use Gordon-Growth justified P/B = ROE / ke (Gordon 1962).
+  // This ties the target multiple directly to sustainable profitability rather than a static peer average.
+  let effectivePBTarget = sectorPBMid;
+  if (isBanking && d.roe != null && ke > 0) {
+    effectivePBTarget = Math.min(d.roe / ke, 3.5); // cap at 3.5× — avoids outlier distortion
+  }
+  const pbFairValue = (bookValuePS && effectivePBTarget && bookValuePS > 0) ? bookValuePS * effectivePBTarget : null;
   const pbUpside = (pbFairValue && d.price) ? (pbFairValue - d.price) / d.price : null;
 
   // ── COMPOSITE FAIR VALUE (sector-weighted blend of all available methods) ──
@@ -8042,9 +8116,9 @@ function _mpeCalc() {
 }
 
 // ── Macro / whole-market valuation context ────────────────────────────────
-// Saudi nominal GDP ≈ SAR 4.3 trillion (2026 estimate, IMF/SAMA). Risk-free ≈ 5.5% (SAMA policy rate / 10Y SAR bond).
-const SAUDI_GDP_SAR = 4.3e12;
-const SAUDI_RF = 0.055;
+// Saudi nominal GDP ≈ SAR 4.55 trillion (2025 actual, SAMA/GaStat). Risk-free ≈ 4.8% (10Y SAR sukuk, June 2026).
+const SAUDI_GDP_SAR = 4.55e12;
+const SAUDI_RF = 0.048;
 const _clamp01 = x => Math.max(0, Math.min(1, x));
 
 function _marketConditions() {
@@ -8141,13 +8215,19 @@ function _marketConditions() {
 
 function _computeOverallScore(m) {
   if (!m) return null;
-  const sP    = _clamp01((m.wtdAvg - 12) / (28 - 12));
-  const sERP  = m.erp        != null ? _clamp01((0.04 - m.erp)          / 0.05) : null;
+  // Anchors recalibrated to TASI historical ranges (Damodaran 2025 + SAMA data):
+  // P/E: TASI avg 17–20x → cheap@14, expensive@26
+  // ERP: vs SAUDI_RF 4.8% → cheap@+3%, expensive@-2%
+  // DY: TASI long-run avg ~3.5% → cheap@4%, expensive@2%
+  // CAPE: Saudi-calibrated → cheap@16, expensive@27
+  // P/S: TASI range → cheap@1x, expensive@2.5x
+  const sP    = _clamp01((m.wtdAvg - 14) / 12);
+  const sERP  = m.erp        != null ? _clamp01((0.03 - m.erp)          / 0.05) : null;
   const sBr   = m.breadth    != null ? _clamp01((m.breadth   - 0.30)    / 0.50) : null;
-  const sDY   = m.wtdDY      != null ? _clamp01((0.05 - m.wtdDY)        / 0.03) : null;
+  const sDY   = m.wtdDY      != null ? _clamp01((0.04 - m.wtdDY)        / 0.02) : null;
   const sPB   = m.wtdPB      != null ? _clamp01((m.wtdPB     - 1.5)     / 1.5)  : null;
-  const sCAPE = m.cape       != null ? _clamp01((m.cape      - 15)      / 20)   : null;
-  const sPS   = m.mktPS      != null ? _clamp01((m.mktPS     - 1.0)     / 2.5)  : null;
+  const sCAPE = m.cape       != null ? _clamp01((m.cape      - 16)      / 11)   : null;
+  const sPS   = m.mktPS      != null ? _clamp01((m.mktPS     - 1.0)     / 1.5)  : null;
   const sBr200= m.breadth200 != null ? _clamp01((m.breadth200 - 0.30)   / 0.50) : null;
   const parts = [sP, sERP, sBr, sDY, sPB, sCAPE, sPS, sBr200].filter(x=>x!=null);
   return parts.length ? Math.round(parts.reduce((a,b)=>a+b,0)/parts.length*100) : null;
@@ -8155,17 +8235,17 @@ function _computeOverallScore(m) {
 
 // Plain-language definitions shown in the description caption when a tile is selected.
 const _MKT_IND_DESC = {
-  pe:      'Market P/E — the cap-weighted price-to-earnings ratio of the market (excl. Aramco & REITs). How many riyals investors pay per riyal of annual earnings. <15x is historically cheap for TASI, 15–25x fair, >25x expensive.',
+  pe:      'Market P/E — the cap-weighted price-to-earnings ratio of the market (excl. Aramco & REITs). How many riyals investors pay per riyal of annual earnings. <14x is historically cheap for TASI, 14–26x fair, >26x expensive.',
   overall: 'Overall Score — a single 0–100 valuation gauge blending all indicators below (P/E, ERP, breadth, dividend yield, P/B, CAPE, P/S). 0 = cheap / fearful market, 100 = expensive / greedy market. Equal-weighted average of every available signal.',
-  buffett: 'Buffett Indicator — total stock-market value ÷ GDP (ex-Aramco). Warren Buffett\'s favourite gauge of whether a whole market is cheap or rich. <80% undervalued, 80–110% fair, 110–150% modestly rich, >150% overvalued (Saudi-calibrated). Saudi GDP ≈ SAR 4.3T.',
+  buffett: 'Buffett Indicator — total stock-market value ÷ GDP (ex-Aramco). Warren Buffett\'s favourite gauge of whether a whole market is cheap or rich. <80% undervalued, 80–110% fair, 110–150% modestly rich, >150% overvalued (Saudi-calibrated). Saudi GDP ≈ SAR 4.55T (2025).',
   ey:      'Earnings Yield — the inverse of the market P/E (1 ÷ P/E). The percentage of earnings the market produces per riyal invested. Directly comparable to bond yields: higher than the risk-free rate means equities are attractive.',
-  erp:     'Equity Risk Premium — earnings yield minus the risk-free rate (Saudi ≈ 5.5%). The extra reward you get for holding stocks instead of government bonds. Above +3% = equities clearly cheap vs bonds; negative = equities expensive vs bonds.',
-  dy:      'Dividend Yield — cap-weighted dividend yield across all dividend-paying stocks (annual dividend ÷ price). Higher yields usually accompany cheaper markets. The TASI long-run average is roughly 3–4%.',
+  erp:     'Equity Risk Premium — earnings yield minus the Saudi risk-free rate (10Y sukuk ≈ 4.8%). The extra reward you get for holding stocks instead of government bonds. Above +2% = equities attractive vs bonds; negative = equities expensive vs bonds.',
+  dy:      'Dividend Yield — cap-weighted dividend yield across all dividend-paying stocks (annual dividend ÷ price). Higher yields usually accompany cheaper markets. The TASI long-run average is roughly 3.5%; below 2% is expensive, above 4% is cheap.',
   pb:      'Price-to-Book — cap-weighted price ÷ book (net asset) value of the market. Less distorted by earnings cycles than P/E. Below 1.8x is historically cheap for TASI, above 2.5x rich.',
   br50:    'Breadth >SMA-50 — the share of stocks trading above their own 50-day moving average. Measures how broadly the market is participating in the trend. >60% is a healthy broad uptrend, <40% is weak.',
   br200:   'Breadth >SMA-200 — the share of stocks above their 200-day moving average. The structural bull/bear regime filter. >60% signals a healthy bull market, <40% a bear regime. Slower and more reliable than SMA-50 breadth.',
-  cape:    'Shiller CAPE — cyclically-adjusted P/E: the market P/E smoothed over years of inflation-adjusted earnings. Strips out short-term earnings swings. A market-wide CAPE <18 is historically cheap for TASI, >26 expensive.',
-  ps:      'Price-to-Sales — aggregate market value ÷ aggregate annual revenue. Revenue is far steadier than earnings, so P/S stays meaningful even when many companies are loss-making. TASI <1.5x is historically cheap, >2.5x expensive.',
+  cape:    'Shiller CAPE — cyclically-adjusted P/E: the market P/E smoothed over years of inflation-adjusted earnings. Strips out short-term earnings swings. A market-wide CAPE <16 is historically cheap for TASI, >27 expensive.',
+  ps:      'Price-to-Sales — aggregate market value ÷ aggregate annual revenue. Revenue is far steadier than earnings, so P/S stays meaningful even when many companies are loss-making. TASI <1x is historically cheap, >2.5x expensive.',
   hl52:    '52-Week High/Low — of the stocks near a 52-week extreme, the percentage near their HIGH (vs near their low). A momentum/sentiment gauge: a high reading means broad strength and a rising market; a low reading signals distribution and selling pressure.',
 };
 
