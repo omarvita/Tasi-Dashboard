@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602i · fix: 6 economic accuracy issues (volatility outliers, GDP, beta cap, CAPE label, P/E disclaimer, FCF source indicator)</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602j · feat: dynamic historical P/E using actual reported earnings per period</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -8900,31 +8900,93 @@ function _renderMPEChart() {
   const wtdMap = new Map(), medMap = new Map(), meanMap = new Map();
 
   // ── PRIMARY: build historical market P/E from individual stock price histories ──
-  // Independent of the ^TASI index symbol (which proxies frequently block). For each
-  // stock we hold current TTM EPS constant (= price/PE) and divide its historical close
-  // by that EPS to get a historical P/E. Aggregating across stocks by date gives the
-  // market-cap-weighted, median, and mean P/E for that day.
-  const dateAgg = new Map(); // dateStr -> { capSum, earnSum, peList, t }
+  // For each stock, if we have quarterly/annual statements in the cache, we build an
+  // EPS timeline so that the historical P/E at date D uses the actual TTM earnings as of D
+  // (ratio-scaled from current EPS to cancel out unit differences).  For stocks without
+  // statement history the constant-EPS fallback is still used; the chart title shows coverage.
+  //
+  // EPS timeline helper — returns [{tMs, eps}] sorted ascending, or null
+  const _epsTimeline = s => {
+    if (!(s.pe > 0) || !(s.price > 0)) return null;
+    const curEPS = s.price / s.pe;
+    if (!(curEPS > 0)) return null;
+    const curNI = (s.ni || 0) * 1e9; // d.ni is billions; raw statement values are in same base units
+    if (!(curNI > 0)) return null;
+    const stmt = _stmtCache[s.ticker] || {};
+    const tl = [];
+
+    // Quarterly TTM — 4-quarter rolling sum gives earnings at each reporting date
+    const qIS = stmt.quarterly?.is;
+    if (qIS && qIS.length >= 4) {
+      const qs = qIS
+        .map(r => { const d = r.fiscal_date || r.date, ni = parseFloat(r.net_income); return (d && !isNaN(ni)) ? { tMs: new Date(d).getTime(), ni } : null; })
+        .filter(Boolean).sort((a,b) => a.tMs - b.tMs);
+      for (let i = 3; i < qs.length; i++) {
+        const ttm = qs[i-3].ni + qs[i-2].ni + qs[i-1].ni + qs[i].ni;
+        if (!(ttm > 0)) continue;
+        const r = ttm / curNI;
+        if (r > 0 && r < 15) tl.push({ tMs: qs[i].tMs, eps: curEPS * r });
+      }
+    }
+
+    // Annual fallback — one data point per year
+    if (tl.length < 2) {
+      const aIS = stmt.annual?.is;
+      if (aIS) {
+        const ys = aIS
+          .map(r => { const d = r.fiscal_date || r.date, ni = parseFloat(r.net_income); return (d && !isNaN(ni)) ? { tMs: new Date(d).getTime(), ni } : null; })
+          .filter(Boolean).sort((a,b) => a.tMs - b.tMs);
+        for (const y of ys) {
+          if (!(y.ni > 0)) continue;
+          const r = y.ni / curNI;
+          if (r > 0 && r < 15) tl.push({ tMs: y.tMs, eps: curEPS * r });
+        }
+      }
+    }
+
+    if (tl.length < 1) return null;
+    tl.push({ tMs: Date.now(), eps: curEPS }); // anchor current EPS at today
+    return tl.sort((a,b) => a.tMs - b.tMs);
+  };
+
+  // EPS lookup — step-function (no interpolation) so we never pretend to know
+  // intra-period earnings; use the last known TTM EPS until the next report date
+  const _epsAt = (tl, tMs) => {
+    if (!tl) return null;
+    let best = null;
+    for (const pt of tl) { if (pt.tMs <= tMs) best = pt.eps; else break; }
+    return best; // null if tMs is before all reporting dates
+  };
+
+  // Pre-compute EPS timelines for every stock with statement cache data
+  const epsTimelines = new Map();
+  for (const s of allData) { const tl = _epsTimeline(s); if (tl) epsTimelines.set(s.ticker, tl); }
+
+  const dateAgg = new Map(); // dateStr -> { capSum, earnSum, peList, t, dynN, staticN }
   for (const s of allData) {
     const closes = s.closes || [];
     const stamps = s.timestamps || [];
     if (closes.length < 5 || stamps.length !== closes.length) continue;
     if (!(s.pe > 0) || !(s.price > 0)) continue;
-    const eps = s.price / s.pe; // current TTM EPS
-    if (!(eps > 0)) continue;
+    const staticEPS = s.price / s.pe;
+    if (!(staticEPS > 0)) continue;
     const shares = s.sharesOutstanding || (s.mktCap > 0 ? s.mktCap / s.price : 0);
+    const tl = epsTimelines.get(s.ticker);
     for (let i = 0; i < closes.length; i++) {
       const c = closes[i], ts = stamps[i];
       if (!c || !ts) continue;
       const tMs = ts * 1000;
       if (tMs < cutoffMs) continue;
+      const eps = (tl ? _epsAt(tl, tMs) : null) ?? staticEPS;
+      if (!(eps > 0)) continue;
       const histPE = c / eps;
-      if (!(histPE > 0) || histPE > 40) continue; // match _mpeCalc headline filter (pe < 40 after REIT exclusion)
+      if (!(histPE > 0) || histPE > 60) continue;
       const dateStr = new Date(tMs).toISOString().slice(0,10);
       let agg = dateAgg.get(dateStr);
-      if (!agg) { agg = { capSum:0, earnSum:0, peList:[], t:tMs }; dateAgg.set(dateStr, agg); }
+      if (!agg) { agg = { capSum:0, earnSum:0, peList:[], t:tMs, dynN:0, statN:0 }; dateAgg.set(dateStr, agg); }
       agg.peList.push(histPE);
       if (shares > 0) { agg.capSum += c * shares; agg.earnSum += eps * shares; }
+      if (tl && _epsAt(tl, tMs) != null) agg.dynN++; else agg.statN++;
     }
   }
   for (const [dateStr, agg] of dateAgg) {
@@ -8995,6 +9057,13 @@ function _renderMPEChart() {
   const meanVals = allDates.map(d => meanMap.get(d)?.pe ?? null);
   const fontOpts = { size:8, family:"'IBM Plex Mono'" };
 
+  // Measure how much of the chart uses actual vs constant EPS
+  const dynStocks = epsTimelines.size;
+  const eligStocks = allData.filter(s => s.pe > 0 && s.price > 0).length;
+  const dynamicNote = dynStocks > 0
+    ? `${dynStocks}/${eligStocks} stocks using actual reported earnings · ${eligStocks - dynStocks} using constant EPS estimate`
+    : 'Constant EPS proxy — retrieve financial statements for dynamic earnings history';
+
   // Show only the curve selected by the Wtd Avg / Median / Mean toggle, plus the
   // average of THAT curve over the visible period (so "Median" shows the median line
   // and its multi-year average, not all three curves at once).
@@ -9020,7 +9089,7 @@ function _renderMPEChart() {
       responsive:true, maintainAspectRatio:false,
       interaction:{ mode:'index', intersect:false },
       plugins: {
-        title:{ display:true, text:['Price-trend proxy: P/E reconstructed from current EPS held constant.', 'Historical earnings changes are NOT captured — do not use as a true earnings-cycle indicator.'], color:'#7a8aa5', font:{size:8,family:"'IBM Plex Mono'"}, padding:{bottom:4} },
+        title:{ display:true, text:['Historical P/E using actual reported earnings per period where available.', dynamicNote], color:'#7a8aa5', font:{size:8,family:"'IBM Plex Mono'"}, padding:{bottom:4} },
         legend:{ display:true, labels:{color:'#8a9ab5', font:fontOpts, boxWidth:10} },
         tooltip:{ backgroundColor:'rgba(24,28,34,0.97)', borderColor:'#2d3440', borderWidth:1,
           titleColor:'#e8eaed', bodyColor:'#8a9ab5',
