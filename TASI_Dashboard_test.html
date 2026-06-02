@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602f · fix: Volume/Stoch chart panels (range-slice align); P/E chart toggle isolates selected curve + its period avg; tighten market P/E outlier cap</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602g · fix: Volume/Stoch chart; P/E chart toggle; Drive statements force-reload button</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1747,6 +1747,41 @@ async function gdLoadStatementsBulk() {
     finally { _stmtBulkLoaded = true; }
   })();
   return _stmtBulkLoadPromise;
+}
+
+// Force re-download TASI_statements_bulk.json from Drive, bypassing the "already loaded" guard.
+// Used by the "↓ Load from Drive" button so the user can pull the latest Drive cache at any time
+// without having to reload the whole page.
+async function gdForceReloadStatements() {
+  const btn = document.getElementById('gd-load-stmts-btn');
+  const log = document.getElementById('td-log');
+  if (!GD_TOKEN) {
+    if (log) log.innerHTML = '<span style="color:var(--red)">✗ Not connected to Google Drive.</span>';
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Loading from Drive…'; }
+  if (log) log.innerHTML = '<span style="color:var(--acc)">↓ Fetching statements from Google Drive…</span>';
+  // Reset guards so gdLoadStatementsBulk runs fresh
+  _stmtBulkLoaded = false;
+  _stmtBulkLoadPromise = null;
+  try {
+    await gdLoadStatementsBulk();
+    const count = Object.keys(_stmtCache).length;
+    const applied = _applyDriveValuations();
+    doFilter(); updateMetrics();
+    // Invalidate open stock HTML cache so re-opening a card shows fresh data
+    if (window._fd) window._fd.forEach(d => { d._htmlCache = {}; });
+    if (log) {
+      if (count > 0) {
+        log.innerHTML = `<span style="color:var(--green)">✓ Loaded statements for ${count} stocks from Drive${applied ? ` — ${applied} fair values applied` : ''}.</span>`;
+      } else {
+        log.innerHTML = `<span style="color:#f5a623)">⚠ No statement file found on Drive yet. Use 📊 Retrieve All Financial Statements to build the cache.</span>`;
+      }
+    }
+  } catch(e) {
+    if (log) log.innerHTML = `<span style="color:var(--red)">✗ Drive load failed: ${e.message}</span>`;
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '☁ Load Statements from Drive'; }
 }
 
 // Save all statement data to Drive as TASI_statements_bulk.json
@@ -9288,6 +9323,7 @@ function buildSectorPerf() {
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
       <button class="sp-btn" id="fetch-all-fin-btn" onclick="fetchAllFinancials()" title="Fetch financial statements for ALL stocks, derive every overview metric (ROE, margin, D/E, growth…), recompute all scores (Fundamental, Buffett, PEG, Fair Value) and save everything to Google Drive. Takes a few minutes; makes future loads instant.">📊 Retrieve All Financial Statements</button>
       <button class="sp-btn" id="recalc-btn" onclick="recalculateAllFromCache()" title="Apply already-retrieved statement data to every stock and recompute all scores. Instant — no network calls. Use after Retrieve All Financial Statements to see updated scores in the table.">⟳ Recalculate All Scores</button>
+      <button class="sp-btn sp-btn-sec" id="gd-load-stmts-btn" onclick="gdForceReloadStatements()" title="Re-download the financial statements file from Google Drive right now — bypasses the 'already loaded' cache guard. Use when Drive has newer data than what is shown (e.g. statements were saved from another device/session).">☁ Load Statements from Drive</button>
     </div>
     <div class="sp-log" id="td-log">Status will appear here after actions.</div>
 
