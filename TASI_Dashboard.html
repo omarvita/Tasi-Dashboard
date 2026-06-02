@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602j · feat: dynamic historical P/E using actual reported earnings per period</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602k · feat: 3-stage DCF fade, small-cap WACC premium, analyst consensus target in table + Fair Value tab</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1546,7 +1546,10 @@ async function gdSaveBulkPrices() {
           fund: { roe:F.roe??null, npm:F.npm??null, de:F.de??null, dy:F.dy??null,
                   fcf:F.fcf??null, cr:F.cr??null, rg:F.rg??null, eg:F.eg??null,
                   assets:F.assets??null, beta:F.beta??null,
-                  ttmRev:F.ttmRev??null, ttmNI:F.ttmNI??null },
+                  ttmRev:F.ttmRev??null, ttmNI:F.ttmNI??null,
+                  analystTarget:F.analystTarget??null, analystHigh:F.analystHigh??null,
+                  analystLow:F.analystLow??null, analystCount:F.analystCount??null,
+                  analystRec:F.analystRec??null },
           fundUpdated: c.fundUpdated,
           fundVersion: c.fundVersion ?? GD_FUND_VER,
         });
@@ -4445,6 +4448,12 @@ async function fetchStockFull(stock) {
       if(sd?.fiftyTwoWeekHigh?.raw) result.w52high=sd.fiftyTwoWeekHigh.raw;
       if(sd?.fiftyTwoWeekLow?.raw) result.w52low=sd.fiftyTwoWeekLow.raw;
       if(sd?.marketCap?.raw) result.mktCap=sd.marketCap.raw;
+      // Analyst consensus target price (from financialData module)
+      if(fd?.targetMeanPrice?.raw)         result.analystTarget = fd.targetMeanPrice.raw;
+      if(fd?.targetHighPrice?.raw)         result.analystHigh   = fd.targetHighPrice.raw;
+      if(fd?.targetLowPrice?.raw)          result.analystLow    = fd.targetLowPrice.raw;
+      if(fd?.numberOfAnalystOpinions?.raw) result.analystCount  = fd.numberOfAnalystOpinions.raw;
+      if(fd?.recommendationKey)            result.analystRec    = fd.recommendationKey;
       // EPS — primary: Yahoo trailingEps; fallback: TTM from last 4 quarterly reports
       if(dk?.trailingEps?.raw) result.eps = dk.trailingEps.raw;
       if(dk?.forwardEps?.raw) result.fwdEps = dk.forwardEps.raw;
@@ -4508,6 +4517,9 @@ async function fetchStockFull(stock) {
           dataDate: result.dataDate, finPeriod: result.finPeriod,
           ttmRev: result.ttmRev, ttmNI: result.ttmNI, sharesOutstanding: result.sharesOutstanding,
           assets: result.assets,
+          analystTarget: result.analystTarget ?? null, analystHigh: result.analystHigh ?? null,
+          analystLow: result.analystLow ?? null, analystCount: result.analystCount ?? null,
+          analystRec: result.analystRec ?? null,
         },
         fundUpdated: Date.now(),
         fundVersion: GD_FUND_VER,
@@ -4626,11 +4638,26 @@ function renderTable(){
       <td style="min-width:60px">${unscored?'<span class="nav" style="font-size:11px">Unscored</span>':bar(d.combined??50)}</td>
       <td style="min-width:40px"><span class="badge ${sig.cls}">${unscored?'—':sig.label}</span></td>
       <td class="col-tr">${(()=>{
+        const hasAt = d.analystTarget > 0 && d.price > 0;
+        const atUp  = hasAt ? (d.analystTarget - d.price) / d.price : null;
+        const atSign = atUp != null ? (atUp >= 0 ? '+' : '') : '';
+        const atCol  = atUp != null ? (atUp > 0.10 ? '#22c55e' : atUp > -0.10 ? '#f5a623' : '#ef4444') : '#8a9ab5';
+        const atTip  = hasAt ? `title="Analyst consensus: ${d.analystCount||'?'} analysts · range ${d.analystLow?.toFixed(1)||'?'}–${d.analystHigh?.toFixed(1)||'?'} SAR · ${d.analystRec||''}"` : '';
         if (d.dcfPS != null && d.price) {
           const up = d.dcfUpside ?? 0;
           const col = up > 0.15 ? 'var(--green)' : up > -0.10 ? 'var(--amb)' : 'var(--red)';
           const sign = up >= 0 ? '+' : '';
-          return `<div style="line-height:1.3"><div style="font-family:var(--mono);font-size:10px;font-weight:600;color:${col}">${d.dcfPS.toFixed(1)}</div><div style="font-family:var(--mono);font-size:8px;color:${col}">${sign}${(up*100).toFixed(1)}%</div></div>`;
+          return `<div style="line-height:1.25">` +
+            `<div style="font-family:var(--mono);font-size:10px;font-weight:600;color:${col}">${d.dcfPS.toFixed(1)}</div>` +
+            `<div style="font-family:var(--mono);font-size:8px;color:${col}">${sign}${(up*100).toFixed(1)}%</div>` +
+            (hasAt ? `<div style="font-family:var(--mono);font-size:7.5px;color:${atCol};border-top:1px solid var(--b2);margin-top:1px;padding-top:1px" ${atTip}>▲${d.analystTarget.toFixed(1)} ${atSign}${(atUp*100).toFixed(0)}%</div>` : '') +
+            `</div>`;
+        }
+        if (hasAt) {
+          return `<div style="line-height:1.25">` +
+            `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3)">—</div>` +
+            `<div style="font-family:var(--mono);font-size:7.5px;color:${atCol}" ${atTip}>▲${d.analystTarget.toFixed(1)} ${atSign}${(atUp*100).toFixed(0)}%</div>` +
+            `</div>`;
         }
         return '<span class="nav" style="font-size:9px">—</span>';
       })()}</td>
@@ -4921,6 +4948,14 @@ async function openModal(idx){
           // Restore earningsTrend and DCF result from Drive if available
           if (driveStock.earningsTrend?.length && (Date.now() - (driveStock.trendUpdated||0) < GD_TREND_TTL))
             realD.earningsTrend = driveStock.earningsTrend;
+          // Restore analyst consensus targets (stored in fundamentals via gdSaveBulkPrices)
+          if (f.analystTarget > 0) {
+            realD.analystTarget = f.analystTarget;
+            realD.analystHigh   = f.analystHigh;
+            realD.analystLow    = f.analystLow;
+            realD.analystCount  = f.analystCount;
+            realD.analystRec    = f.analystRec;
+          }
           if (driveStock.dcfResult?.dcfPS > 0 && (Date.now() - (driveStock.dcfUpdated||0) < GD_STMT_TTL)) {
             realD.dcfPS = driveStock.dcfResult.dcfPS;
             realD.dcfMethod = driveStock.dcfResult.dcfMethod;
@@ -6236,7 +6271,12 @@ async function buildDCF(d) {
   deRatio = Math.min(deRatio, 2.0); // cap at 200% D/E to avoid distortion for financials
   const eWeight = 1 / (1 + deRatio);
   const dWeight = deRatio / (1 + deRatio);
-  const wacc = ke * eWeight + kd * dWeight * (1 - taxRate);
+  const _baseWacc = ke * eWeight + kd * dWeight * (1 - taxRate);
+  // Small-cap illiquidity premium: Tadawul small caps are thinly traded and carry
+  // exit risk beyond what beta captures. Add 0.5–2% depending on market cap size.
+  const _scPrem = !d.mktCap ? 0 : d.mktCap < 5e8 ? 0.020 : d.mktCap < 2e9 ? 0.010 : d.mktCap < 1e10 ? 0.005 : 0;
+  const wacc = Math.min(_baseWacc + _scPrem, 0.20);
+  const _scPremNote = _scPrem > 0 ? ` +${(_scPrem*100).toFixed(1)}% small-cap premium` : '';
   // CAGR is more accurate than arithmetic-mean YoY for revenue (compounds correctly, no survivorship bias).
   // Falls back to arithmetic mean when any period is negative (CAGR undefined for sign changes).
   function _avgYoY(vals) {
@@ -6278,9 +6318,13 @@ async function buildDCF(d) {
   let fcfProj=[], pvFCFs=[], sumPvFCF=0, termVal=0, pvTerm=0;
   let enterpriseValue=0, netDebt=0, netDebtNote='assumed 0';
   let equityValue=0, shareCount=null, intrinsicPS=null, upside=null;
+  // 3-stage growth fade: run at full rate Y1-2, then fade toward terminal by Y5.
+  // Applying peak CAGR flat for 5 years overstates DCF because no company sustains
+  // its historical growth rate indefinitely. Fade multipliers: 100% / 100% / 65% / 45% / 28%.
+  const _FADE = [1.00, 1.00, 0.65, 0.45, 0.28];
   if (baseFCF !== null) {
     let fcf = baseFCF;
-    for (let i=1;i<=5;i++) { fcf *= (1+growthRate); fcfProj.push(fcf); }
+    for (let i=0;i<5;i++) { fcf *= (1+growthRate*_FADE[i]); fcfProj.push(fcf); }
     pvFCFs = fcfProj.map((f,i) => f / Math.pow(1+wacc, i+1));
     sumPvFCF = pvFCFs.reduce((a,b) => a+b, 0);
     const tvSpread = Math.max(wacc - termGrowth, 0.02); // floor spread at 200 bps — avoids blowup when WACC ≈ g
@@ -6469,6 +6513,40 @@ async function buildDCF(d) {
 </div>`;
   }
 
+  // ANALYST CONSENSUS CARD
+  if (d.analystTarget > 0 && d.price) {
+    const atUp = (d.analystTarget - d.price) / d.price;
+    const atCol = atUp > 0.10 ? 'var(--green)' : atUp > -0.10 ? 'var(--amb)' : 'var(--red)';
+    const atLabel = atUp > 0.10 ? '▲ Buy' : atUp > -0.10 ? '● Hold' : '▼ Underperform';
+    const recMap = { strongbuy:'Strong Buy', buy:'Buy', hold:'Hold', underperform:'Underperform', sell:'Sell' };
+    const recLabel = recMap[d.analystRec?.toLowerCase()] || d.analystRec || '—';
+    const dcfVsAt = primaryPS && d.analystTarget > 0 ? (primaryPS / d.analystTarget - 1) : null;
+    const divergeWarn = dcfVsAt != null && Math.abs(dcfVsAt) > 0.50;
+    html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Analyst Consensus · ${d.analystCount||'?'} Analyst${(d.analystCount||0)!==1?'s':''}</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:${divergeWarn?'8':'0'}px">
+    <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid ${atCol}55">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:4px">CONSENSUS TARGET</div>
+      <div style="font-size:20px;font-weight:700;color:${atCol};font-family:var(--mono)">${d.analystTarget.toFixed(2)}</div>
+      <div style="font-family:var(--mono);font-size:8px;color:${atCol}">${atUp>=0?'+':''}${(atUp*100).toFixed(1)}% · ${atLabel}</div>
+    </div>
+    <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:4px">TARGET RANGE</div>
+      <div style="font-size:13px;font-weight:600;color:var(--tx1);font-family:var(--mono)">${d.analystLow?.toFixed(1)||'?'} – ${d.analystHigh?.toFixed(1)||'?'}</div>
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3)">Low – High SAR</div>
+    </div>
+    <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:4px">RECOMMENDATION</div>
+      <div style="font-size:14px;font-weight:700;color:var(--acc);font-family:var(--mono)">${recLabel}</div>
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3)">${d.analystCount||'?'} analyst${(d.analystCount||0)!==1?'s':''}</div>
+    </div>
+  </div>
+  ${divergeWarn ? `<div style="background:#1a1000;border:1px solid var(--amb);border-radius:5px;padding:6px 10px;font-family:var(--mono);font-size:8.5px;color:var(--amb);line-height:1.5">
+    ⚠ DCF fair value (${primaryPS?.toFixed(1)} SAR) is ${Math.abs(dcfVsAt*100).toFixed(0)}% ${dcfVsAt>0?'above':'below'} analyst consensus (${d.analystTarget.toFixed(1)} SAR). Large DCF vs consensus divergence usually signals optimistic growth assumptions — treat the DCF upside with caution.
+  </div>` : ''}
+</div>`;
+  }
+
   // BANK WARNING
   if (isBanking) {
     html += `<div style="background:#1a1000;border:1px solid var(--amb);border-radius:7px;padding:10px 12px;margin-bottom:10px;font-family:var(--mono);font-size:9px;line-height:1.6">
@@ -6608,7 +6686,7 @@ async function buildDCF(d) {
     <div class="mi"><div class="mil" ${T('kd')}>Cost of Debt</div><div class="miv">${(kd*100).toFixed(1)}%</div></div>
     <div class="mi"><div class="mil" ${T('tax_zakat')}>Tax/Zakat Rate</div><div class="miv" style="color:var(--acc)">${(taxRate*100).toFixed(0)}%${taxRate===0.05?'<span style="font-size:8px;color:var(--tx3)"> (Zakat)</span>':'<span style="font-size:8px;color:var(--tx3)"> (CIT)</span>'}</div></div>
     <div class="mi"><div class="mil" ${T('de_ratio')}>D/E Ratio (fin.)</div><div class="miv">${(deRatio*100).toFixed(0)}%${isBanking?'<span style="font-size:8px;color:var(--amb)"> (incl. deposits)</span>':''}<span style="font-size:8px;color:var(--tx3)"> ${d._deOverride!=null?'(override)':'(est.)'}</span></div></div>
-    <div class="mi"><div class="mil" ${T('wacc')}>WACC</div><div class="miv" style="color:var(--acc);font-weight:600">${(wacc*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil" ${T('wacc')}>WACC</div><div class="miv" style="color:var(--acc);font-weight:600">${(wacc*100).toFixed(1)}%${_scPremNote?`<span style="font-size:8px;color:var(--amb);font-weight:400;margin-left:3px">${_scPremNote}</span>`:''}</div></div>
     <div class="mi"><div class="mil" ${T('term_growth')}>Terminal Growth</div><div class="miv">${(termGrowth*100).toFixed(1)}%</div></div>
     <div class="mi"><div class="mil" ${T('fcf_growth')}>FCF Growth (5Y)</div><div class="miv ${growthRate>=0?'pos':'neg'}">${growthRate>=0?'+':''}${(growthRate*100).toFixed(1)}%<span style="font-size:8px;color:var(--tx3);font-weight:400;margin-left:4px">${growthSource}</span></div></div>
     <div class="mi"><div class="mil" ${T('fcf')}>FCF Source</div><div class="miv" style="font-size:9px;color:${fcfSource==='financial statements'?'var(--green)':'var(--amb)'}">${fcfSource}${fcfSource!=='financial statements'?'<span title="FCF estimated from net income using a sector-average conversion factor. Retrieve financial statements for a more precise result." style="cursor:help;margin-left:3px">⚠</span>':''}</div></div>
@@ -6628,8 +6706,8 @@ async function buildDCF(d) {
 
   function dcfEV(w, g, bg) {
     let f=baseFCF, pv=0;
-    for (let i=1;i<=5;i++) { f*=(1+g); pv+=f/Math.pow(1+w,i); }
-    return (pv + f*(1+bg)/(w-bg)/Math.pow(1+w,5) - netDebt) / (shareCount||1);
+    for (let i=0;i<5;i++) { f*=(1+g*_FADE[i]); pv+=f/Math.pow(1+w,i+1); }
+    return (pv + f*(1+bg)/Math.max(w-bg,0.02)/Math.pow(1+w,5) - netDebt) / (shareCount||1);
   }
 
   // FCF PROJECTIONS TABLE
@@ -6639,7 +6717,7 @@ async function buildDCF(d) {
     <thead><tr><th>Year</th><th>FCF (B SAR)</th><th>Growth</th><th>PV @ ${(wacc*100).toFixed(1)}%</th></tr></thead>
     <tbody>
       <tr><td style="color:var(--tx3)">Base</td><td style="font-family:var(--mono)">${(baseFCF/1e9).toFixed(3)}</td><td>—</td><td>—</td></tr>
-      ${fcfProj.map((f,i)=>`<tr><td>Year ${i+1}</td><td class="${f>=0?'ft-pos':'neg'}">${(f/1e9).toFixed(3)}</td><td style="font-size:9px;color:var(--tx3)">${growthRate>=0?'+':''}${(growthRate*100).toFixed(1)}%</td><td style="color:var(--acc);font-family:var(--mono)">${(pvFCFs[i]/1e9).toFixed(3)}</td></tr>`).join('')}
+      ${fcfProj.map((f,i)=>{const yr=(growthRate*_FADE[i]);return`<tr><td>Year ${i+1}</td><td class="${f>=0?'ft-pos':'neg'}">${(f/1e9).toFixed(3)}</td><td style="font-size:9px;color:var(--tx3)">${yr>=0?'+':''}${(yr*100).toFixed(1)}%</td><td style="color:var(--acc);font-family:var(--mono)">${(pvFCFs[i]/1e9).toFixed(3)}</td></tr>`;}).join('')}
     </tbody>
   </table></div></div>`;
 
