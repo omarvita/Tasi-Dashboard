@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602n · fix: flush pending statements save on modal close + tab-hide so freshly-fetched statements aren't dropped by the 12s debounce</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602o · fix: Retrieve All rate-limit (CONC 4→2, inter-batch pause, retry pass for missed stocks)</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -8217,26 +8217,45 @@ async function fetchAllFinancials(){
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Retrieving…'; }
   const stocks = allData.filter(d => d.ticker && d.ticker.endsWith('.SR'));
   let done = 0, ok = 0;
-  const CONC = 4; // conservative concurrency to avoid proxy/source throttling
+  const CONC = 2; // low concurrency — Yahoo rate-limits at 4+ simultaneous stocks (5 sources each)
+  const BATCH_PAUSE = 400; // ms between batches to let upstream sources recover
   tdLog(`Retrieving financial statements for ${stocks.length} stocks…`, true);
+
+  async function fetchOne(d) {
+    try {
+      await Promise.race([buildFinancials(d, 'annual'), new Promise(r=>setTimeout(r, 30000))]);
+      try { await Promise.race([buildFinancials(d, 'quarterly'), new Promise(r=>setTimeout(r, 20000))]); } catch(e){}
+      try { await Promise.race([buildDCF(d), new Promise(r=>setTimeout(r, 10000))]); } catch(e){}
+      try { applyDerivedMetrics(d); } catch(e){}
+    } catch(e){}
+    done++;
+    const hasData = !!(d.rawTwelveData?.annual || d.rawTwelveData?.quarterly);
+    if (hasData) ok++;
+    if (btn) btn.textContent = `⏳ ${done}/${stocks.length}…`;
+    tdLog(`Retrieving statements… ${done}/${stocks.length} (${ok} with data)`, true);
+    return hasData;
+  }
+
   for (let i = 0; i < stocks.length; i += CONC){
-    await Promise.all(stocks.slice(i, i+CONC).map(async d => {
-      try {
-        // buildFinancials fetches/merges statements, derives metrics, recomputes
-        // scores (via enrichAndRender→applyDerivedMetrics) and writes to Drive.
-        await Promise.race([buildFinancials(d, 'annual'), new Promise(r=>setTimeout(r, 30000))]);
-        // Also fetch quarterly so TTM-based metrics are most current
-        try { await Promise.race([buildFinancials(d, 'quarterly'), new Promise(r=>setTimeout(r, 20000))]); } catch(e){}
-        // Recompute Fair Value (DCF) with the fresh statements
-        try { await Promise.race([buildDCF(d), new Promise(r=>setTimeout(r, 10000))]); } catch(e){}
-        try { applyDerivedMetrics(d); } catch(e){}
-        ok++;
-      } catch(e){}
-      done++;
-      if (btn) btn.textContent = `⏳ ${done}/${stocks.length}…`;
-      tdLog(`Retrieving statements… ${done}/${stocks.length} (${ok} with data)`, true);
-    }));
+    await Promise.all(stocks.slice(i, i+CONC).map(d => fetchOne(d)));
     scheduleRender();
+    if (i + CONC < stocks.length) await new Promise(r => setTimeout(r, BATCH_PAUSE));
+  }
+
+  // Retry pass — stocks that got no data on first pass (likely rate-limited)
+  const failed = stocks.filter(d => !(d.rawTwelveData?.annual || d.rawTwelveData?.quarterly));
+  if (failed.length) {
+    tdLog(`Retrying ${failed.length} stocks that returned no data…`, true);
+    done = stocks.length - failed.length; // reset done counter for retry display
+    ok = stocks.length - failed.length;
+    for (let i = 0; i < failed.length; i++) {
+      // Sequential with pause — give upstream sources time to un-throttle
+      await new Promise(r => setTimeout(r, 800));
+      // Force re-fetch by clearing in-memory cache for this stock
+      if (failed[i].rawTwelveData) { delete failed[i].rawTwelveData.annual; delete failed[i].rawTwelveData.quarterly; }
+      const got = await fetchOne(failed[i]);
+      if (got) scheduleRender();
+    }
   }
   // Persist everything to Drive + local cache
   try { if (GD_TOKEN) await Promise.all([gdSaveBulkPrices(), gdSaveStatementsBulk()]); } catch(e){}
@@ -8245,7 +8264,8 @@ async function fetchAllFinancials(){
   const finFetchedAt = Date.now();
   localStorage.setItem('tasi_fin_last_fetched', finFetchedAt);
   _updateFinLastFetched(finFetchedAt);
-  tdLog(`✓ Done — retrieved statements for ${ok}/${stocks.length} stocks. All overview metrics & scores recalculated and saved to Google Drive.`, true);
+  const stillMissing = stocks.filter(d => !(d.rawTwelveData?.annual || d.rawTwelveData?.quarterly)).length;
+  tdLog(`✓ Done — retrieved statements for ${ok}/${stocks.length} stocks${stillMissing ? ` (${stillMissing} still unavailable — Yahoo Finance may not cover them)` : ''}. Scores recalculated, saved to Drive.`, true);
   if (btn) { btn.disabled = false; btn.textContent = '📊 Retrieve All Financial Statements'; }
   _fetchingAllFin = false;
 }
