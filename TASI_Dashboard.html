@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602o · fix: Retrieve All rate-limit (CONC 4→2, inter-batch pause, retry pass for missed stocks)</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602p · feat: Retrieve All skips up-to-date stocks by comparing latest quarterly fiscal_date to CMA reporting deadline</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -8206,6 +8206,43 @@ function _updateFinLastFetched(ts) {
   el.title = `Financial statements last retrieved: ${d.toLocaleString()}`;
 }
 
+// Returns the most recent quarter-end date (YYYY-MM-DD) that Saudi-listed
+// companies are required to have published (CMA = 45-day reporting window).
+// e.g. on June 3 2026 → "2026-03-31" (Q1 2026 due May 15, already published)
+function latestExpectedQuarter() {
+  const now = new Date();
+  const GRACE = 45; // days after quarter-end CMA reporting deadline
+  const cutoff = new Date(now - GRACE * 86400 * 1000);
+  const y = now.getFullYear();
+  // Build last 8 quarter-end dates (2 years back) — newest first
+  const candidates = [];
+  for (let yr = y; yr >= y - 1; yr--) {
+    for (const [m, day] of [[11,31],[8,30],[5,30],[2,31]]) {
+      candidates.push(`${yr}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`);
+    }
+  }
+  // First candidate whose quarter-end is on or before the grace cutoff
+  return candidates.find(q => new Date(q + 'T00:00:00Z') <= cutoff) || null;
+}
+
+// Returns the most recent fiscal_date found in a stock's quarterly statements
+// (checks both Drive _stmtCache and in-memory rawTwelveData).
+function latestQuarterlyDate(d) {
+  let latest = null;
+  const sources = [_stmtCache[d.ticker]?.quarterly, d.rawTwelveData?.quarterly];
+  for (const stmt of sources) {
+    if (!stmt) continue;
+    for (const table of [stmt.is, stmt.bs, stmt.cf]) {
+      if (!Array.isArray(table)) continue;
+      for (const row of table) {
+        const fd = row?.fiscal_date;
+        if (fd && fd !== '—' && fd.match(/^\d{4}-\d{2}-\d{2}$/) && fd > (latest || '')) latest = fd;
+      }
+    }
+  }
+  return latest;
+}
+
 // ── Bulk retrieve: financial statements for ALL stocks ──
 // Fetches annual (and quarterly) statements per stock, derives all overview
 // metrics, recomputes every criteria score and the DCF/Fair Value, then saves
@@ -8215,7 +8252,27 @@ async function fetchAllFinancials(){
   _fetchingAllFin = true;
   const btn = document.getElementById('fetch-all-fin-btn');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Retrieving…'; }
-  const stocks = allData.filter(d => d.ticker && d.ticker.endsWith('.SR'));
+  const allStocks = allData.filter(d => d.ticker && d.ticker.endsWith('.SR'));
+
+  // Skip stocks whose quarterly statements are already up to date.
+  // CMA requires companies to publish within 45 days of quarter end, so we
+  // compare each stock's latest fiscal_date against the most recently due quarter.
+  const latestQ = latestExpectedQuarter();
+  const stocks = allStocks.filter(d => {
+    const latest = latestQuarterlyDate(d);
+    return !latest || latest < latestQ;  // no data, or data predates the latest due quarter
+  });
+  const skippedCount = allStocks.length - stocks.length;
+  if (skippedCount > 0)
+    tdLog(`Skipping ${skippedCount} stocks already up to date (latest quarter: ${latestQ}). Fetching ${stocks.length} outdated/missing…`, true);
+
+  if (!stocks.length) {
+    tdLog(`✓ All ${allStocks.length} stocks are up to date — no fetch needed.`, true);
+    if (btn) { btn.disabled = false; btn.textContent = '📊 Retrieve All Financial Statements'; }
+    _fetchingAllFin = false;
+    return;
+  }
+
   let done = 0, ok = 0;
   const CONC = 2; // low concurrency — Yahoo rate-limits at 4+ simultaneous stocks (5 sources each)
   const BATCH_PAUSE = 400; // ms between batches to let upstream sources recover
@@ -8265,7 +8322,7 @@ async function fetchAllFinancials(){
   localStorage.setItem('tasi_fin_last_fetched', finFetchedAt);
   _updateFinLastFetched(finFetchedAt);
   const stillMissing = stocks.filter(d => !(d.rawTwelveData?.annual || d.rawTwelveData?.quarterly)).length;
-  tdLog(`✓ Done — retrieved statements for ${ok}/${stocks.length} stocks${stillMissing ? ` (${stillMissing} still unavailable — Yahoo Finance may not cover them)` : ''}. Scores recalculated, saved to Drive.`, true);
+  tdLog(`✓ Done — fetched ${ok}/${stocks.length} outdated stocks${skippedCount ? `, ${skippedCount} already current` : ''}${stillMissing ? ` · ${stillMissing} still unavailable (no Yahoo Finance coverage)` : ''}. Saved to Drive.`, true);
   if (btn) { btn.disabled = false; btn.textContent = '📊 Retrieve All Financial Statements'; }
   _fetchingAllFin = false;
 }
