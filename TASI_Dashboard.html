@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602p · feat: Retrieve All skips up-to-date stocks by comparing latest quarterly fiscal_date to CMA reporting deadline</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260603a · feat: Argaam analyst consensus fallback + earnings calendar badge and overview card</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -2094,6 +2094,95 @@ async function scrapeFinancials(ticker, period) {
 
   tdLog('No financial data found from any source', false);
   return { is: null, bs: null, cf: null };
+}
+
+// ── ARGAAM ANALYST CONSENSUS ──
+// Fetches analyst price targets and recommendations from Argaam for Saudi
+// stocks that Yahoo Finance doesn't cover. Tries JSON API first, then
+// falls back to __NEXT_DATA__ parsing on the analysis HTML page.
+async function fetchArgaamAnalystConsensus(code) {
+  const _timeout = ms => new Promise(r => setTimeout(r, ms));
+
+  // Helper: scan a nested object for analyst consensus fields
+  function parseArgaamConsensusObj(obj) {
+    if (!obj || typeof obj !== 'object') return null;
+    // Flatten nested objects one level deep for field search
+    const flat = {};
+    function collect(o, depth) {
+      if (!o || typeof o !== 'object' || depth > 5) return;
+      for (const [k, v] of Object.entries(o)) {
+        flat[k.toLowerCase()] = v;
+        if (v && typeof v === 'object' && !Array.isArray(v)) collect(v, depth + 1);
+      }
+    }
+    collect(obj, 0);
+
+    // Target price — try many naming conventions
+    const target = flat['averagetargetprice'] ?? flat['targetprice'] ?? flat['avgpricetarget'] ??
+                   flat['consensustarget'] ?? flat['consensusprice'] ?? flat['targetpricemean'] ??
+                   flat['meanpricetarget'] ?? flat['priceconsensusmean'] ?? null;
+    const high   = flat['hightargetprice'] ?? flat['maxpricetarget'] ?? flat['targetpricehigh'] ?? null;
+    const low    = flat['lowtargetprice']  ?? flat['minpricetarget'] ?? flat['targetpricelow']  ?? null;
+    const count  = flat['numanalysts'] ?? flat['analystcount'] ?? flat['numberofanalysts'] ??
+                   flat['numberOfanalysts'] ?? flat['analysts'] ?? null;
+    // Recommendation key
+    const recRaw = flat['consensus'] ?? flat['recommendation'] ?? flat['consensusrec'] ??
+                   flat['recommendationkey'] ?? flat['rating'] ?? null;
+    const recMap = {
+      '1':'strongbuy','2':'buy','3':'hold','4':'underperform','5':'sell',
+      'strongbuy':'strongbuy','buy':'buy','hold':'hold',
+      'underperform':'underperform','sell':'sell','neutral':'hold',
+      'outperform':'buy','accumulate':'buy','reduce':'underperform',
+    };
+    const rec = recMap[(String(recRaw||'').toLowerCase())] ?? null;
+
+    if (target > 0) return {
+      analystTarget: +target, analystHigh: high > 0 ? +high : null,
+      analystLow: low > 0 ? +low : null, analystCount: count > 0 ? +count : null,
+      analystRec: rec,
+    };
+    return null;
+  }
+
+  // Strategy A: JSON API endpoints
+  const apiUrls = [
+    `https://argaam.com/api/v1/json/company/GetCompanyAnalysis?CompanyID=${code}&Lang=en`,
+    `https://argaam.com/api/v1/json/company/GetAnalystRecommendations?Symbol=${code}&Lang=en`,
+    `https://argaam.com/api/v1/json/company/GetTargetPrice?CompanyID=${code}&Lang=en`,
+    `https://argaam.com/api/v2/json/company/GetConsensus?CompanyID=${code}`,
+    `https://argaam.com/api/v1/json/Financial/GetAnalystSummary?CompanyID=${code}&Lang=en`,
+  ];
+  for (const url of apiUrls) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      if (!r.ok) continue;
+      const data = await r.json().catch(() => null);
+      if (!data) continue;
+      const parsed = parseArgaamConsensusObj(data);
+      if (parsed) return parsed;
+    } catch(e) {}
+  }
+
+  // Strategy B: __NEXT_DATA__ from the analysis/consensus page
+  const htmlUrls = [
+    `https://argaam.com/en/company/analysis/${code}`,
+    `https://argaam.com/en/company/consensus/${code}`,
+    `https://argaam.com/ar/company/analysis/${code}`,
+  ];
+  for (const url of htmlUrls) {
+    try {
+      const r = await Promise.race([fetch(url, { signal: AbortSignal.timeout(7000) }), _timeout(7000).then(()=>({ok:false}))]);
+      if (!r.ok) continue;
+      const html = await r.text().catch(() => '');
+      const m = html.match(/<script id="__NEXT_DATA__"[^>]*>(\{.*?\})<\/script>/s);
+      if (!m) continue;
+      const nd = JSON.parse(m[1]);
+      const parsed = parseArgaamConsensusObj(nd);
+      if (parsed) return parsed;
+    } catch(e) {}
+  }
+
+  return null;
 }
 
 // ── ARGAAM FINANCIAL DATA FETCHER ──
@@ -4464,6 +4553,14 @@ async function fetchStockFull(stock) {
       if(fd?.targetLowPrice?.raw)          result.analystLow    = fd.targetLowPrice.raw;
       if(fd?.numberOfAnalystOpinions?.raw) result.analystCount  = fd.numberOfAnalystOpinions.raw;
       if(fd?.recommendationKey)            result.analystRec    = fd.recommendationKey;
+      // Argaam fallback — many Saudi small/mid caps have no Yahoo analyst coverage
+      if(!(result.analystTarget > 0)) {
+        try {
+          const code = ticker.replace(/\.SR$/i, '');
+          const argaAT = await fetchArgaamAnalystConsensus(code);
+          if (argaAT?.analystTarget > 0) Object.assign(result, argaAT);
+        } catch(e) {}
+      }
       // EPS — primary: Yahoo trailingEps; fallback: TTM from last 4 quarterly reports
       if(dk?.trailingEps?.raw) result.eps = dk.trailingEps.raw;
       if(dk?.forwardEps?.raw) result.fwdEps = dk.forwardEps.raw;
@@ -4633,10 +4730,16 @@ function renderTable(){
     const egStr=d.eg!=null?`<span class="${d.eg>=0?'pos':'neg'}">${d.eg>=0?"+":""}${(d.eg*100).toFixed(0)}%</span>`:`<span class="nav">—</span>`;
     const unscored = d.noHardcodedData && !d.priceLoaded;
     const shortName = d.name.split(' ').slice(0,3).join(' ') + (d.name.split(' ').length > 3 ? '…' : '');
+    const _ei = nextEarningsInfo(d);
+    const earningsBadge = _ei?.isOverdue
+      ? `<span title="Results overdue — Q${['','Q1','Q2','Q3','Q4'][['03-31','06-30','09-30','12-31'].indexOf(_ei.nextQEnd.slice(5))+1]||''} expected by ${_ei.dueFmt}" style="display:inline-block;font-family:var(--mono);font-size:7px;background:#3d0000;color:#f87171;border:1px solid #7f1d1d;border-radius:3px;padding:0 3px;margin-left:3px;vertical-align:middle;cursor:help">⚠ Late</span>`
+      : _ei?.isSoon
+      ? `<span title="Q results expected by ${_ei.dueFmt} (${_ei.daysUntilQEnd > 0 ? 'quarter ends ' + _ei.qEndFmt : 'reporting window open'})" style="display:inline-block;font-family:var(--mono);font-size:7px;background:#1c1400;color:#fbbf24;border:1px solid #78350f;border-radius:3px;padding:0 3px;margin-left:3px;vertical-align:middle;cursor:help">📅 ${_ei.dueFmt}</span>`
+      : '';
     return`<tr class="data-row" onclick="openModal(${start+i})" onmouseenter="gdPrefetch(${start+i})">
       <td class="rk">${start+i+1}</td>
       <td class="tk" style="white-space:normal;min-width:54px">${d.ticker.replace(".SR","")}<span class="mob-company" style="display:none">${shortName}${moat}${reit}</span></td>
-      <td class="col-co" title="${escapeHTML(d.name)}" style="color:var(--tx)">${escapeHTML(getStockName(d))}${moat}${reit}</td>
+      <td class="col-co" title="${escapeHTML(d.name)}" style="color:var(--tx)">${escapeHTML(getStockName(d))}${moat}${reit}${earningsBadge}</td>
       <td style="min-width:52px"><span class="pv">${hasPx?d.price.toFixed(2):'—'}</span>${lv}</td>
       <td class="${cc}" style="min-width:44px">${cs}</td>
       <td class="col-pe"><span style="font-family:var(--mono);font-size:10px;color:var(--tx)">${d.pe!=null?d.pe.toFixed(1):'<span class="nav">—</span>'}</span></td>
@@ -5309,6 +5412,27 @@ function buildOverview(d){
     ${(()=>{const fcfVal=d.rawTwelveData?.annual?.cf?.[0]?.free_cash_flow;const mktCap=d.mktCap||(d.price!=null&&d.sharesOutstanding!=null?d.price*d.sharesOutstanding:null);let fcfDisplay,fcfClass;if(fcfVal!=null){const fcfNum=parseFloat(fcfVal);const fcfB=(Math.abs(fcfNum)/1e9).toFixed(2)+'B';const yld=mktCap?((fcfNum/mktCap)*100).toFixed(1)+'% yield':'';fcfDisplay=`${fcfNum>=0?'':'-'}${fcfB}${yld?' · '+yld:''}`;fcfClass=fcfNum>=0?'pos':'neg';}else{fcfDisplay=d.fcf===true?'Positive':d.fcf===false?'Negative':'—';fcfClass=d.fcf?'pos':'neg';}return`<div class="mi"><div class="mil" ${T('fcf')}>Free Cashflow</div><div class="miv ${fcfClass}">${fcfDisplay}</div></div>`;})()}
     <div class="mi"><div class="mil">Vision 2030 <span style="color:var(--tx3);font-size:9px" title="Measures how much this company benefits from Saudi Vision 2030 government spending programs. Not a financial metric.">ⓘ</span></div><div class="miv" style="color:${getVision2030(d.ticker)>=70?'var(--green)':getVision2030(d.ticker)>=45?'var(--amb)':'var(--tx3)'}" title="Measures how much this company benefits from Saudi Vision 2030 government spending programs. Not a financial metric.">${getVision2030(d.ticker)}/100</div></div>
   </div>
+  ${(()=>{
+    const ei = nextEarningsInfo(d);
+    if (!ei) return '';
+    const bgCol  = ei.isOverdue ? '#1a0000' : ei.isSoon ? '#1c1400' : 'var(--bg3)';
+    const bdCol  = ei.isOverdue ? '#7f1d1d' : ei.isSoon ? '#78350f' : 'var(--b1)';
+    const txCol  = ei.isOverdue ? '#f87171' : ei.isSoon ? '#fbbf24' : 'var(--tx3)';
+    const icon   = ei.isOverdue ? '⚠' : ei.isSoon ? '📅' : '📅';
+    const status = ei.isOverdue
+      ? `Results overdue — ${ei.daysUntilDue < -7 ? Math.abs(ei.daysUntilDue)+' days past due' : 'just passed due date'}`
+      : ei.daysUntilQEnd > 0
+      ? `Quarter ends ${ei.qEndFmt} · Results due by ${ei.dueFmt}`
+      : `Reporting window open — results due by ${ei.dueFmt}`;
+    return `<div style="background:${bgCol};border:1px solid ${bdCol};border-radius:6px;padding:7px 11px;margin-bottom:8px;display:flex;align-items:center;gap:10px">
+  <span style="font-size:15px">${icon}</span>
+  <div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em">Next Earnings · Q ending ${ei.nextQEnd}</div>
+    <div style="font-family:var(--mono);font-size:10px;color:${txCol};font-weight:600;margin-top:2px">${status}</div>
+    <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-top:1px">Latest reported quarter: ${ei.latest} · CMA deadline: 45 days after quarter-end</div>
+  </div>
+</div>`;
+  })()}
   <div class="secl">About</div>
   <div style="background:var(--bg3);border:1px solid var(--b1);border-radius:6px;padding:9px 11px;font-size:11px;color:var(--tx2);line-height:1.7;margin-bottom:8px">
     ${escapeHTML(d.desc)}
@@ -8241,6 +8365,33 @@ function latestQuarterlyDate(d) {
     }
   }
   return latest;
+}
+
+// Returns timing info for a stock's next expected earnings release.
+// Based on the latest quarterly fiscal_date + Saudi CMA 45-day reporting rule.
+function nextEarningsInfo(d) {
+  const latest = latestQuarterlyDate(d);
+  if (!latest || !latest.match(/^\d{4}-\d{2}-\d{2}$/)) return null;
+  const QS = ['03-31','06-30','09-30','12-31'];
+  const latestMD = latest.slice(5);
+  const idx = QS.indexOf(latestMD);
+  if (idx === -1) return null;
+  const latestYear = +latest.slice(0, 4);
+  const nextIdx = (idx + 1) % 4;
+  const nextYear = nextIdx === 0 ? latestYear + 1 : latestYear;
+  const nextQEnd = `${nextYear}-${QS[nextIdx]}`;
+  const qEndDate = new Date(nextQEnd + 'T00:00:00Z');
+  const dueDate  = new Date(qEndDate.getTime() + 45 * 86400000);
+  const now = Date.now();
+  const daysUntilDue = Math.round((dueDate - now) / 86400000);
+  const daysUntilQEnd = Math.round((qEndDate - now) / 86400000);
+  // Show badge starting 30 days before quarter-end through the due date
+  const isSoon    = daysUntilQEnd <= 30 && daysUntilDue >= 0;
+  const isOverdue = daysUntilDue < 0;  // reporting deadline passed, no new quarter yet
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const dueFmt = `${MONTHS[dueDate.getUTCMonth()]} ${dueDate.getUTCDate()}`;
+  const qEndFmt = `${MONTHS[qEndDate.getUTCMonth()]} ${qEndDate.getUTCDate()}`;
+  return { latest, nextQEnd, daysUntilDue, daysUntilQEnd, isSoon, isOverdue, dueFmt, qEndFmt };
 }
 
 // ── Bulk retrieve: financial statements for ALL stocks ──
