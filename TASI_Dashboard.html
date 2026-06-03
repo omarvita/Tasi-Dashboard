@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602m · fix: table Fair Val now syncs with composite after Fair Value tab computes; analyst target fresh-fetch path</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260602n · fix: flush pending statements save on modal close + tab-hide so freshly-fetched statements aren't dropped by the 12s debounce</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1683,6 +1683,16 @@ function gdScheduleStatementsSave() {
   if (!GD_TOKEN) return;
   clearTimeout(_stmtSaveTimer);
   _stmtSaveTimer = setTimeout(gdSaveStatementsBulk, STMT_SAVE_DEBOUNCE);
+}
+
+// Flush a pending statements save NOW instead of waiting out the 12s debounce.
+// Called on modal close and tab-hide so freshly-fetched statements persist before
+// the user navigates away or reloads (the debounce would otherwise drop the write).
+function gdFlushStatementsSave() {
+  if (!GD_TOKEN || !_stmtSaveTimer) return;
+  clearTimeout(_stmtSaveTimer);
+  _stmtSaveTimer = null;
+  gdSaveStatementsBulk();
 }
 
 // Load TASI_statements_bulk.json — called once at startup after prices are loaded
@@ -7525,6 +7535,9 @@ function closeModal(){
   if(volumeChartInst){try{volumeChartInst.destroy();}catch(e){}volumeChartInst=null;}
   if(macdChartInst){try{macdChartInst.destroy();}catch(e){}macdChartInst=null;}
   if(stochChartInst){try{stochChartInst.destroy();}catch(e){}stochChartInst=null;}
+  // Persist any statements fetched while this stock was open, instead of waiting
+  // out the 12s debounce (which would be lost if the user reloads/leaves first).
+  try { gdFlushStatementsSave(); } catch(e){}
 }
 
 // ═══════════════════════════════════════
@@ -9301,6 +9314,11 @@ function _renderIndicatorHistChart(ctx) {
 }
 
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
+
+// Safety net: when the tab is hidden or about to close, flush any pending
+// statements save so freshly-fetched data isn't lost to the 12s debounce.
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==='hidden'){ try{ gdFlushStatementsSave(); }catch(e){} } });
+window.addEventListener("pagehide",()=>{ try{ gdFlushStatementsSave(); }catch(e){} });
 
 // ═══════════════════════════════════════
 // EXPORT / IMPORT CACHE AS JSON FILE
