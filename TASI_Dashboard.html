@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260603c · remove Moat Stocks and Top Buffett stat boxes</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260603d · fix: Phase 2 retry pass for rate-limited stocks; batch size 20→12</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -7837,7 +7837,7 @@ async function refreshAll(forceRefresh=false){
   // No `fields=` parameter — default response includes trailingPE for many stocks.
   // Drive Phase 1 is still useful for closes (chart/technical data).
   document.getElementById("pl").textContent = `Fetching live prices (${allData.length} stocks)...`;
-  const _QBATCH = 20;
+  const _QBATCH = 12; // smaller batches reduce Yahoo rate-limiting on later stocks
   const _p2TickerIdx = new Map(allData.map((d,i) => [d.ticker, i]));
   for (let qi = 0; qi < allData.length; qi += _QBATCH) {
     try {
@@ -7919,6 +7919,54 @@ async function refreshAll(forceRefresh=false){
     } catch(e) { console.warn('bulk quote batch failed', e); }
     document.getElementById("pf").style.width = Math.round(((qi + _QBATCH) / allData.length) * 60) + '%';
     scheduleRender();
+  }
+
+  // ── Phase 2 retry: stocks that got no price in the batch pass ──
+  // Batches of 20 trigger Yahoo rate-limiting by batch ~10+, so later stocks
+  // silently come back empty. Retry them one at a time with a small delay.
+  const _failed = allData.filter(d => !d.priceLoaded && d.ticker.endsWith('.SR'));
+  if (_failed.length) {
+    document.getElementById("pl").textContent = `Retrying ${_failed.length} stocks that missed price…`;
+    for (let ri = 0; ri < _failed.length; ri += 5) {
+      const slice = _failed.slice(ri, ri + 5);
+      const syms  = slice.map(d => d.ticker).join(',');
+      try {
+        await new Promise(r => setTimeout(r, 300)); // brief pause to let Yahoo recover
+        const qurl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}`;
+        const qdata = await Promise.race([fetchWithProxy(qurl), new Promise(r => setTimeout(() => r({}), 10000))]);
+        const quotes = qdata?.quoteResponse?.result || [];
+        for (const q of quotes) {
+          if (!q.symbol || q.regularMarketPrice == null) continue;
+          const idx = _p2TickerIdx.get(q.symbol) ?? -1;
+          if (idx < 0) continue;
+          const price  = q.regularMarketPrice;
+          const change = q.regularMarketChangePercent ?? null;
+          let livePE = allData[idx].pe, livepeLoaded = false;
+          if (q.trailingPE > 0) { livePE = +q.trailingPE.toFixed(2); livepeLoaded = true; }
+          else if (q.epsTrailingTwelveMonths > 0 && price > 0) { livePE = +(price / q.epsTrailingTwelveMonths).toFixed(2); livepeLoaded = true; }
+          const existingCloses = allData[idx].closes || [];
+          const tRes = scoreTechnicalWithSteps(existingCloses.length > 5 ? existingCloses : []);
+          allData[idx] = { ...allData[idx], price, change, pe: livePE, pb: q.priceToBook > 0 ? +q.priceToBook.toFixed(2) : allData[idx].pb,
+            eps: q.epsTrailingTwelveMonths > 0 ? +q.epsTrailingTwelveMonths.toFixed(4) : allData[idx].eps,
+            livepeLoaded, priceLoaded: true, dataSource: 'yahoo-quote-retry',
+            mktCap: q.marketCap ?? allData[idx].mktCap,
+            volume: q.regularMarketVolume ?? allData[idx].volume,
+            avgVolume3M: q.averageDailyVolume3Month ?? allData[idx].avgVolume3M,
+            w52high: q.fiftyTwoWeekHigh ?? allData[idx].w52high,
+            w52low: q.fiftyTwoWeekLow ?? allData[idx].w52low,
+            technical: tRes.score, techSteps: tRes.steps,
+            rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
+            combined: calcCombined({...allData[idx], price, pe: livePE, technical: tRes.score}),
+          };
+          _gdCache[q.symbol] = Object.assign(_gdCache[q.symbol] || {}, {
+            priceData: { price, change, closes: existingCloses.slice(-252), timestamps: (allData[idx].timestamps||[]).slice(-252) },
+            priceUpdated: Date.now(),
+          });
+        }
+      } catch(e) { console.warn('Phase 2 retry batch failed', e); }
+      scheduleRender();
+    }
+    allData.forEach(_deriveSharesMktCap);
   }
   // Derive mktCap (PE×NI) and shares (mktCap÷price) now that live prices are available
   allData.forEach(_deriveSharesMktCap);
