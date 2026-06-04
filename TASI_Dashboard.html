@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260603a · feat: Argaam analyst consensus fallback + earnings calendar badge and overview card</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260603b · feat: bi-directional column sort (click once=default, click again=reverse); SAR+Chg% now sortable</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -441,17 +441,17 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
         <th style="width:26px">#</th>
         <th style="width:58px">Ticker</th>
         <th class="col-co" style="width:145px">Company</th>
-        <th style="width:60px">SAR <span style="font-size:8px;opacity:.5">▼price</span></th>
-        <th style="width:50px">Chg%</th>
-        <th class="col-pe" style="width:46px" onclick="sk('pe')" title="P/E Ratio">P/E↕</th>
-        <th class="col-eg" style="width:52px" onclick="sk('eg')" title="Earnings Growth">EG%↕</th>
-        <th class="col-peg" style="width:46px" onclick="sk('peg')" title="PEG Ratio — P/E÷EarningsGrowth">PEG↕</th>
-        <th class="col-fu" style="width:82px" onclick="sk('fundamental')">Fund.↕</th>
-        <th class="col-te" style="width:82px" onclick="sk('technical')">Tech.↕</th>
-        <th class="col-bu" style="width:82px" onclick="sk('buffett')">Buffett↕</th>
-        <th style="width:82px" onclick="sk('combined')">Score↕</th>
+        <th style="width:60px;cursor:pointer" onclick="sk('price')" title="Sort by price" data-sk="price">SAR <span class="tha">↕</span></th>
+        <th style="width:50px;cursor:pointer" onclick="sk('change')" title="Sort by daily change" data-sk="change">Chg% <span class="tha">↕</span></th>
+        <th class="col-pe" style="width:46px;cursor:pointer" onclick="sk('pe')" title="P/E Ratio" data-sk="pe">P/E <span class="tha">↕</span></th>
+        <th class="col-eg" style="width:52px;cursor:pointer" onclick="sk('eg')" title="Earnings Growth" data-sk="eg">EG% <span class="tha">↕</span></th>
+        <th class="col-peg" style="width:46px;cursor:pointer" onclick="sk('peg')" title="PEG Ratio — P/E÷EarningsGrowth" data-sk="peg">PEG <span class="tha">↕</span></th>
+        <th class="col-fu" style="width:82px;cursor:pointer" onclick="sk('fundamental')" data-sk="fundamental">Fund. <span class="tha">↕</span></th>
+        <th class="col-te" style="width:82px;cursor:pointer" onclick="sk('technical')" data-sk="technical">Tech. <span class="tha">↕</span></th>
+        <th class="col-bu" style="width:82px;cursor:pointer" onclick="sk('buffett')" data-sk="buffett">Buffett <span class="tha">↕</span></th>
+        <th style="width:82px;cursor:pointer" onclick="sk('combined')" data-sk="combined">Score <span class="tha">↓</span></th>
         <th style="width:48px">Signal</th>
-        <th class="col-tr" style="width:66px" onclick="sk('dcfUpside')" title="DCF Fair Value vs current price↕">Fair Val↕</th>
+        <th class="col-tr" style="width:66px;cursor:pointer" onclick="sk('dcfUpside')" title="DCF Fair Value vs current price" data-sk="dcfUpside">Fair Val <span class="tha">↕</span></th>
         <th class="col-st" style="width:32px">★</th>
         <th class="col-cp" style="width:32px">⊕</th>
         <th class="col-vw" style="width:40px">Info</th>
@@ -3347,7 +3347,7 @@ const MORE_TICKERS = [
 // ═══════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════
-let allData=[],filtData=[],activeSector="All",sortKey="combined",curPage=1;
+let allData=[],filtData=[],activeSector="All",sortKey="combined",sortAsc=false,curPage=1;
 let sectorMedianPE = {}; // populated after refreshAll completes
 let tasiIndex = { price:null, change:null, closes:[], timestamps:[], ytdReturn:null }; // TASI ^TASI index
 let _fetchingAllFin = false; // true while bulk financial-statement retrieval runs
@@ -4694,20 +4694,41 @@ function scheduleRender(){
   _renderPending=true;
   (window.requestAnimationFrame||setTimeout)(()=>{ _renderPending=false; doFilter(); });
 }
-function sk(k){sortKey=k;document.getElementById("ss").value=k;applySort();curPage=1;renderTable();}
-function doSort(){sortKey=document.getElementById("ss").value;applySort();curPage=1;renderTable();saveUIState();}
+// Columns where the natural "best first" default is ascending (low = good)
+const SORT_ASC_DEFAULT = new Set(['pe','peg','price','change']);
+
+function sk(k){
+  if(sortKey===k){ sortAsc=!sortAsc; }                        // same column → flip
+  else{ sortKey=k; sortAsc=SORT_ASC_DEFAULT.has(k); }         // new column → use default
+  document.getElementById("ss").value=k;
+  applySort(); curPage=1; renderTable();
+}
+function doSort(){
+  const k=document.getElementById("ss").value;
+  if(sortKey!==k){ sortKey=k; sortAsc=SORT_ASC_DEFAULT.has(k); }
+  applySort(); curPage=1; renderTable(); saveUIState();
+}
 function applySort(){
+  const dir = sortAsc ? 1 : -1;
   filtData.sort((a,b)=>{
-    // Unscored stocks (noHardcodedData without live data) always go to bottom
-    const aUnscored = a.noHardcodedData && !a.priceLoaded && a.combined==null;
-    const bUnscored = b.noHardcodedData && !b.priceLoaded && b.combined==null;
-    if(aUnscored && !bUnscored) return 1;
-    if(!aUnscored && bUnscored) return -1;
-    if(sortKey==="pe"||sortKey==="peg"){
-      const va=a[sortKey]??Infinity,vb=b[sortKey]??Infinity;
-      return va-vb;
-    }
-    return(b[sortKey]??-Infinity)-(a[sortKey]??-Infinity);
+    // Unscored stocks always go to bottom regardless of direction
+    const aU=a.noHardcodedData&&!a.priceLoaded&&a.combined==null;
+    const bU=b.noHardcodedData&&!b.priceLoaded&&b.combined==null;
+    if(aU&&!bU) return 1; if(!aU&&bU) return -1;
+    // Null values always last
+    const av=a[sortKey], bv=b[sortKey];
+    if(av==null&&bv==null) return 0;
+    if(av==null) return 1; if(bv==null) return -1;
+    return dir*(av-bv);
+  });
+}
+// Update column header arrows to reflect active sort key and direction
+function _updateSortHeaders(){
+  document.querySelectorAll('th[data-sk]').forEach(th=>{
+    const k=th.dataset.sk, sp=th.querySelector('.tha');
+    if(!sp) return;
+    if(k===sortKey){ sp.textContent=sortAsc?'↑':'↓'; th.style.color='var(--acc)'; }
+    else{ sp.textContent='↕'; th.style.color=''; }
   });
 }
 function prevPage(){if(curPage>1){curPage--;renderTable();}}
@@ -4781,6 +4802,7 @@ function renderTable(){
   }).join("");
   window._fd=filtData;
   updatePager();
+  _updateSortHeaders();
 }
 
 function updatePager(){
@@ -4946,7 +4968,7 @@ function setCacheTTL(hours){CACHE_TTL=hours*60*60*1000;}
 function saveUIState(){
   try{
     localStorage.setItem('TASI_ui_state', JSON.stringify({
-      sortKey:sortKey,
+      sortKey:sortKey, sortAsc:sortAsc,
       activeSector:activeSector,
       search:document.getElementById('search')?.value||'',
       viewSel:document.getElementById('vs')?.value||'all',
@@ -4962,6 +4984,7 @@ function restoreUIState(){
     if(!raw)return;
     const s=JSON.parse(raw);
     if(s.sortKey && VALID_SORT_KEYS.has(s.sortKey)){sortKey=s.sortKey;const el=document.getElementById('ss');if(el)el.value=s.sortKey;}
+    if(typeof s.sortAsc==='boolean') sortAsc=s.sortAsc;
     if(s.search){const el=document.getElementById('search');if(el)el.value=String(s.search).slice(0,100);}
     if(s.viewSel){const el=document.getElementById('vs');if(el)el.value=s.viewSel;}
     if(s.sigSel){const el=document.getElementById('sigs');if(el)el.value=s.sigSel;}
