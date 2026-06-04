@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260603b · feat: bi-directional column sort (click once=default, click again=reverse); SAR+Chg% now sortable</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260603c · remove Moat Stocks and Top Buffett stat boxes</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -333,8 +333,6 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
     <div class="mc" title="Total market capitalisation of all stocks with prices loaded (SAR). Ex-Aramco shown in brackets."><div class="mc-l">Mkt Cap</div><div class="mc-v" id="m-mc" style="font-size:10px">—</div></div>
     <div class="mc"><div class="mc-l">Avg Score</div><div class="mc-v" id="m-a">—</div></div>
     <div class="mc"><div class="mc-l">Buy Signals</div><div class="mc-v" id="m-b" style="color:var(--green)">—</div></div>
-    <div class="mc"><div class="mc-l">Moat Stocks</div><div class="mc-v" id="m-m" style="color:var(--pur)">—</div></div>
-    <div class="mc"><div class="mc-l">Top Buffett</div><div class="mc-v" id="m-tb" style="font-size:10px">—</div></div>
     <div class="mc"><div class="mc-l">Prices Loaded</div><div class="mc-v" id="m-pl">0%</div></div>
   </div>
 
@@ -4832,9 +4830,6 @@ function updateMetrics(){
   if(!filtData.length)return;
   const _scored=filtData.filter(d=>d.combined!=null);document.getElementById("m-a").textContent=_scored.length?Math.round(_scored.reduce((s,d)=>s+d.combined,0)/_scored.length):'—';
   document.getElementById("m-b").textContent=filtData.filter(d=>getSig(d.combined,d.buffett).label==="Buy").length;
-  document.getElementById("m-m").textContent=filtData.filter(d=>d.criteria?.hasMoat).length;
-  const tb=[...filtData].sort((a,b)=>b.buffett-a.buffett)[0];
-  document.getElementById("m-tb").textContent=tb?.name?.split(" ").slice(0,2).join(" ")??"—";
   const pct=Math.round((loaded/allData.length)*100);
   document.getElementById("m-pl").textContent=pct+"%";
   document.getElementById("m-pl").style.color=pct===100?"var(--green)":pct>50?"var(--amb)":"var(--tx)";
