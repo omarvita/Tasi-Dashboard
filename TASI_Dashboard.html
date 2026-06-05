@@ -5453,14 +5453,15 @@ function buildOverview(d){
       return `<div class="mi"><div class="mil">vs TASI (1Y)</div><div class="miv" style="color:${col}">${vsIdx>=0?'+':''}${(vsIdx*100).toFixed(1)}% <span style="font-size:8px;color:var(--tx3)">(stk ${stockReturn>=0?'+':''}${(stockReturn*100).toFixed(1)}%)</span></div></div>`;
     })()}
   </div>
-  <div class="secl">Key Financials (SAR B, ${d.finPeriod?d.finPeriod.slice(0,4)+' latest':d.fullLoaded?(d.ttmMethod||'TTM'):'est.'})</div>
+  <div class="secl">Key Financials (SAR, ${d.finPeriod?d.finPeriod.slice(0,4)+' latest':d.fullLoaded?(d.ttmMethod||'TTM'):'est.'})</div>
   <div class="mgrid">
-    <div class="mi"><div class="mil" ${T('revenue')}>Revenue</div><div class="miv">${d.rev!=null?d.rev.toFixed(2)+"B":"—"}</div></div>
-    <div class="mi"><div class="mil" ${T('net_income')}>Net Income</div><div class="miv ${d.ni!=null?(d.ni>=0?'pos':'neg'):''}">${d.ni!=null?d.ni.toFixed(2)+"B":"—"}</div></div>
-    <div class="mi"><div class="mil" ${T('total_assets')}>Total Assets</div><div class="miv">${d.assets!=null?d.assets.toFixed(1)+"B":"—"}</div></div>
+    ${(()=>{const _fB=b=>b==null?'—':Math.abs(b)>=1?b.toFixed(2)+'B':Math.abs(b)>=0.001?(b*1000).toFixed(1)+'M':(b*1e6).toFixed(0)+'K';return`
+    <div class="mi"><div class="mil" ${T('revenue')}>Revenue</div><div class="miv">${_fB(d.rev)}</div></div>
+    <div class="mi"><div class="mil" ${T('net_income')}>Net Income</div><div class="miv ${d.ni!=null?(d.ni>=0?'pos':'neg'):''}">${_fB(d.ni)}</div></div>
+    <div class="mi"><div class="mil" ${T('total_assets')}>Total Assets</div><div class="miv">${_fB(d.assets)}</div></div>`;})()}
     <div class="mi"><div class="mil" ${T('net_margin')}>Net Margin</div><div class="miv">${d.npm!=null?(d.npm*100).toFixed(1)+"%":"—"}</div></div>
     <div class="mi"><div class="mil" ${T('de_ratio')}>Debt/Equity</div><div class="miv">${d.de!=null?d.de.toFixed(0)+"%":"N/A"}</div></div>
-    ${(()=>{const fcfVal=d.rawTwelveData?.annual?.cf?.[0]?.free_cash_flow;const mktCap=d.mktCap||(d.price!=null&&d.sharesOutstanding!=null?d.price*d.sharesOutstanding:null);let fcfDisplay,fcfClass;if(fcfVal!=null){const fcfNum=parseFloat(fcfVal);const fcfB=(Math.abs(fcfNum)/1e9).toFixed(2)+'B';const yld=mktCap?((fcfNum/mktCap)*100).toFixed(1)+'% yield':'';fcfDisplay=`${fcfNum>=0?'':'-'}${fcfB}${yld?' · '+yld:''}`;fcfClass=fcfNum>=0?'pos':'neg';}else{fcfDisplay=d.fcf===true?'Positive':d.fcf===false?'Negative':'—';fcfClass=d.fcf?'pos':'neg';}return`<div class="mi"><div class="mil" ${T('fcf')}>Free Cashflow</div><div class="miv ${fcfClass}">${fcfDisplay}</div></div>`;})()}
+    ${(()=>{const fcfVal=d.rawTwelveData?.annual?.cf?.[0]?.free_cash_flow;const mktCap=d.mktCap||(d.price!=null&&d.sharesOutstanding!=null?d.price*d.sharesOutstanding:null);let fcfDisplay,fcfClass;if(fcfVal!=null){const fcfNum=parseFloat(fcfVal);const _afcf=Math.abs(fcfNum);const fcfFmt=_afcf>=1e9?(_afcf/1e9).toFixed(2)+'B':_afcf>=1e6?(_afcf/1e6).toFixed(1)+'M':(_afcf/1e3).toFixed(0)+'K';const yld=mktCap?((fcfNum/mktCap)*100).toFixed(1)+'% yield':'';fcfDisplay=`${fcfNum>=0?'':'-'}${fcfFmt}${yld?' · '+yld:''}`;fcfClass=fcfNum>=0?'pos':'neg';}else{fcfDisplay=d.fcf===true?'Positive':d.fcf===false?'Negative':'—';fcfClass=d.fcf?'pos':'neg';}return`<div class="mi"><div class="mil" ${T('fcf')}>Free Cashflow</div><div class="miv ${fcfClass}">${fcfDisplay}</div></div>`;})()}
     <div class="mi"><div class="mil">Vision 2030 <span style="color:var(--tx3);font-size:9px" title="Measures how much this company benefits from Saudi Vision 2030 government spending programs. Not a financial metric.">ⓘ</span></div><div class="miv" style="color:${getVision2030(d.ticker)>=70?'var(--green)':getVision2030(d.ticker)>=45?'var(--amb)':'var(--tx3)'}" title="Measures how much this company benefits from Saudi Vision 2030 government spending programs. Not a financial metric.">${getVision2030(d.ticker)}/100</div></div>
   </div>
   ${(()=>{
@@ -6011,7 +6012,11 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
     if (v == null || v === '' || v === 'None') return '—';
     const n = parseFloat(v);
     if (isNaN(n)) return '—';
-    return (n / 1e9).toFixed(2) + 'B';
+    const abs = Math.abs(n);
+    if (abs >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+    if (abs >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (abs >= 1e3) return (n / 1e3).toFixed(0) + 'K';
+    return n.toFixed(0);
   }
   function fmtPct(v) {
     if (v == null || isNaN(v)) return '—';
@@ -6246,7 +6251,7 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
       </tr>`;
     }
 
-    const fB   = v => (v/1e9).toFixed(2) + ' B';
+    const fB   = v => { const a=Math.abs(v); return a>=1e9?(v/1e9).toFixed(2)+' B':a>=1e6?(v/1e6).toFixed(1)+' M':(v/1e3).toFixed(0)+' K'; };
     const fSAR = v => v.toFixed(2) + ' SAR';
     const fPct = v => (v>=0?'+':'') + (v*100).toFixed(1) + '%';
     const fPP  = v => (v>=0?'+':'') + (v*100).toFixed(1) + 'pp';
@@ -6308,7 +6313,7 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
        + makeTable(period === 'quarterly' ? 'Quarterly Income Statement' : '5-Year Income Statement', isRows, is?.map(pLabel) || [])
        + makeTable(period === 'quarterly' ? 'Quarterly Balance Sheet'    : '5-Year Balance Sheet',    bsRows, bs?.map(pLabel) || [])
        + makeTable(period === 'quarterly' ? 'Quarterly Cash Flow'        : '5-Year Cash Flow',        cfRows, cf?.map(pLabel) || [])
-       + `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Source: ${source} · SAR · B = Billions · Growth rows: YoY vs prior period · Margins are % of Revenue</div>`
+       + `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Source: ${source} · SAR · B = Billions · M = Millions · Growth rows: YoY vs prior period · Margins are % of Revenue</div>`
        + analysisHtml;
 }
 
@@ -6372,7 +6377,7 @@ async function buildDCF(d) {
   if (baseFCF !== null && baseFCF < 0 && annualData?.cf?.length) {
     const opCF = parseFloat(annualData.cf[0].operating_activities);
     const capex = parseFloat(annualData.cf[0].capital_expenditure);
-    negativeFCFNote = `FCF is negative (${(baseFCF/1e9).toFixed(2)}B) — likely due to heavy CapEx expansion cycle, not operating losses.`;
+    negativeFCFNote = `FCF is negative (${Math.abs(baseFCF)>=1e9?(baseFCF/1e9).toFixed(2)+'B':(baseFCF/1e6).toFixed(0)+'M'}) — likely due to heavy CapEx expansion cycle, not operating losses.`;
     if (!isNaN(opCF) && opCF > 0) {
       // Use operating CF × (1 − long-run capex intensity) as normalised FCF
       const capexRatio = (!isNaN(capex) && opCF !== 0) ? Math.min(Math.abs(capex) / opCF, 0.6) : 0.35;
@@ -6929,21 +6934,22 @@ async function buildDCF(d) {
 
   // FCF PROJECTIONS TABLE
   html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
-  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">5-Year FCF Projection (SAR B)${isBanking?' — Reference only':''}</div>
+  ${(()=>{const _fv=v=>{const a=Math.abs(v);return a>=1e9?(v/1e9).toFixed(3)+' B':a>=1e6?(v/1e6).toFixed(1)+' M':(v/1e3).toFixed(0)+' K';};const _unit=Math.abs(baseFCF)>=1e9?'B SAR':'M SAR';return`
+  <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">5-Year FCF Projection (SAR)${isBanking?' — Reference only':''}</div>
   <div style="overflow-x:auto"><table class="ft">
-    <thead><tr><th>Year</th><th>FCF (B SAR)</th><th>Growth</th><th>PV @ ${(wacc*100).toFixed(1)}%</th></tr></thead>
+    <thead><tr><th>Year</th><th>FCF (${_unit})</th><th>Growth</th><th>PV @ ${(wacc*100).toFixed(1)}%</th></tr></thead>
     <tbody>
-      <tr><td style="color:var(--tx3)">Base</td><td style="font-family:var(--mono)">${(baseFCF/1e9).toFixed(3)}</td><td>—</td><td>—</td></tr>
-      ${fcfProj.map((f,i)=>{const yr=(growthRate*_FADE[i]);return`<tr><td>Year ${i+1}</td><td class="${f>=0?'ft-pos':'neg'}">${(f/1e9).toFixed(3)}</td><td style="font-size:9px;color:var(--tx3)">${yr>=0?'+':''}${(yr*100).toFixed(1)}%</td><td style="color:var(--acc);font-family:var(--mono)">${(pvFCFs[i]/1e9).toFixed(3)}</td></tr>`;}).join('')}
+      <tr><td style="color:var(--tx3)">Base</td><td style="font-family:var(--mono)">${_fv(baseFCF)}</td><td>—</td><td>—</td></tr>
+      ${fcfProj.map((f,i)=>{const yr=(growthRate*_FADE[i]);return`<tr><td>Year ${i+1}</td><td class="${f>=0?'ft-pos':'neg'}">${_fv(f)}</td><td style="font-size:9px;color:var(--tx3)">${yr>=0?'+':''}${(yr*100).toFixed(1)}%</td><td style="color:var(--acc);font-family:var(--mono)">${_fv(pvFCFs[i])}</td></tr>`;}).join('')}
     </tbody>
-  </table></div></div>`;
+  </table></div>`;})()}</div>`;
 
   // FCF VALUATION SUMMARY
   html += `<div style="background:var(--bg3);border:1px solid var(--b1);border-radius:7px;padding:10px 12px;margin-bottom:10px">
   <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px">${isBanking?'FCF-DCF Summary (reference — see DDM below)':'Valuation Summary'}</div>
   <div class="mgrid">
     <div class="mi"><div class="mil" ${T('pv_fcfs')}>PV of FCFs (5Y)</div><div class="miv">${(sumPvFCF/1e9).toFixed(1)}B SAR</div></div>
-    <div class="mi"><div class="mil" ${T('term_value')}>PV of Terminal Value</div><div class="miv">${(pvTerm/1e9).toFixed(1)}B SAR</div></div>
+    <div class="mi"><div class="mil" ${T('term_value')}>PV of Terminal Value</div><div class="miv">${Math.abs(pvTerm)>=1e9?(pvTerm/1e9).toFixed(1)+'B':(pvTerm/1e6).toFixed(0)+'M'} SAR</div></div>
     <div class="mi"><div class="mil" ${T('ev')}>Enterprise Value</div><div class="miv" style="color:var(--acc);font-weight:600">${(enterpriseValue/1e9).toFixed(1)}B SAR</div></div>
     <div class="mi"><div class="mil" ${T('net_debt')}>Net Debt</div><div class="miv" style="font-size:9px">${(netDebt/1e9).toFixed(1)}B SAR <span style="color:var(--tx3)">(${netDebtNote})</span></div></div>
     <div class="mi"><div class="mil" ${T('equity_value')}>Equity Value</div><div class="miv">${(equityValue/1e9).toFixed(1)}B SAR</div></div>
