@@ -351,6 +351,12 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
     <span id="fin-last-fetched" style="color:var(--tx3);font-size:9px" title="When financial statements were last bulk-retrieved"></span>
     <span style="margin-left:auto;color:var(--tx3)" id="tasi-time">—</span>
   </div>
+  <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;flex-wrap:wrap">
+    <span style="font-family:var(--mono);font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;white-space:nowrap">Market</span>
+    <span class="sp-pill mkt-pill sp-active" data-m="All" style="color:var(--tx2);background:var(--bg3);border-color:var(--b2)" onclick="setMarket('All')">All</span>
+    <span class="sp-pill mkt-pill" data-m="TASI" style="color:var(--acc);background:var(--bg3);border-color:var(--b2)" onclick="setMarket('TASI')">TASI Main</span>
+    <span class="sp-pill mkt-pill" data-m="NOMU" style="color:#a78bfa;background:var(--bg3);border-color:var(--b2)" onclick="setMarket('NOMU')">NOMU Parallel</span>
+  </div>
   <div class="secperf" id="secperf-bar"><span class="secperf-lbl">Sectors</span><span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Loading…</span></div>
   <!-- Market P/E Statistics Panel -->
   <div id="market-pe-bar" style="background:var(--bg2);border:1px solid var(--b1);border-radius:7px;padding:7px 12px;margin-bottom:8px;font-family:var(--mono);font-size:10px">
@@ -3349,7 +3355,7 @@ const MORE_TICKERS = [
 // ═══════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════
-let allData=[],filtData=[],activeSector="All",sortKey="combined",sortAsc=false,curPage=1;
+let allData=[],filtData=[],activeSector="All",activeMarket="All",sortKey="combined",sortAsc=false,curPage=1;
 let sectorMedianPE = {}; // populated after refreshAll completes
 let tasiIndex = { price:null, change:null, closes:[], timestamps:[], ytdReturn:null }; // TASI ^TASI index
 let _fetchingAllFin = false; // true while bulk financial-statement retrieval runs
@@ -4679,6 +4685,8 @@ function doFilter(){
   const view=document.getElementById("vs").value;
   const sf=document.getElementById("sigs").value;
   let base=activeSector==="All"?[...allData]:allData.filter(d=>d.sector===activeSector);
+  if(activeMarket==="TASI")base=base.filter(d=>!d.isNomu);
+  else if(activeMarket==="NOMU")base=base.filter(d=>d.isNomu);
   if(view==="reit")base=base.filter(d=>d.isReit);
   else if(view==="equity")base=base.filter(d=>!d.isReit);
   if(sf!=="all")base=base.filter(d=>getSig(d.combined,d.buffett).label===sf);
@@ -4761,8 +4769,8 @@ function renderTable(){
       : '';
     return`<tr class="data-row" onclick="openModal(${start+i})" onmouseenter="gdPrefetch(${start+i})">
       <td class="rk">${start+i+1}</td>
-      <td class="tk" style="white-space:normal;min-width:54px">${d.ticker.replace(".SR","")}<span class="mob-company" style="display:none">${shortName}${moat}${reit}</span></td>
-      <td class="col-co" title="${escapeHTML(d.name)}" style="color:var(--tx)">${escapeHTML(getStockName(d))}${moat}${reit}${earningsBadge}</td>
+      <td class="tk" style="white-space:normal;min-width:54px">${d.ticker.replace(".SR","")}<span class="mob-company" style="display:none">${shortName}</span></td>
+      <td class="col-co" title="${escapeHTML(d.name)}" style="color:var(--tx)">${escapeHTML(getStockName(d))}${earningsBadge}</td>
       <td style="min-width:52px"><span class="pv">${hasPx?d.price.toFixed(2):'—'}</span>${lv}</td>
       <td class="${cc}" style="min-width:44px">${cs}</td>
       <td class="col-pe"><span style="font-family:var(--mono);font-size:10px;color:var(--tx)">${d.pe!=null?d.pe.toFixed(1):'<span class="nav">—</span>'}</span></td>
@@ -4968,7 +4976,7 @@ function saveUIState(){
   try{
     localStorage.setItem('TASI_ui_state', JSON.stringify({
       sortKey:sortKey, sortAsc:sortAsc,
-      activeSector:activeSector,
+      activeSector:activeSector, activeMarket:activeMarket,
       search:document.getElementById('search')?.value||'',
       viewSel:document.getElementById('vs')?.value||'all',
       sigSel:document.getElementById('sigs')?.value||'all',
@@ -4989,12 +4997,22 @@ function restoreUIState(){
     if(s.sigSel){const el=document.getElementById('sigs');if(el)el.value=s.sigSel;}
     const validSectors=new Set(['All',...allData.map(d=>d.sector)]);
     if(s.activeSector && validSectors.has(s.activeSector))activeSector=s.activeSector;
+    if(s.activeMarket && ['All','TASI','NOMU'].includes(s.activeMarket)){
+      activeMarket=s.activeMarket;
+      document.querySelectorAll('.mkt-pill').forEach(p=>p.classList.toggle('sp-active',p.dataset.m===activeMarket));
+    }
   }catch(e){}
 }
 
 function setSector(sec){
   activeSector=sec;
   document.querySelectorAll('.sp-pill[data-s]').forEach(p=>p.classList.toggle('sp-active',p.dataset.s===sec));
+  doFilter();
+  saveUIState();
+}
+function setMarket(m){
+  activeMarket=m;
+  document.querySelectorAll('.mkt-pill').forEach(p=>p.classList.toggle('sp-active',p.dataset.m===m));
   doFilter();
   saveUIState();
 }
@@ -6463,15 +6481,19 @@ async function buildDCF(d) {
   const revGrowth = revVals.length >= 2 ? _cagr(revVals) : null;
   const fcfGrowth = fcfVals.length >= 2 ? _avgYoY(fcfVals.filter(v=>parseFloat(v)>0)) : null;
   if (revGrowth != null || fcfGrowth != null) {
-    // Use revenue growth as primary; blend with FCF growth if both exist
-    const base = revGrowth != null && fcfGrowth != null
+    // Revenue growth is primary; blend with FCF growth if both exist
+    const stmtBase = revGrowth != null && fcfGrowth != null
       ? (revGrowth * 0.6 + fcfGrowth * 0.4)
       : (revGrowth ?? fcfGrowth);
+    // Blend with long-run anchor (60% statement CAGR + 40% sector/Yahoo default).
+    // Prevents a post-recovery spike from inflating the full 5-year terminal projection.
+    const longRunAnchor = d.rg != null ? d.rg : 0.04;
+    const base = stmtBase * 0.60 + longRunAnchor * 0.40;
     const _SGCAP = {'Petrochemicals':0.15,'Chemicals':0.15,'Materials':0.15,'Building Materials':0.15,'Transportation':0.15,'Industrial':0.15,'REITs':0.14,'Energy':0.15,'Consumer':0.18,'Utilities':0.18,'Telecom':0.18,'Insurance':0.18,'Real Estate':0.18,'Banking':0.15,'Healthcare':0.20,'Technology':0.22};
     const growthCap = _SGCAP[d.sector] ?? 0.20;
     growthRate = Math.min(Math.max(base, -0.10), growthCap);
     const yrs = Math.max(revVals.length, fcfVals.length);
-    growthSource = `${yrs}Y avg from statements`;
+    growthSource = `blended (${(stmtBase*100).toFixed(1)}% ${yrs}Y CAGR ×60% + ${(longRunAnchor*100).toFixed(1)}% anchor ×40%)`;
   } else {
     growthRate = Math.min(Math.max(d.rg != null ? d.rg : 0.04, -0.10), 0.20);
     growthSource = d.rg != null ? 'Yahoo revenue growth (TTM)' : 'default estimate';
@@ -6560,10 +6582,17 @@ async function buildDCF(d) {
     'Consumer':18,'Utilities':16,'Transportation':14,'Industrial':16,
   };
   const sectorPE = SECTOR_PE[d.sector] || 15;
+  // Blend structural target with live sector median (50/50) — anchors fair value to
+  // actual market conditions and prevents systematic overvaluation when the market
+  // has already re-rated a sector lower than the theoretical target.
+  const liveSectorPE = sectorMedianPE[d.sector];
+  const effectiveSectorPE = (liveSectorPE && liveSectorPE > 0)
+    ? Math.round((sectorPE * 0.5 + liveSectorPE * 0.5) * 10) / 10
+    : sectorPE;
   const stockPE = d.pe;
   const stockEPS = d.eps || (d.price && d.pe ? d.price / d.pe : null);
-  const peFairValue = (stockEPS && sectorPE) ? stockEPS * sectorPE : null;
-  const pePremium = stockPE ? (stockPE - sectorPE) / sectorPE : null;
+  const peFairValue = (stockEPS && effectiveSectorPE) ? stockEPS * effectiveSectorPE : null;
+  const pePremium = stockPE ? (stockPE - effectiveSectorPE) / effectiveSectorPE : null;
   const peUpside = (peFairValue && d.price) ? (peFairValue - d.price) / d.price : null;
 
   // ── EV/EBITDA VALUATION ──
@@ -6594,8 +6623,14 @@ async function buildDCF(d) {
   const mktCapEst = d.mktCap || (d.price && shareCount ? d.price * shareCount : null);
   const evCurrent = mktCapEst ? mktCapEst + netDebt : null;
   const currentEVEBITDA = (evCurrent && ebitda && ebitda > 0) ? evCurrent / ebitda : null;
-  const evFairValue = (ebitda && sectorEVEBITDA && shareCount && ebitda > 0)
+  const _evFairValueRaw = (ebitda && sectorEVEBITDA && shareCount && ebitda > 0)
     ? Math.max((ebitda * sectorEVEBITDA - netDebt) / shareCount, 0) : null;
+  // Guard: skip when net margin is too thin (estimated EBITDA is unreliable)
+  // or when result wildly exceeds current price (almost always a data/unit error).
+  const evFairValue = _evFairValueRaw == null ? null
+    : (d.npm != null && d.npm < 0.04) ? null
+    : (d.price && _evFairValueRaw > d.price * 4) ? null
+    : _evFairValueRaw;
   const evUpside = (evFairValue && d.price) ? (evFairValue - d.price) / d.price : null;
 
   // ── P/B VALUATION ──
@@ -6621,7 +6656,9 @@ async function buildDCF(d) {
   // ── COMPOSITE FAIR VALUE (sector-weighted blend of all available methods) ──
   const _sectorType = {'Banking':'bank','Insurance':'bank','Transportation':'cyclical','Petrochemicals':'cyclical','Chemicals':'cyclical','Materials':'cyclical','Building Materials':'cyclical','Industrial':'cyclical','Energy':'cyclical','Technology':'growth','Healthcare':'growth','Real Estate':'dividend','REITs':'dividend','Consumer':'stable','Telecom':'stable','Utilities':'stable'}[d.sector] || 'stable';
   // weights: [dcf, pe, evebitda, pb, ddm]
-  const _W = {'bank':[0.05,0.20,0.00,0.30,0.45],'cyclical':[0.15,0.20,0.40,0.25,0.00],'growth':[0.50,0.20,0.30,0.00,0.00],'dividend':[0.25,0.20,0.20,0.00,0.35],'stable':[0.35,0.30,0.20,0.00,0.15]}[_sectorType];
+  // P/E weight halved vs prior version — blended target already anchors to live medians,
+  // reducing it further avoids double-counting the market-level signal.
+  const _W = {'bank':[0.05,0.12,0.00,0.33,0.50],'cyclical':[0.20,0.12,0.45,0.23,0.00],'growth':[0.55,0.12,0.33,0.00,0.00],'dividend':[0.28,0.12,0.20,0.00,0.40],'stable':[0.42,0.15,0.22,0.00,0.21]}[_sectorType];
   const _methods = [
     {name:'FCF-DCF', w:_W[0], fv:intrinsicPS},
     {name:'P/E',     w:_W[1], fv:peFairValue},
@@ -6737,7 +6774,7 @@ async function buildDCF(d) {
     </div>
     <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
       <div ${T('sector_median')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px;cursor:help">Sector Median</div>
-      <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:var(--tx2)">${sectorPE}×</div>
+      <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:var(--tx2)">${effectiveSectorPE}×</div>
     </div>
     <div style="flex:1;min-width:80px;text-align:center;background:var(--bg2);border-radius:6px;padding:8px 6px;border:1px solid var(--b1)">
       <div ${T('pe_fair_val')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:4px;cursor:help">P/E Fair Value</div>
@@ -6750,7 +6787,7 @@ async function buildDCF(d) {
   </div>
   <div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:9px">
     <span style="color:${peColor};font-weight:600">${peLabel}</span>
-    <span style="color:var(--tx3)">Premium to sector: ${pePremium>=0?'+':''}${(pePremium*100).toFixed(1)}% · EPS ${stockEPS.toFixed(3)} SAR × ${sectorPE}× = ${peFairValue.toFixed(2)} SAR</span>
+    <span style="color:var(--tx3)">Premium to sector: ${pePremium>=0?'+':''}${(pePremium*100).toFixed(1)}% · EPS ${stockEPS.toFixed(3)} SAR × ${effectiveSectorPE}× = ${peFairValue.toFixed(2)} SAR${liveSectorPE ? ` (target blended: ${sectorPE}× structural + ${liveSectorPE.toFixed(1)}× live)` : ''}</span>
   </div>
 </div>`;
   }
@@ -7729,6 +7766,8 @@ function init(){
   // Market Cap = P/E × Net Income — an exact identity if PE and NI are from the same period.
   // Shares = Market Cap ÷ Price (price is null at init, filled once Phase 2 runs).
   allData.forEach(_deriveSharesMktCap);
+  // Mark NOMU parallel-market stocks. Tadawul assigns 9xxx tickers exclusively to NOMU listings.
+  allData.forEach(d => { d.isNomu = /^9\d{3}\.SR$/i.test(d.ticker); });
   try{buildSectors();}catch(e){console.error('buildSectors:',e);}
   try{setSector("All");}catch(e){console.error('setSector:',e);}
   // Update stock count in header
