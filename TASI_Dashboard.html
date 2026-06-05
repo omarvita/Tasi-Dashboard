@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260605e'; // bump this string on every deploy that matters
+  var V='20260605f'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605e · fix: semi-annual statement support for REITs (H1+H2 TTM calculation)</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605f · fix: re-fetch when cache has no live prices (laptop 0-price stuck state)</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -5040,7 +5040,7 @@ function updateCacheUI(meta){
   const ageStr=hrs>0?hrs+'h '+rem+'m ago':mins+'m ago';
   const ttlMins=Math.round((meta.ttl-age)/60000);
   el.innerHTML='<span style="color:'+(age<meta.ttl?'var(--acc)':'var(--amb)')+'">●</span> '
-    +meta.count+' stocks cached · '+ageStr+(ttlMins>0?' · expires '+ttlMins+'m':'');
+    +meta.count+' stocks cached · '+ageStr+(isFinite(ttlMins)&&ttlMins>0?' · expires '+ttlMins+'m':'');
 }
 
 async function exportCache(){
@@ -7949,8 +7949,16 @@ async function refreshAll(forceRefresh=false){
     let hit=false;
     try{hit=await loadCache();}catch(e){hit=false;}
     if(hit){
-      document.getElementById("pf").style.width="100%";
       const loaded=allData.filter(d=>d.priceLoaded).length;
+      if(loaded===0){
+        // Cache restored fundamentals but holds NO live prices — a prior fetch failed
+        // (CORS proxies blocked, offline, or Google Drive not connected). Serving this
+        // would leave a permanently price-less table that every reload re-shows. Instead
+        // fall through to a live fetch so prices actually load this time.
+        console.warn('[refreshAll] cache hit with 0 prices — falling through to live fetch');
+        document.getElementById("pl").textContent="Cache has no prices — fetching live data…";
+      } else {
+      document.getElementById("pf").style.width="100%";
       document.getElementById("pl").textContent=`✓ Restored ${loaded} stocks from today's cache — click ⟳ Force for fresh live prices`;
       setTimeout(()=>{pw.style.display="none";},3500);
       btn.disabled=false;btn.textContent="↻ Reload Data";
@@ -7993,6 +8001,7 @@ async function refreshAll(forceRefresh=false){
       }
       doFilter();updateMetrics();
       return;
+      } // end else (loaded>0): a price-less cache falls through to live fetch below
     }
     document.getElementById("pl").textContent="No valid cache — fetching live data...";
   } else {
