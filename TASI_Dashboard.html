@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260605a'; // bump this string on every deploy that matters
+  var V='20260605b'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -1673,6 +1673,36 @@ function _applyDriveValuations() {
   }
   if (window._fd) { const _m = new Map(allData.map(d=>[d.ticker,d])); window._fd = window._fd.map(d=>_m.get(d.ticker)||d); }
   if (n) console.log(`[Fair Value] Applied ${n} cached DCF valuations from Drive`);
+  return n;
+}
+
+// Apply Drive statement cache (_stmtCache) to allData, deriving ROE/npm/EPS/P/E etc.
+// Statements take priority over Yahoo data. Called after gdLoadStatementsBulk() completes
+// so Buffett/Fundamental scores are correct on Reload Data without opening each stock.
+function _applyStmtFundamentalsToAllData() {
+  let n = 0;
+  for (const d of allData) {
+    if (d.fullLoaded) continue; // freshly fetched this session — already up to date
+    const cached = _stmtCache[d.ticker];
+    if (cached) {
+      if (!d.rawTwelveData) d.rawTwelveData = {};
+      // Prefer whichever source has more rows (more history)
+      if (cached.annual && (!d.rawTwelveData.annual || (cached.annual.is?.length||0) > (d.rawTwelveData.annual?.is?.length||0)))
+        d.rawTwelveData.annual = cached.annual;
+      if (cached.quarterly && (!d.rawTwelveData.quarterly || (cached.quarterly.is?.length||0) > (d.rawTwelveData.quarterly?.is?.length||0)))
+        d.rawTwelveData.quarterly = cached.quarterly;
+    }
+    if (d.rawTwelveData?.annual || d.rawTwelveData?.quarterly) {
+      try {
+        if (applyDerivedMetrics(d)) {
+          if (d._htmlCache) delete d._htmlCache.buffett;
+          n++;
+        }
+      } catch(e) {}
+    }
+  }
+  if (window._fd) { const _m = new Map(allData.map(d=>[d.ticker,d])); window._fd = window._fd.map(d=>_m.get(d.ticker)||d); }
+  if (n) console.log(`[Fundamentals] Applied statement-derived metrics to ${n} stocks`);
   return n;
 }
 
@@ -7841,7 +7871,24 @@ async function refreshAll(forceRefresh=false){
       fetchTASIIndex();
       // Load statements in background, then apply cached Fair Value once ready
       if (GD_TOKEN) {
-        gdLoadStatementsBulk().then(() => { _applyDriveValuations(); doFilter(); updateMetrics(); });
+        gdLoadStatementsBulk().then(() => {
+          _applyDriveValuations();
+          _applyStmtFundamentalsToAllData();
+          computeSectorMedianPE();
+          updateMarketPEStats();
+          allData.forEach(d => {
+            if (d.pe != null || d.priceLoaded) {
+              const noHard = d.noHardcodedData && !d.priceLoaded;
+              const fRes = scoreFundamental(d);
+              const bRes = scoreBuffett(d);
+              d.fundamental = noHard ? null : fRes.score; d.fundSteps = fRes.steps;
+              d.buffett = noHard ? null : bRes.buffett; d.criteria = bRes.criteria; d.buffSteps = bRes.steps;
+              d.combined = noHard ? null : calcCombined(d);
+            }
+          });
+          if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
+          doFilter(); updateMetrics();
+        });
         gdLoadPortfolio(); // restore portfolio from Drive if available
       }
       doFilter();updateMetrics();
@@ -8189,7 +8236,24 @@ async function refreshAll(forceRefresh=false){
         : `✓ ${loaded} stocks loaded — no statements found on Drive (use 📊 Retrieve All)`;
       doFilter(); updateMetrics();
     } else {
-      gdLoadStatementsBulk().then(() => { _applyDriveValuations(); doFilter(); updateMetrics(); });
+      gdLoadStatementsBulk().then(() => {
+        _applyDriveValuations();
+        _applyStmtFundamentalsToAllData();
+        computeSectorMedianPE();
+        updateMarketPEStats();
+        allData.forEach(d => {
+          if (d.pe != null || d.priceLoaded) {
+            const noHard = d.noHardcodedData && !d.priceLoaded;
+            const fRes = scoreFundamental(d);
+            const bRes = scoreBuffett(d);
+            d.fundamental = noHard ? null : fRes.score; d.fundSteps = fRes.steps;
+            d.buffett = noHard ? null : bRes.buffett; d.criteria = bRes.criteria; d.buffSteps = bRes.steps;
+            d.combined = noHard ? null : calcCombined(d);
+          }
+        });
+        if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
+        doFilter(); updateMetrics();
+      });
       document.getElementById("pl").textContent=`✓ ${loaded}/${allData.length} stocks saved to cache`;
     }
   } else {
@@ -8200,6 +8264,12 @@ async function refreshAll(forceRefresh=false){
   document.getElementById("lu").textContent=`${loaded}/${allData.length} prices · ${new Date().toLocaleTimeString("en-SA",{hour:"2-digit",minute:"2-digit"})}`;
   // ── Change 7: Compute sector-relative P/E medians after all prices loaded ──
   computeSectorMedianPE();
+  updateMarketPEStats();
+  // Apply statement-derived fundamentals before final scoring pass (statements-first priority).
+  // For force-refresh: statements were awaited above; for normal load: handled in .then() callback.
+  // Ensures Buffett/Fundamental scores are correct after Reload Data without opening each stock.
+  _applyStmtFundamentalsToAllData();
+  computeSectorMedianPE(); // recompute after statement-derived P/E values are applied
   updateMarketPEStats();
   // Re-score fundamentals and Buffett criteria with live prices + sector-relative P/E now available
   allData.forEach(d => {
