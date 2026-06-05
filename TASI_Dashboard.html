@@ -4098,6 +4098,11 @@ function applyDerivedMetrics(d){
   }
 
   if (changed){
+    // Once real fundamentals are derived from statements, the stock is no longer
+    // "unscored". Clear the flag BEFORE recomputing so the Buffett/Fundamental/
+    // Combined scores display instead of null — keeping the numeric score consistent
+    // with the now-populated criteria (fixes the "null/100" Buffett score).
+    if (d.roe!=null || d.npm!=null || d.fcf!=null || d.eps!=null) d.noHardcodedData = false;
     recomputeAllScores(d); // recomputes PEG from statement-derived P/E + growth
     _gdCache[d.ticker] = Object.assign(_gdCache[d.ticker]||{}, {
       fundamentals: Object.assign((_gdCache[d.ticker]?.fundamentals||{}), {
@@ -6994,7 +6999,9 @@ async function buildDCF(d) {
 
 function buildBuffett(d){
   const crit=d.criteria||{};
-  const passed=Object.values(crit).filter(v=>v===true&&typeof v==="boolean").length;
+  // Count only the 10 displayed criteria — exclude the derived `hasMoat` aggregate,
+  // which is itself a boolean in crit and would otherwise push the tally to 11/10.
+  const passed=Object.entries(crit).filter(([k,v])=>k!=="hasMoat"&&v===true&&typeof v==="boolean").length;
   const bsteps=d.buffSteps||[];
   // Match criteria keys to book chapters
   const critMeta={
@@ -7011,7 +7018,7 @@ function buildBuffett(d){
   };
   return`
   <div class="strio">
-    <div class="scard hl" style="grid-column:1/3"><div class="slbl">Buffett Score</div><div class="sval" style="color:${sc(d.buffett)}">${d.buffett}/100</div></div>
+    <div class="scard hl" style="grid-column:1/3"><div class="slbl">Buffett Score</div><div class="sval" style="color:${d.buffett!=null?sc(d.buffett):'var(--tx3)'}">${d.buffett!=null?d.buffett:'—'}/100</div></div>
     <div class="scard" style="grid-column:3/5"><div class="slbl">Criteria Passed</div><div class="sval" style="color:${passed>=7?"var(--green)":passed>=5?"var(--amb)":"var(--red)"}">${passed}/10</div></div>
   </div>
   ${crit.hasMoat
