@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260605f'; // bump this string on every deploy that matters
+  var V='20260605g'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605f · fix: re-fetch when cache has no live prices (laptop 0-price stuck state)</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605g · perf: faster proxy timeouts + Fair Value computed without Google Drive</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1673,6 +1673,32 @@ function _applyDriveValuations() {
   }
   if (window._fd) { const _m = new Map(allData.map(d=>[d.ticker,d])); window._fd = window._fd.map(d=>_m.get(d.ticker)||d); }
   if (n) console.log(`[Fair Value] Applied ${n} cached DCF valuations from Drive`);
+  return n;
+}
+
+// Compute DCF valuations from in-memory data for all stocks that still have no dcfPS.
+// Works without Google Drive: uses rawTwelveData.annual when available, falls back to
+// the NI-based FCF estimate (d.ni) for stocks with no statement cache.
+// Called after prices and sector P/E medians are loaded; does one bulk renderTable at end.
+async function _applyDCFFromMemory() {
+  const toProcess = allData.filter(d => d.dcfPS == null && d.price > 0 && (d.ni != null || d.rawTwelveData?.annual));
+  if (!toProcess.length) return 0;
+  let n = 0;
+  const BATCH = 40;
+  for (let i = 0; i < toProcess.length; i += BATCH) {
+    await Promise.allSettled(toProcess.slice(i, i + BATCH).map(async d => {
+      try {
+        await buildDCF(d, {noFetch: true, noHtml: true});
+        if (d.dcfPS != null) n++;
+      } catch(e) {}
+    }));
+    await new Promise(r => setTimeout(r, 0)); // yield to event loop between batches
+  }
+  if (n) {
+    if (window._fd) { const _m = new Map(allData.map(d=>[d.ticker,d])); window._fd = window._fd.map(d=>_m.get(d.ticker)||d); }
+    console.log(`[Fair Value] Computed ${n} DCF valuations from memory (no-Drive path)`);
+    try { renderTable(); } catch(e) {}
+  }
   return n;
 }
 
@@ -4270,9 +4296,9 @@ function _bodyJson(resp, ms) {
 async function fetchWithProxy(url){
   // Always try direct fetch first — no proxy needed when Yahoo allows CORS
   try{
-    const resp = await fetch(url, {signal: AbortSignal.timeout(8000)});
+    const resp = await fetch(url, {signal: AbortSignal.timeout(5000)});
     if(resp.ok){
-      const text = await _bodyText(resp, 7000);
+      const text = await _bodyText(resp, 5000);
       try{ const data = JSON.parse(text); if(data && Object.keys(data).length > 0) return data; }catch(e){}
     }
   }catch(e){}
@@ -4282,9 +4308,9 @@ async function fetchWithProxy(url){
     const proxy = PROXIES[pi];
     if(proxy.direct) continue; // skip direct-fetch entry in rotation
     try{
-      const resp = await fetch(proxy.fn(url), {signal: AbortSignal.timeout(12000)});
+      const resp = await fetch(proxy.fn(url), {signal: AbortSignal.timeout(7000)});
       if(!resp.ok) continue;
-      const text = await _bodyText(resp, 10000);
+      const text = await _bodyText(resp, 7000);
       let data;
       try{
         if(proxy.raw){ data = JSON.parse(text); }
@@ -4309,10 +4335,10 @@ async function fetchWithProxyPost(url, body) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(12000)
+        signal: AbortSignal.timeout(7000)
       });
       if (!resp.ok) continue;
-      const text = await _bodyText(resp, 10000);
+      const text = await _bodyText(resp, 7000);
       try { const d = JSON.parse(text); if (d && Object.keys(d).length) return d; } catch(e) {}
     } catch(e) { continue; }
   }
@@ -6450,7 +6476,8 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
 async function buildAnnual(d, forceRefetch=false){ return buildFinancials(d, 'annual', forceRefetch); }
 
 // ── DCF ANALYSIS ──
-async function buildDCF(d) {
+async function buildDCF(d, _opts={}) {
+  const {noFetch=false, noHtml=false} = (_opts && typeof _opts === 'object') ? _opts : {};
   // ── FAST PATH: return cached DCF result from Drive if fresh ──
   if (GD_TOKEN) {
     const driveStock = gdGetStatement(d.ticker);
@@ -6476,7 +6503,7 @@ async function buildDCF(d) {
   // ── DATA FETCHING — auto-fetch annual statements if still not loaded ──
   let baseFCF = null, fcfSource = 'N/A', stmtRevenue = null;
   let annualData = d.rawTwelveData?.annual || tdCacheGet(d.ticker)?.annual || null;
-  if (!annualData) {
+  if (!annualData && !noFetch) {
     // Auto-fetch from Yahoo + Argaam in parallel
     try {
       const code = d.ticker.replace(/\.SR$/i, '');
@@ -6828,9 +6855,11 @@ async function buildDCF(d) {
   if (primaryPS != null) {
     d.dcfPS = primaryPS; d.dcfUpside = primaryUpside; d.dcfMethod = primaryMethod;
     gdSetStatement(d.ticker, { dcfResult: { dcfPS: primaryPS, dcfUpside: primaryUpside, dcfMethod: primaryMethod }, dcfUpdated: Date.now() });
-    // Keep the main table in sync — the cell renders d.dcfPS which just changed
-    requestAnimationFrame(() => { try { renderTable(); } catch(e){} });
+    // Keep the main table in sync — the cell renders d.dcfPS which just changed.
+    // Skip when called in bulk (noHtml) — caller does a single renderTable at the end.
+    if (!noHtml) requestAnimationFrame(() => { try { renderTable(); } catch(e){} });
   }
+  if (noHtml) return '';
 
   // ── HTML ──
   let html = `<div class="secl">Fair Value — Multi-Method Valuation</div>`;
@@ -8362,11 +8391,20 @@ async function refreshAll(forceRefresh=false){
         });
         if(window._fd){const _m=new Map(allData.map(d=>[d.ticker,d]));window._fd=window._fd.map(d=>_m.get(d.ticker)||d);}
         doFilter(); updateMetrics();
+        // Fill any remaining gaps — stocks not yet cached in Drive get NI-based fair value
+        _applyDCFFromMemory();
       });
       document.getElementById("pl").textContent=`✓ ${loaded}/${allData.length} stocks saved to cache`;
     }
   } else {
     document.getElementById("pl").textContent=`✓ ${loaded}/${allData.length} stocks saved to cache`;
+    // No Google Drive — compute Fair Value from in-memory prices + NI estimates (background)
+    _applyDCFFromMemory().then(n => {
+      if (n) {
+        const el = document.getElementById("pl");
+        if (el) el.textContent = `✓ ${loaded}/${allData.length} stocks · ${n} fair values computed`;
+      }
+    });
   }
   setTimeout(()=>{pw.style.display="none";},4000);
   btn.disabled=false;btn.textContent="↻ Reload Data";
