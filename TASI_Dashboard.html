@@ -1455,6 +1455,7 @@ let _stmtBulkLoaded = false;
 let _stmtDupeIdsToDelete = []; // duplicate Drive file IDs to delete after successful save
 let _stmtBulkLoadPromise = null;
 let _stmtSaveTimer = null;
+let _stmtSaveInProgress = false; // mutex — prevents concurrent Drive save requests
 const STMT_SAVE_DEBOUNCE = 12000; // 12s — coalesces many gdSetStatement() calls into one Drive write
 
 async function gdLoadBulkPrices(onProgress) {
@@ -1605,7 +1606,7 @@ function connectGoogleDrive() {
       client_id: cid,
       scope: 'https://www.googleapis.com/auth/drive.file',
       callback: resp => {
-        if (resp.error) { if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ ${resp.error}: ${resp.error_description || ''}</span>`; return; }
+        if (resp.error) { if (logEl) logEl.innerHTML = `<span style="color:var(--red)">✗ ${escapeHTML(resp.error)}: ${escapeHTML(resp.error_description || '')}</span>`; return; }
         GD_TOKEN = resp.access_token;
         sessionStorage.setItem('TASI_gd_token', GD_TOKEN);
         updateGDStatus();
@@ -1799,7 +1800,7 @@ async function gdForceReloadStatements() {
       }
     }
   } catch(e) {
-    if (log) log.innerHTML = `<span style="color:var(--red)">✗ Drive load failed: ${e.message}</span>`;
+    if (log) log.innerHTML = `<span style="color:var(--red)">✗ Drive load failed: ${escapeHTML(String(e?.message||e))}</span>`;
   }
   if (btn) { btn.disabled = false; btn.textContent = '☁ Load Statements from Drive'; }
 }
@@ -1807,6 +1808,7 @@ async function gdForceReloadStatements() {
 // Save all statement data to Drive as TASI_statements_bulk.json
 async function gdSaveStatementsBulk() {
   if (!GD_TOKEN) return;
+  if (_stmtSaveInProgress) { gdScheduleStatementsSave(); return; }
   clearTimeout(_stmtSaveTimer);
   _stmtSaveTimer = null;
   if (!Object.keys(_stmtCache).length) return;
@@ -1824,6 +1826,7 @@ async function gdSaveStatementsBulk() {
     }
     if (!_stmtBulkLoaded) { gdScheduleStatementsSave(); return; }
   }
+  _stmtSaveInProgress = true;
   try {
     const finLastFetched = +localStorage.getItem('tasi_fin_last_fetched') || null;
     const body = JSON.stringify({ savedAt: Date.now(), finLastFetched, statements: _stmtCache });
@@ -1861,6 +1864,7 @@ async function gdSaveStatementsBulk() {
       gdScheduleStatementsSave();
     }
   } catch(e) { console.warn('gdSaveStatementsBulk:', e); }
+  finally { _stmtSaveInProgress = false; }
 }
 
 // Wait for statements bulk to finish loading (with 30s max timeout)
@@ -3399,7 +3403,7 @@ const TIPS = {
   wacc:           'Weighted Average Cost of Capital — the minimum return needed to create value. Formula: ke × E/(D+E) + kd×(1−t) × D/(D+E). TASI range: 9–13%.',
   ke:             'Cost of Equity — the return shareholders require. Calculated via CAPM: Risk-Free Rate + Beta × Equity Risk Premium.',
   kd:             'Cost of Debt — effective interest rate the company pays on borrowings, after the Zakat/tax shield benefit.',
-  rfr:            'Risk-Free Rate — return on Saudi government bonds. Used as the baseline for all investment returns. Linked to SAIBOR (~5.5%).',
+  rfr:            'Risk-Free Rate — return on Saudi government bonds (10Y SAR sukuk, ~4.8%). Used as the baseline for all investment returns in the DCF and WACC models.',
   erp:            'Equity Risk Premium — extra return demanded over the risk-free rate for taking equity risk. Saudi/MENA ERP: ~6.5% (Damodaran 2024).',
   term_growth:    'Perpetual growth rate assumed after year 5 — typically at or below long-run nominal GDP growth (2–3%). Small changes have a large impact on valuation.',
   term_value:     'Present value of all cash flows beyond the 5-year forecast. Typically 60–80% of total DCF value — highly sensitive to WACC and terminal growth.',
@@ -4693,7 +4697,7 @@ function scheduleRender(){
   (window.requestAnimationFrame||setTimeout)(()=>{ _renderPending=false; doFilter(); });
 }
 // Columns where the natural "best first" default is ascending (low = good)
-const SORT_ASC_DEFAULT = new Set(['pe','peg','price','change']);
+const SORT_ASC_DEFAULT = new Set(['pe','peg','change']); // price omitted: screeners default to highest first
 
 function sk(k){
   if(sortKey===k){ sortAsc=!sortAsc; }                        // same column → flip
@@ -4774,7 +4778,7 @@ function renderTable(){
         const atUp  = hasAt ? (d.analystTarget - d.price) / d.price : null;
         const atSign = atUp != null ? (atUp >= 0 ? '+' : '') : '';
         const atCol  = atUp != null ? (atUp > 0.10 ? '#22c55e' : atUp > -0.10 ? '#f5a623' : '#ef4444') : '#8a9ab5';
-        const atTip  = hasAt ? `title="Analyst consensus: ${d.analystCount||'?'} analysts · range ${d.analystLow?.toFixed(1)||'?'}–${d.analystHigh?.toFixed(1)||'?'} SAR · ${d.analystRec||''}"` : '';
+        const atTip  = hasAt ? `title="Analyst consensus: ${d.analystCount||'?'} analysts · range ${d.analystLow?.toFixed(1)||'?'}–${d.analystHigh?.toFixed(1)||'?'} SAR · ${escapeHTML(d.analystRec||'')}"` : '';
         if (d.dcfPS != null && d.price) {
           const up = d.dcfUpside ?? 0;
           const col = up > 0.15 ? 'var(--green)' : up > -0.10 ? 'var(--amb)' : 'var(--red)';
@@ -5304,7 +5308,7 @@ function switchTab(tab){
       if(!d._htmlCache)d._htmlCache={};
       d._htmlCache[tab]=html;
       if(body.isConnected)body.innerHTML=html;
-    }).catch(e=>{console.error('buildAnnual failed:',e);if(body.isConnected)body.innerHTML=`<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">⚠ Error: ${e?.message||String(e)}. <button onclick="switchTab('annual')" style="background:var(--acc);color:#000;border:none;border-radius:3px;padding:2px 8px;cursor:pointer;font-family:var(--mono);font-size:10px">Retry</button></div>`;});
+    }).catch(e=>{console.error('buildAnnual failed:',e);if(body.isConnected)body.innerHTML=`<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">⚠ Error: ${escapeHTML(String(e?.message||e))}. <button onclick="switchTab('annual')" style="background:var(--acc);color:#000;border:none;border-radius:3px;padding:2px 8px;cursor:pointer;font-family:var(--mono);font-size:10px">Retry</button></div>`;});
   }
   else if(tab==="buffett"){
     const html=buildBuffett(d);
@@ -6942,8 +6946,8 @@ async function buildDCF(d) {
 
   html += `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px;border-top:1px solid var(--b1);padding-top:8px;line-height:1.7">
     <strong style="color:var(--tx2)">Saudi DCF Assumptions:</strong><br>
-    Risk-free rate (5.5%): SAIBOR 3M + SAR sovereign spread. ERP (6.5%): Damodaran 2024 MENA. Terminal growth (2.5%): Vision 2030 nominal GDP.<br>
-    Beta: sector defaults when Yahoo Finance unavailable (Banking 0.70, Energy 0.80, Real Estate 1.20, Telecom 0.85). Growth cap: cyclicals 15%, growth stocks 22%, others 20%.<br>
+    Risk-free rate (4.8%): 10Y SAR sukuk yield. ERP (6.5%): Damodaran 2024 MENA. Terminal growth (2.5%): Vision 2030 nominal GDP.<br>
+    Beta: sector defaults when Yahoo Finance unavailable (Banking 0.80, Energy 0.80, Real Estate 1.20, Telecom 0.85). Growth cap: cyclicals 15%, growth stocks 22%, others 20%.<br>
     Composite: sector-weighted blend — cyclicals favour EV/EBITDA (40%), banks favour DDM+P/B (75%), growth stocks favour DCF (50%). Each method is a range estimate, not a price target. NOT financial advice.<br>
     ⚠ A 1% ke change shifts fair value 15–30%. This is a range, not a price target. NOT financial advice.
   </div>`;
@@ -7966,7 +7970,6 @@ async function refreshAll(forceRefresh=false){
       } catch(e) { console.warn('Phase 2 retry batch failed', e); }
       scheduleRender();
     }
-    allData.forEach(_deriveSharesMktCap);
   }
   // Derive mktCap (PE×NI) and shares (mktCap÷price) now that live prices are available
   allData.forEach(_deriveSharesMktCap);
@@ -8477,7 +8480,7 @@ async function fetchAllFinancials(){
   const latestQ = latestExpectedQuarter();
   const stocks = allStocks.filter(d => {
     const latest = latestQuarterlyDate(d);
-    return !latest || latest < latestQ;  // no data, or data predates the latest due quarter
+    return !latest || (latestQ == null) || latest < latestQ;  // no data, staleness check unavailable, or data predates latest due quarter
   });
   const skippedCount = allStocks.length - stocks.length;
   if (skippedCount > 0)
