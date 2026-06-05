@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260605b'; // bump this string on every deploy that matters
+  var V='20260605c'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -5913,7 +5913,7 @@ function mergeStatementYears(newStmt, oldStmt) {
   return result;
 }
 
-async function buildFinancials(d, period) {
+async function buildFinancials(d, period, forceRefetch=false) {
   const isQ = period === 'quarterly';
   const cacheKey = isQ ? 'quarterly' : 'annual';
 
@@ -5927,18 +5927,19 @@ async function buildFinancials(d, period) {
 
   // 0. In-memory rawTwelveData — fastest path, no network needed
   // Pre-populated from Drive during openModal or from a previous tab visit
+  // Skipped on forceRefetch so the user always pulls the very latest from live sources.
   const memData = d.rawTwelveData?.[cacheKey];
-  if (memData && (memData.is || memData.bs || memData.cf) && !(cacheKey === 'annual' && isAnnualDataStale(memData))) {
+  if (!forceRefetch && memData && (memData.is || memData.bs || memData.cf) && !(cacheKey === 'annual' && isAnnualDataStale(memData))) {
     try { return enrichAndRender(memData, 'cache'); } catch(e) { console.warn('cache render failed, re-fetching', e); delete d.rawTwelveData[cacheKey]; }
   }
 
-  // 1. Google Drive cache (30-day TTL for statements)
+  // 1. Google Drive cache (30-day TTL for statements) — also skipped on forceRefetch
   const driveStock = gdGetStatement(d.ticker);
   const driveStmt = driveStock?.[cacheKey];
   const driveUpdated = driveStock?.[`${cacheKey}Updated`] || 0;
   const now = Date.now();
   const driveData = driveStmt && (driveStmt.is || driveStmt.bs || driveStmt.cf);
-  if (driveData && now - driveUpdated < GD_STMT_TTL && !(cacheKey === 'annual' && isAnnualDataStale(driveStmt))) {
+  if (!forceRefetch && driveData && now - driveUpdated < GD_STMT_TTL && !(cacheKey === 'annual' && isAnnualDataStale(driveStmt))) {
     try {
       tdLog('Loaded from Google Drive ✓', true);
       return enrichAndRender(driveStmt, 'Google Drive cache');
@@ -6017,7 +6018,27 @@ async function buildFinancials(d, period) {
   return renderTwelveStatements({ is:null, bs:null, cf:null }, period, d.ticker, 'none', d);
 }
 
-async function buildQuarterly(d){ return buildFinancials(d, 'quarterly'); }
+async function buildQuarterly(d, forceRefetch=false){ return buildFinancials(d, 'quarterly', forceRefetch); }
+
+// Force a fresh fetch of the current financial statements tab, bypassing in-memory
+// and Drive caches so the user always sees the latest filed statement.
+async function refetchStatements(period){
+  const d = window._fd?.[window._curIdx];
+  if(!d) return;
+  const body = document.getElementById("panel-content");
+  if(!body) return;
+  if(d._htmlCache) delete d._htmlCache[period]; // drop stale cached HTML for this tab
+  body.innerHTML = `<div class="tab-loading"><span class="spin"></span> Refetching latest ${period} statements…</div>`;
+  try{
+    const html = await buildFinancials(d, period, true);
+    if(!d._htmlCache) d._htmlCache={};
+    d._htmlCache[period] = html;
+    if(body.isConnected) body.innerHTML = html;
+  }catch(e){
+    console.error('refetchStatements failed:', e);
+    if(body.isConnected) body.innerHTML = `<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">⚠ Refetch failed: ${escapeHTML(String(e?.message||e))}. <button onclick="switchTab('${period}')" style="background:var(--acc);color:#000;border:none;border-radius:3px;padding:2px 8px;cursor:pointer;font-family:var(--mono);font-size:10px">Back</button></div>`;
+  }
+}
 
 function yoyGrowth(arr, key) {
   return arr.map((r, i) => {
@@ -6032,8 +6053,16 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
   const { is, bs, cf } = data || {};
   const isQ = period === 'quarterly';
   const noData = (arr) => !arr || !arr.length;
+  // Refetch bar — lets the user pull the very latest filed statement, bypassing all caches.
+  const _gdSt = (typeof gdGetStatement === 'function') ? gdGetStatement(ticker) : null;
+  const _stUpd = _gdSt?.[isQ ? 'quarterlyUpdated' : 'annualUpdated'] || 0;
+  const _stUpdLabel = _stUpd ? new Date(_stUpd).toLocaleDateString('en-SA',{year:'numeric',month:'short',day:'numeric'}) : null;
+  const refetchBar = `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+    <span style="font-family:var(--mono);font-size:8px;color:var(--tx3)">${_stUpdLabel ? `Last fetched: ${_stUpdLabel}` : 'Live data'}</span>
+    <button onclick="refetchStatements('${period}')" title="Fetch the latest filed statement, bypassing the cache" style="background:var(--bg3);border:1px solid var(--b2);color:var(--acc);border-radius:4px;padding:3px 11px;cursor:pointer;font-family:var(--mono);font-size:9px;font-weight:600;white-space:nowrap">↻ Refetch latest</button>
+  </div>`;
   if (noData(is) && noData(bs) && noData(cf)) {
-    return `<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">
+    return refetchBar + `<div style="padding:16px;font-family:var(--mono);font-size:11px;color:var(--tx3)">
       <div style="color:var(--amb);margin-bottom:6px">⚠ No ${period} financial data found for this stock.</div>
       <div>All sources tried (Google Drive, Yahoo Finance Timeseries, scraping). Connect Google Drive in ⚙ Settings to enable cloud caching, or check the other tab.</div>
     </div>`;
@@ -6339,7 +6368,7 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
     <b>Cash Flow</b> = actual cash generated (Operating CF) vs spent (CapEx). &nbsp;
     Green numbers = positive/growing · Red = negative/declining · % rows show year-on-year change.
   </div>`;
-  return tableIntro + validationHtml
+  return refetchBar + tableIntro + validationHtml
        + makeTable(period === 'quarterly' ? 'Quarterly Income Statement' : '5-Year Income Statement', isRows, is?.map(pLabel) || [])
        + makeTable(period === 'quarterly' ? 'Quarterly Balance Sheet'    : '5-Year Balance Sheet',    bsRows, bs?.map(pLabel) || [])
        + makeTable(period === 'quarterly' ? 'Quarterly Cash Flow'        : '5-Year Cash Flow',        cfRows, cf?.map(pLabel) || [])
@@ -6347,7 +6376,7 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
        + analysisHtml;
 }
 
-async function buildAnnual(d){ return buildFinancials(d, 'annual'); }
+async function buildAnnual(d, forceRefetch=false){ return buildFinancials(d, 'annual', forceRefetch); }
 
 // ── DCF ANALYSIS ──
 async function buildDCF(d) {
