@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260605g'; // bump this string on every deploy that matters
+  var V='20260605h'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605g · perf: faster proxy timeouts + Fair Value computed without Google Drive</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605h · multi-agent review: correctness + perf + financial calibration fixes</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1826,8 +1826,12 @@ async function gdLoadStatementsBulk() {
         localStorage.setItem('tasi_fin_last_fetched', finLastFetched);
         _updateFinLastFetched(finLastFetched);
       }
-    } catch(e) { console.warn('gdLoadStatementsBulk:', e); }
-    finally { _stmtBulkLoaded = true; }
+    } catch(e) {
+      console.warn('gdLoadStatementsBulk:', e);
+      _stmtBulkLoadPromise = null; // allow retry this session
+      return; // don't set _stmtBulkLoaded — keeps Drive saves blocked until a clean load
+    }
+    _stmtBulkLoaded = true; // only reached on success
   })();
   return _stmtBulkLoadPromise;
 }
@@ -3751,7 +3755,7 @@ function scoreBuffett(d){
   // ── Debt: financial strength ──
   crit.lowDebt=(de==null)||(de<deT);
   if(de==null){
-    add("Debt / Equity Ratio","N/A (financial co.)",+5,"Banks and insurers operate with structural leverage — assessed differently.",
+    add("Debt / Equity Ratio","N/A (financial co.)",0,"Banks and insurers operate with structural leverage — assessed differently.",
       "For banks and insurers, traditional D/E is not meaningful. SAMA (Saudi Central Bank) regulates capital adequacy under Basel III. Key metrics: Tier 1 Capital Ratio (>12% = strong), Net Stable Funding Ratio (>100% required), Liquidity Coverage Ratio (>100% required). These replace D/E for financial companies.",
       "lowDebt");
   } else if(de<20){
@@ -3865,7 +3869,7 @@ function scoreBuffett(d){
   // ── Liquidity ──
   crit.goodLiquidity=(cr==null)||(cr>1.3);
   if(cr==null){
-    add("Liquidity (Current Ratio)","N/A",+4,"Financial company — regulated liquidity standards apply.",
+    add("Liquidity (Current Ratio)","N/A",0,"Financial company — regulated liquidity standards apply.",
       "Banks must maintain a Liquidity Coverage Ratio (LCR) > 100% under SAMA/Basel III rules. This ensures they can survive a 30-day market stress scenario. Saudi banks generally maintain LCR of 130–180% — well above minimum. Saudi National Bank LCR is ~160%; Al Rajhi ~145%. These are STRONG liquidity positions.",
       "goodLiquidity");
   } else if(cr>2.5){
@@ -3955,10 +3959,14 @@ function scoreTechnicalWithSteps(closes){
   const sma50=c.slice(-sma50len).reduce((a,b)=>a+b,0)/sma50len;
   const cur=c[n-1],prev=c[Math.max(0,n-21)];
   const tr=(cur-prev)/prev;
-  // RSI
-  let g=0,l=0;for(let i=n-14;i<n;i++){const d=c[i]-c[i-1];if(d>0)g+=d;else l-=d;}
-  const ag=g/14,al=l/14;
-  const rsiV=al===0?100:100-(100/(1+ag/al));
+  // RSI (Wilder 14-period) — seed with simple avg then EMA-smooth for accuracy vs Yahoo/TradingView
+  const _rsiPer=14,_wStart=Math.max(0,n-Math.min(50,n));
+  let _ag=0,_al=0;
+  const _seedEnd=Math.min(_wStart+_rsiPer,n-1);
+  for(let i=_wStart+1;i<=_seedEnd;i++){const dv=c[i]-c[i-1];if(dv>0)_ag+=dv;else _al-=dv;}
+  _ag/=_rsiPer;_al/=_rsiPer;
+  for(let i=_seedEnd+1;i<n;i++){const dv=c[i]-c[i-1];_ag=(_ag*(_rsiPer-1)+Math.max(dv,0))/_rsiPer;_al=(_al*(_rsiPer-1)+Math.max(-dv,0))/_rsiPer;}
+  const rsiV=_al===0?100:100-(100/(1+_ag/_al));
 
   if(rsiV<30)add("RSI (14-day)",rsiV.toFixed(1),+22,"Oversold (RSI < 30) — potential reversal","RSI below 30 means the stock has been sold heavily in recent weeks and is statistically oversold. Historically 70% of oversold readings (RSI < 30) lead to a price recovery within 4–6 weeks. However in a strong downtrend RSI can stay below 30 for months. Best used as a buy signal when combined with strong fundamentals.");
   else if(rsiV<40)add("RSI (14-day)",rsiV.toFixed(1),+12,"Near oversold zone (RSI 30–40)","Approaching oversold territory. Selling pressure is elevated but not extreme. Often a good entry zone for quality stocks — the market is pricing in more bad news than may actually materialize. Watch for RSI turning upward from this zone as a buy signal.");
@@ -3970,8 +3978,12 @@ function scoreTechnicalWithSteps(closes){
   if(cur>sma20)add("Price vs SMA-20",`${cur.toFixed(2)} > ${sma20.toFixed(2)}`,+10,"Price above SMA-20 — short-term uptrend","The current price is above the 20-day moving average, meaning the stock is in a short-term uptrend. Institutional investors often use the 20-day MA as a support level — they buy when price dips to this line. A bullish sign for momentum traders and short-term oriented investors.");
   else add("Price vs SMA-20",`${cur.toFixed(2)} < ${sma20.toFixed(2)}`,-10,"Price below SMA-20 — short-term downtrend","The stock is trading below its 20-day moving average, indicating short-term selling pressure. The 20-day MA often acts as resistance in a downtrend — the price may struggle to break above it. For long-term investors this can be a buying opportunity if fundamentals are strong; for traders it is a sell signal.");
 
-  if(sma20>sma50)add("SMA-20 vs SMA-50",`${sma20.toFixed(2)} > ${sma50.toFixed(2)}`,+10,"Golden cross — medium-term uptrend confirmed","The 20-day moving average is above the 50-day MA — this is called a Golden Cross, a classic bullish technical signal. It indicates the recent trend is stronger than the medium-term trend. Institutional algorithms often trigger buy orders on golden crosses. Historically reliable for confirming uptrends in Saudi blue chips.");
-  else add("SMA-20 vs SMA-50",`${sma20.toFixed(2)} < ${sma50.toFixed(2)}`,-6,"Death cross — medium-term downtrend","The 20-day moving average is below the 50-day MA — a Death Cross pattern. This indicates the recent selling pressure is stronger than the medium-term trend. Institutional sell signals are often triggered by death crosses. Not necessarily a disaster for long-term value investors, but timing a buy may be premature.");
+  if(n>=50){
+    if(sma20>sma50)add("SMA-20 vs SMA-50",`${sma20.toFixed(2)} > ${sma50.toFixed(2)}`,+10,"Golden cross — medium-term uptrend confirmed","The 20-day moving average is above the 50-day MA — this is called a Golden Cross, a classic bullish technical signal. It indicates the recent trend is stronger than the medium-term trend. Institutional algorithms often trigger buy orders on golden crosses. Historically reliable for confirming uptrends in Saudi blue chips.");
+    else add("SMA-20 vs SMA-50",`${sma20.toFixed(2)} < ${sma50.toFixed(2)}`,-6,"Death cross — medium-term downtrend","The 20-day moving average is below the 50-day MA — a Death Cross pattern. This indicates the recent selling pressure is stronger than the medium-term trend. Institutional sell signals are often triggered by death crosses. Not necessarily a disaster for long-term value investors, but timing a buy may be premature.");
+  } else {
+    add("SMA-20 vs SMA-50",`${n} days only`,0,"Insufficient data for SMA cross — need 50+ days","Golden/death cross signals require at least 50 trading days of history. With fewer bars the SMA-50 is shorter than standard, making cross signals unreliable. This step is skipped to avoid misleading results.");
+  }
 
   if(tr>0.10)add("1-Month Momentum",(tr*100).toFixed(1)+"%",+14,"Strong momentum above 10% in 1 month","Stock has risen more than 10% in the past month — strong positive momentum. Often signals institutional accumulation or a positive fundamental catalyst. Momentum tends to persist in the short term (1–3 months) but mean-revert over 6–12 months. Good timing signal for entry but do not chase if fundamentals do not support the price.");
   else if(tr>0.05)add("1-Month Momentum",(tr*100).toFixed(1)+"%",+8,"Positive momentum 5–10% in 1 month","Solid recent performance with controlled momentum. Not overstretched. The stock is performing well without triggering overbought signals. A good combination with strong fundamentals suggests the market is beginning to recognize the value. Reasonable entry point before momentum accelerates further.");
@@ -4048,7 +4060,12 @@ function deriveMetricsFromStatements(annual, quarterly){
       // Threshold 1.4× catches the cumulative case robustly for stable companies.
       if (saSrcMonth === 6 && qIS.length >= 2) {
         const r0 = _num(qIS[0].revenue), r1 = _num(qIS[1].revenue);
-        if (r0 > 0 && r1 > 0) isCumulStyle = r1 > r0 * 1.4;
+        if (r0 > 0 && r1 > 0) {
+          const ratio = r1 / r0;
+          if (ratio > 1.65) isCumulStyle = true;       // Dec clearly covers 12 months (FY)
+          else if (ratio < 1.30) isCumulStyle = false;  // Dec is standalone H2 — sum H1+H2
+          else semiAnnual = false;                       // ambiguous — fall back to annual FY
+        }
       }
     }
   }
@@ -4276,6 +4293,7 @@ const PROXIES = [
   { fn: url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,    raw: false },
 ];
 let proxyIdx = 1; // start at index 1 (first proxy) — direct fetch is always attempt 0
+const _directFailedHosts = new Set(); // tracks hosts where direct fetch failed CORS — skip 5s wait
 
 // Guard against Android Chrome bug: AbortSignal.timeout aborts the request headers
 // but NOT the response body stream — so resp.text()/resp.json() hang indefinitely.
@@ -4294,14 +4312,17 @@ function _bodyJson(resp, ms) {
 }
 
 async function fetchWithProxy(url){
-  // Always try direct fetch first — no proxy needed when Yahoo allows CORS
-  try{
-    const resp = await fetch(url, {signal: AbortSignal.timeout(5000)});
-    if(resp.ok){
-      const text = await _bodyText(resp, 5000);
-      try{ const data = JSON.parse(text); if(data && Object.keys(data).length > 0) return data; }catch(e){}
-    }
-  }catch(e){}
+  // Try direct first — skip if this host has already failed CORS this session (saves 5s per call)
+  const _urlHost = url.match(/^https?:\/\/([^\/]+)/)?.[1] || '';
+  if (!_directFailedHosts.has(_urlHost)) {
+    try{
+      const resp = await fetch(url, {signal: AbortSignal.timeout(5000)});
+      if(resp.ok){
+        const text = await _bodyText(resp, 5000);
+        try{ const data = JSON.parse(text); if(data && Object.keys(data).length > 0) return data; }catch(e){}
+      }
+    }catch(e){ _directFailedHosts.add(_urlHost); } // mark host as CORS-blocked for this session
+  }
   // Fall back to rotating CORS proxies
   for(let attempt=0; attempt<PROXIES.length; attempt++){
     const pi = (proxyIdx + attempt) % PROXIES.length;
@@ -6524,6 +6545,14 @@ async function buildDCF(d, _opts={}) {
     } catch(e) { console.warn('DCF auto-fetch failed:', e); }
   }
   let negativeFCFNote = '';
+  // Sector-specific NI→FCF factors (hoisted so both the neg-FCF branch and main fallback share them)
+  const _NI_FCF = {
+    'Technology':0.85,'REITs':1.10,'Real Estate':0.75,'Healthcare':0.70,
+    'Consumer':0.70,'Telecom':0.65,'Utilities':0.60,'Transportation':0.50,
+    'Industrial':0.55,'Building Materials':0.50,'Materials':0.50,
+    'Petrochemicals':0.50,'Chemicals':0.50,'Energy':0.55,
+    'Banking':0.30,'Insurance':0.30,
+  };
   if (annualData?.cf?.length) {
     const fcfRaw = parseFloat(annualData.cf[0].free_cash_flow);
     if (!isNaN(fcfRaw)) { baseFCF = fcfRaw; fcfSource = 'financial statements'; }
@@ -6540,33 +6569,30 @@ async function buildDCF(d, _opts={}) {
       const capexRatio = (!isNaN(capex) && opCF !== 0) ? Math.min(Math.abs(capex) / opCF, 0.6) : 0.35;
       baseFCF = opCF * (1 - capexRatio);
       fcfSource = `operating CF × ${((1-capexRatio)*100).toFixed(0)}% (FCF neg. — CapEx cycle)`;
-    } else if (d.ni != null) {
-      baseFCF = d.ni * 0.6e9;
+    } else if (d.ni != null && d.ni > 0) {
+      // Use sector NI→FCF factor (consistent with main fallback) — guard d.ni>0 to avoid
+      // propagating a loss-maker's negative NI through the 5-year FCF projection.
+      const niFcfFactor = _NI_FCF[d.sector] ?? 0.55;
+      baseFCF = d.ni * niFcfFactor * 1e9;
       fcfSource = `estimated from NI (FCF neg. — CapEx cycle)`;
     } else {
       baseFCF = null; // truly unresolvable
     }
   }
-  if (baseFCF === null && d.ni != null) {
+  if (baseFCF === null && d.ni != null && d.ni > 0) {
     // Sector-specific NI→FCF conversion — reflects how much of accounting profit
     // becomes distributable cash after capex, working capital, and D&A adjustments.
-    const _NI_FCF = {
-      'Technology':0.85,'REITs':1.10,'Real Estate':0.75,'Healthcare':0.70,
-      'Consumer':0.70,'Telecom':0.65,'Utilities':0.60,'Transportation':0.50,
-      'Industrial':0.55,'Building Materials':0.50,'Materials':0.50,
-      'Petrochemicals':0.50,'Chemicals':0.50,'Energy':0.55,
-      'Banking':0.30,'Insurance':0.30,
-    };
     const niFcfFactor = _NI_FCF[d.sector] ?? 0.55;
     baseFCF = d.ni * niFcfFactor * 1e9;
     fcfSource = `estimated (NI ${d.ni?.toFixed(2)}B × ${(niFcfFactor*100).toFixed(0)}% sector factor)`;
   }
 
   // ── WACC ──
-  // rfRate: SAMA/10Y SAR sukuk (June 2026). erp: Damodaran 2025 Saudi total ERP (mature 4.6% + CRP 2.5%).
-  // kd: rfRate + 150 bps credit spread (investment-grade Saudi corporate sukuk).
+  // rfRate: 10Y SAR sukuk yield estimate (SAMA policy rate 4.25% Dec-2025 + term premium ≈ 4.8%).
+  // erp: Damodaran 2026 Saudi total ERP — mature 4.2% + CRP ~1.8% (Aa3/A+, elevated for 2026 risk).
+  // kd: rfRate + 150 bps (IG Saudi corp. sukuk; Aramco/banks ~115bps, blended IG ≈ 150bps).
   const rfRate = 0.048;
-  const erp    = 0.071;
+  const erp    = 0.060;
   const kd     = Math.max(rfRate + 0.015, 0.05);
   // Sector-aware terminal growth — Vision 2030 tailwinds lift domestic sectors;
   // commodities/petrochem mean-revert to global cycle; banking/consumer = TASI long-run.
@@ -6750,8 +6776,8 @@ async function buildDCF(d, _opts={}) {
   const SECTOR_PE = {
     'Banking':11,'Insurance':13,'Energy':18,
     'Petrochemicals':14,'Chemicals':13,'Materials':13,
-    'Building Materials':14,'Real Estate':20,'REITs':16,
-    'Telecom':20,'Technology':28,'Healthcare':25,
+    'Building Materials':14,'Real Estate':17,'REITs':16,
+    'Telecom':20,'Technology':22,'Healthcare':22,
     'Consumer':18,'Utilities':16,'Transportation':14,'Industrial':16,
   };
   const sectorPE = SECTOR_PE[d.sector] || 15;
@@ -6775,7 +6801,7 @@ async function buildDCF(d, _opts={}) {
   const SECTOR_EVEBITDA = {
     'Transportation':8,'Industrial':8,'Petrochemicals':7,'Chemicals':7,
     'Materials':7,'Building Materials':8,'Real Estate':13,
-    'Healthcare':15,'Technology':20,'Consumer':9,'Utilities':10,
+    'Healthcare':13,'Technology':15,'Consumer':9,'Utilities':10,
     'Telecom':10,'Energy':9,
   };
   const sectorEVEBITDA = (_isFinancialSector || d.sector === 'REITs') ? null : (SECTOR_EVEBITDA[d.sector] || null);
@@ -7065,7 +7091,7 @@ async function buildDCF(d, _opts={}) {
     <div class="mi"><div class="mil" ${T('beta')}>Beta</div><div class="miv">${beta.toFixed(2)}<span style="font-size:8px;color:var(--tx3);margin-left:4px">(${betaSource})</span></div></div>
     <div class="mi"><div class="mil" ${T('ke')}>Cost of Equity (ke)</div><div class="miv" style="color:var(--acc)">${(ke*100).toFixed(1)}%</div></div>
     <div class="mi"><div class="mil" ${T('kd')}>Cost of Debt</div><div class="miv">${(kd*100).toFixed(1)}%</div></div>
-    <div class="mi"><div class="mil" ${T('tax_zakat')}>Tax/Zakat Rate</div><div class="miv" style="color:var(--acc)">${(taxRate*100).toFixed(0)}%${taxRate===0.05?'<span style="font-size:8px;color:var(--tx3)"> (Zakat)</span>':'<span style="font-size:8px;color:var(--tx3)"> (CIT)</span>'}</div></div>
+    <div class="mi"><div class="mil" ${T('tax_zakat')}>Tax/Zakat Rate</div><div class="miv" style="color:var(--acc)">${(taxRate*100).toFixed(0)}%<span style="font-size:8px;color:var(--tx3)"> (${taxRate===0?'Zakat':taxRate===0.07?'Zakat+shield':'CIT'})</span></div></div>
     <div class="mi"><div class="mil" ${T('de_ratio')}>D/E Ratio (fin.)</div><div class="miv">${(deRatio*100).toFixed(0)}%${isBanking?'<span style="font-size:8px;color:var(--amb)"> (incl. deposits)</span>':''}<span style="font-size:8px;color:var(--tx3)"> ${d._deOverride!=null?'(override)':'(est.)'}</span></div></div>
     <div class="mi"><div class="mil" ${T('wacc')}>WACC</div><div class="miv" style="color:var(--acc);font-weight:600">${(wacc*100).toFixed(1)}%${_scPremNote?`<span style="font-size:8px;color:var(--amb);font-weight:400;margin-left:3px">${_scPremNote}</span>`:''}</div></div>
     <div class="mi"><div class="mil" ${T('term_growth')}>Terminal Growth</div><div class="miv">${(termGrowth*100).toFixed(1)}%</div></div>
@@ -7504,11 +7530,15 @@ async function fetchChartData(range='2y'){
     if(closes.length>0){
       const rec=allData.find(a=>a.ticker===d.ticker);
       if(rec){rec.closes=closes;rec.timestamps=timestamps;rec.volumes=volumes;rec.highs=highs;rec.lows=lows;}
-      window._fd[window._curIdx].closes=closes;
-      window._fd[window._curIdx].timestamps=timestamps;
-      window._fd[window._curIdx].volumes=volumes;
-      window._fd[window._curIdx].highs=highs;
-      window._fd[window._curIdx].lows=lows;
+      // Re-resolve by ticker after await — _curIdx may point to a different stock if user navigated
+      const _fdChartIdx = window._fd?.findIndex(s => s.ticker === d.ticker) ?? -1;
+      if (_fdChartIdx >= 0) {
+        window._fd[_fdChartIdx].closes=closes;
+        window._fd[_fdChartIdx].timestamps=timestamps;
+        window._fd[_fdChartIdx].volumes=volumes;
+        window._fd[_fdChartIdx].highs=highs;
+        window._fd[_fdChartIdx].lows=lows;
+      }
       console.log(`[Chart] OHLCV loaded: ${closes.length} bars, ${volumes.filter(v=>v!=null).length} vol, ${highs.filter(v=>v!=null).length} highs`);
       if(GD_TOKEN && volumes.filter(v=>v!=null).length>0)
         gdSetStatement(d.ticker,{ohlcvData:{volumes,highs,lows},ohlcvUpdated:Date.now()});
@@ -8123,30 +8153,27 @@ async function refreshAll(forceRefresh=false){
         // Derive EPS from Phase 2 source so modal price/eps recompute stays in sync with table P/E
         const liveEPS = q.epsTrailingTwelveMonths > 0 ? +q.epsTrailingTwelveMonths.toFixed(4)
           : (livePE > 0 && price > 0 ? +(price / livePE).toFixed(4) : allData[idx].eps);
-        allData[idx] = {
-          ...allData[idx],
+        // Mutate in-place so window._fd references auto-update without a Map rebuild
+        const combined = calcCombined({...allData[idx], price, pe: livePE, technical: tRes.score});
+        const _obj = allData[idx];
+        if (_obj._htmlCache) { delete _obj._htmlCache.breakdown; delete _obj._htmlCache.buffett; delete _obj._htmlCache.extra; }
+        Object.assign(_obj, {
           price, change,
           pe: livePE, pb: livePB,
-          eps: liveEPS || allData[idx].eps,
+          eps: liveEPS || _obj.eps,
           livepeLoaded,
           priceLoaded: true,
           dataSource: 'yahoo-quote',
           dataDate: new Date().toISOString().slice(0,10),
-          volume:      q.regularMarketVolume      ?? allData[idx].volume,
-          avgVolume3M: q.averageDailyVolume3Month  ?? allData[idx].avgVolume3M,
-          w52high:     q.fiftyTwoWeekHigh          ?? allData[idx].w52high,
-          w52low:      q.fiftyTwoWeekLow           ?? allData[idx].w52low,
-          mktCap:      q.marketCap                ?? allData[idx].mktCap,
+          volume:      q.regularMarketVolume      ?? _obj.volume,
+          avgVolume3M: q.averageDailyVolume3Month  ?? _obj.avgVolume3M,
+          w52high:     q.fiftyTwoWeekHigh          ?? _obj.w52high,
+          w52low:      q.fiftyTwoWeekLow           ?? _obj.w52low,
+          mktCap:      q.marketCap                ?? _obj.mktCap,
           technical: tRes.score, techSteps: tRes.steps,
           rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
-          combined: calcCombined({...allData[idx], price, pe: livePE, technical: tRes.score}),
-        };
-        // Price changed — stale pre-rendered HTML for price-sensitive tabs must be discarded
-        if (allData[idx]._htmlCache) {
-          delete allData[idx]._htmlCache.breakdown;
-          delete allData[idx]._htmlCache.buffett;
-          delete allData[idx]._htmlCache.extra;
-        }
+          combined,
+        });
         // Quick P/E-relative fair value — shows in main table without needing full DCF
         if (!allData[idx].dcfPS && livePE > 0 && price > 0) {
           const _SFVPE = {'Banking':11,'Insurance':13,'Energy':18,'Petrochemicals':14,'Chemicals':13,'Materials':13,'Building Materials':14,'Real Estate':20,'REITs':16,'Telecom':20,'Technology':28,'Healthcare':25,'Consumer':18,'Utilities':16,'Transportation':14,'Industrial':16};
@@ -8193,18 +8220,20 @@ async function refreshAll(forceRefresh=false){
           else if (q.epsTrailingTwelveMonths > 0 && price > 0) { livePE = +(price / q.epsTrailingTwelveMonths).toFixed(2); livepeLoaded = true; }
           const existingCloses = allData[idx].closes || [];
           const tRes = scoreTechnicalWithSteps(existingCloses.length > 5 ? existingCloses : []);
-          allData[idx] = { ...allData[idx], price, change, pe: livePE, pb: q.priceToBook > 0 ? +q.priceToBook.toFixed(2) : allData[idx].pb,
-            eps: q.epsTrailingTwelveMonths > 0 ? +q.epsTrailingTwelveMonths.toFixed(4) : allData[idx].eps,
+          const _combined2 = calcCombined({...allData[idx], price, pe: livePE, technical: tRes.score});
+          const _obj2 = allData[idx];
+          Object.assign(_obj2, { price, change, pe: livePE, pb: q.priceToBook > 0 ? +q.priceToBook.toFixed(2) : _obj2.pb,
+            eps: q.epsTrailingTwelveMonths > 0 ? +q.epsTrailingTwelveMonths.toFixed(4) : _obj2.eps,
             livepeLoaded, priceLoaded: true, dataSource: 'yahoo-quote-retry',
-            mktCap: q.marketCap ?? allData[idx].mktCap,
-            volume: q.regularMarketVolume ?? allData[idx].volume,
-            avgVolume3M: q.averageDailyVolume3Month ?? allData[idx].avgVolume3M,
-            w52high: q.fiftyTwoWeekHigh ?? allData[idx].w52high,
-            w52low: q.fiftyTwoWeekLow ?? allData[idx].w52low,
+            mktCap: q.marketCap ?? _obj2.mktCap,
+            volume: q.regularMarketVolume ?? _obj2.volume,
+            avgVolume3M: q.averageDailyVolume3Month ?? _obj2.avgVolume3M,
+            w52high: q.fiftyTwoWeekHigh ?? _obj2.w52high,
+            w52low: q.fiftyTwoWeekLow ?? _obj2.w52low,
             technical: tRes.score, techSteps: tRes.steps,
             rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
-            combined: calcCombined({...allData[idx], price, pe: livePE, technical: tRes.score}),
-          };
+            combined: _combined2,
+          });
           _gdCache[q.symbol] = Object.assign(_gdCache[q.symbol] || {}, {
             priceData: { price, change, closes: existingCloses.slice(-252), timestamps: (allData[idx].timestamps||[]).slice(-252) },
             priceUpdated: Date.now(),
@@ -8333,25 +8362,25 @@ async function refreshAll(forceRefresh=false){
           if (currPx > 0 && lastClose > 0 && Math.abs(currPx - lastClose) / lastClose > 0.001) {
             validatedChange = +((currPx - lastClose) / lastClose * 100).toFixed(2);
           }
-          allData[idx] = {
-            ...allData[idx],
-            // Only overwrite price if we didn't already get it from v7/quote
-            price:  allData[idx].priceLoaded ? allData[idx].price  : (fetched.price  ?? allData[idx].price),
+          // Mutate in-place — window._fd holds same object references, auto-updated
+          const _combined3 = calcCombined({...allData[idx], technical: tRes.score});
+          const _obj3 = allData[idx];
+          Object.assign(_obj3, {
+            price:  _obj3.priceLoaded ? _obj3.price  : (fetched.price  ?? _obj3.price),
             change: validatedChange,
-            priceLoaded: allData[idx].priceLoaded || fetched.price != null,
+            priceLoaded: _obj3.priceLoaded || fetched.price != null,
             closes: fetched.closes, timestamps: fetched.timestamps,
-            dataSource: allData[idx].dataSource || fetched.dataSource,
+            dataSource: _obj3.dataSource || fetched.dataSource,
             technical: tRes.score, techSteps: tRes.steps,
             rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
-            volatility: fetched.volatility ?? allData[idx].volatility,
-            volume: fetched.volume ?? allData[idx].volume,
-            avgVolume3M: fetched.avgVolume3M ?? allData[idx].avgVolume3M,
-            combined: calcCombined({...allData[idx], technical: tRes.score}),
-          };
+            volatility: fetched.volatility ?? _obj3.volatility,
+            volume: fetched.volume ?? _obj3.volume,
+            avgVolume3M: fetched.avgVolume3M ?? _obj3.avgVolume3M,
+            combined: _combined3,
+          });
         }
       } catch(e) {}
     }));
-    if(_fdPosMap){for(const d of _needsCloses.slice(i,i+B)){const fp=_fdPosMap.get(d.ticker),ap=_tickerIdx.get(d.ticker);if(fp!=null&&ap!=null)window._fd[fp]=allData[ap];}}
     scheduleRender();
   }
 
