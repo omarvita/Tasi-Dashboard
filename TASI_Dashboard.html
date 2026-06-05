@@ -5069,6 +5069,9 @@ async function openModal(idx){
   document.getElementById("modal").style.display="flex";
 
   if(d.fullLoaded){
+    // Always drop the buffett tab cache so the next visit re-renders with the real score.
+    // Cheap: buildBuffett is synchronous, so no spinner cost.
+    if(d._htmlCache) delete d._htmlCache.buffett;
     switchTab("overview");
     return;
   }
@@ -5136,7 +5139,7 @@ async function openModal(idx){
           realD.technical=tRes.score; realD.techSteps=tRes.steps;
           realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
           realD.combined=calcCombined(realD);
-          const _e=window._fd?.find(f=>f.ticker===realD.ticker);if(_e)Object.assign(_e,realD);
+          const _e=window._fd?.find(f=>f.ticker===realD.ticker);if(_e){Object.assign(_e,realD);if(_e._htmlCache)delete _e._htmlCache.buffett;}
           computeSectorMedianPE(); // refresh sector median now that PE is live
           usedDriveCache = true;
         }
@@ -5188,7 +5191,7 @@ async function openModal(idx){
         realD.technical=tRes.score; realD.techSteps=tRes.steps;
         realD.rsi=tRes.rsi; realD.sma20=tRes.sma20; realD.sma50=tRes.sma50; realD.momentum=tRes.momentum;
         realD.combined=calcCombined(realD);
-        const _e2=window._fd?.find(f=>f.ticker===realD.ticker);if(_e2)Object.assign(_e2,realD);
+        const _e2=window._fd?.find(f=>f.ticker===realD.ticker);if(_e2){Object.assign(_e2,realD);if(_e2._htmlCache)delete _e2._htmlCache.buffett;}
         computeSectorMedianPE(); // refresh sector median now that we have a live PE
       }
     }
@@ -5336,7 +5339,10 @@ function switchTab(tab){
   else if(tab==="buffett"){
     const html=buildBuffett(d);
     if(!d._htmlCache)d._htmlCache={};
-    d._htmlCache[tab]=html;
+    // Never cache a null-score render — prevents "—/100" from being served on re-open
+    // when data has since loaded. Re-renders on every visit until score is available.
+    if(d.buffett!=null) d._htmlCache[tab]=html;
+    else delete d._htmlCache[tab];
     body.innerHTML=html;
   }
   else if(tab==="chart"){chartRangeIdx=3;chartShowRSI=false;chartShowSMA20=true;chartShowSMA50=false;chartShowBollinger=false;chartShowVolume=true;chartShowMACD=false;chartShowStoch=false;body.innerHTML=buildChartPanel(d);drawChart(d);}
