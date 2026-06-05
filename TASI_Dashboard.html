@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260605d'; // bump this string on every deploy that matters
+  var V='20260605e'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605d · d643c70 · feat: add Refetch button to financial statement tabs</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605e · fix: semi-annual statement support for REITs (H1+H2 TTM calculation)</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -3998,45 +3998,106 @@ function deriveMetricsFromStatements(annual, quarterly){
   const out = {};
   const aIS = annual?.is, aBS = annual?.bs, aCF = annual?.cf;
   const qIS = quarterly?.is, qCF = quarterly?.cf;
-  // TTM revenue & net income — last 4 quarters preferred (most current), else latest annual
-  let ttmRev=null, ttmNI=null;
+
+  // ── Semi-annual detection ──────────────────────────────────────────────────
+  // Saudi REITs (and some Insurance companies) file only H1 (Jun 30) and a
+  // full-year report (Dec 31). The "quarterly" cache then has 2 rows spaced
+  // ~6 months apart instead of the usual 4 rows × 3 months.
+  // Without this path, all four TTM calculations (revenue, NI, FCF, EPS) fall
+  // back to the single latest annual row, losing the most current half-year data.
+  let semiAnnual = false, saSrcMonth = 0, isCumulStyle = false;
+  if (Array.isArray(qIS) && qIS.length >= 2 && qIS.length < 4) {
+    const d0 = qIS[0]?.fiscal_date, d1 = qIS[1]?.fiscal_date;
+    if (d0 && d1) {
+      const gapMonths = Math.abs(new Date(d0) - new Date(d1)) / (1000*60*60*24*30.44);
+      semiAnnual = gapMonths >= 4.5 && gapMonths <= 7.5;
+    }
+    if (semiAnnual) {
+      saSrcMonth = parseInt((qIS[0]?.fiscal_date || '').slice(5, 7)); // month of most-recent period
+      // Detect cumulative vs period reporting style using revenue:
+      //   Cumulative (IFRS standard for Saudi interim reports):
+      //     Jun row = H1 (6 months), Dec row = FY (12 months) → Dec ≈ 2× Jun
+      //   Period / standalone:
+      //     Jun row = H1 (6 months), Dec row = H2 (6 months) → Dec ≈ Jun
+      // Threshold 1.4× catches the cumulative case robustly for stable companies.
+      if (saSrcMonth === 6 && qIS.length >= 2) {
+        const r0 = _num(qIS[0].revenue), r1 = _num(qIS[1].revenue);
+        if (r0 > 0 && r1 > 0) isCumulStyle = r1 > r0 * 1.4;
+      }
+    }
+  }
+
+  // Helper: extract a TTM-equivalent value for `field` from semi-annual rows.
+  //   Dec row most recent → it already covers 12 months (use directly).
+  //   Jun row most recent + Dec prior row:
+  //     cumulative style → prior Dec row is the FY (12 months); use it as proxy.
+  //     period style     → Jun + Dec = H1 + H2 = 12 months; sum them.
+  //   Jun row only → annualize (×2); labelled so the UI shows the approximation.
+  function saVal(rows, field) {
+    if (!semiAnnual || !Array.isArray(rows) || !rows.length) return null;
+    const v0 = _num(rows[0]?.[field]);
+    if (v0 == null) return null;
+    if (saSrcMonth === 12) return v0;                        // Dec = FY (12 months)
+    const v1 = (rows.length >= 2) ? _num(rows[1]?.[field]) : null;
+    if (saSrcMonth === 6 && v1 != null) return isCumulStyle ? v1 : v0 + v1;
+    return v0 * 2;                                           // H1 only → annualise
+  }
+
+  // ── TTM revenue & net income ──────────────────────────────────────────────
+  let ttmRev=null, ttmNI=null, ttmSource=null;
   if (Array.isArray(qIS) && qIS.length>=4){
     const last4=qIS.slice(0,4); let rev=0,ni=0,revN=0,niN=0;
     for(const q of last4){ const r=_num(q.revenue), n=_num(q.net_income); if(r!=null){rev+=r;revN++;} if(n!=null){ni+=n;niN++;} }
-    if(revN===4 && rev>0) ttmRev=rev;
+    if(revN===4 && rev>0) { ttmRev=rev; ttmSource='4Q TTM'; }
     if(niN===4) ttmNI=ni;
   }
-  // Track which source was used so UI can label "4Q TTM" vs "FY Latest"
-  const ttmFrom4Q = ttmRev != null;
-  if (ttmRev==null && Array.isArray(aIS) && _num(aIS[0]?.revenue)>0) ttmRev=_num(aIS[0].revenue);
+  if (ttmRev==null && semiAnnual) {
+    const r = saVal(qIS,'revenue'), n = saVal(qIS,'net_income');
+    if (r != null && r > 0) {
+      ttmRev=r;
+      ttmSource = saSrcMonth===12 ? '2H FY'
+                : isCumulStyle   ? '2H FY'
+                : qIS.length>=2  ? '2H Sum'
+                :                  'H1 ×2';
+    }
+    if (n != null) ttmNI=n;
+  }
+  if (ttmRev==null && Array.isArray(aIS) && _num(aIS[0]?.revenue)>0) { ttmRev=_num(aIS[0].revenue); ttmSource='FY Latest'; }
   if (ttmNI==null && Array.isArray(aIS) && _num(aIS[0]?.net_income)!=null) ttmNI=_num(aIS[0].net_income);
-  out.ttmMethod = ttmFrom4Q ? '4Q TTM' : (ttmRev != null ? 'FY Latest' : null);
+  out.ttmMethod = ttmSource ?? (ttmRev!=null ? 'FY Latest' : null);
   if (ttmRev>0 && ttmNI!=null) out.npm = ttmNI/ttmRev;
-  // Balance sheet (latest period)
+
+  // ── Balance sheet (latest period) ─────────────────────────────────────────
   const eq=_num(aBS?.[0]?.total_equity), ta=_num(aBS?.[0]?.total_assets), ltd=_num(aBS?.[0]?.long_term_debt);
   if (ta>0) out.assets = ta/1e9;
   if (ttmNI!=null && eq>0) out.roe = ttmNI/eq;
   // D/E (%) from long-term debt only (avoids overstating for banks via total liabilities)
   if (eq>0 && ltd!=null) out.de = (ltd/eq)*100;
-  // Free cash flow positive? TTM from quarters else latest annual
+
+  // ── FCF TTM ───────────────────────────────────────────────────────────────
   let ttmFCF=null;
   if (Array.isArray(qCF) && qCF.length>=4){ const f4=qCF.slice(0,4); let s=0,cnt=0; for(const q of f4){const v=_num(q.free_cash_flow); if(v!=null){s+=v;cnt++;}} if(cnt>=3) ttmFCF=s; }
+  if (ttmFCF==null && semiAnnual) {
+    const f = saVal(qCF,'free_cash_flow');
+    if (f!=null) ttmFCF=f;
+  }
   if (ttmFCF==null) ttmFCF=_num(aCF?.[0]?.free_cash_flow);
   if (ttmFCF!=null) out.fcf = ttmFCF>0;
-  // YoY growth from annuals
+
+  // ── YoY growth from annuals ───────────────────────────────────────────────
   if (Array.isArray(aIS) && aIS.length>=2){
     const r0=_num(aIS[0].revenue), r1=_num(aIS[1].revenue);
     if(r0>0 && r1>0) out.rg=(r0-r1)/r1;
     const n0=_num(aIS[0].net_income), n1=_num(aIS[1].net_income);
     if(n0!=null && n1>0) out.eg=(n0-n1)/n1;
   }
-  // TTM EPS — sum last 4 quarters' basic EPS (most current), else latest annual EPS.
-  // Falls back to NI/shares per quarter when basicEPS is missing (Yahoo often omits it for Saudi stocks).
-  // Used to recompute P/E (= price / TTM EPS) so the main table P/E reflects statements.
+
+  // ── TTM EPS ───────────────────────────────────────────────────────────────
+  // Sum last 4 quarters' basic EPS (most current), else latest annual EPS.
+  // Falls back to NI/shares per quarter when basicEPS is missing.
   let ttmEPS=null;
   if (Array.isArray(qIS) && qIS.length>=4){
     const e4=qIS.slice(0,4); let s=0,n=0;
-    // Try to derive shares from any quarter that has both eps and net_income
     let stmtShares=null;
     for(const q of e4){ const ep=_num(q.eps), ni=_num(q.net_income); if(ep&&ni&&Math.abs(ep)>0) { stmtShares=ni/ep; break; } }
     for(const q of e4){
@@ -4046,7 +4107,17 @@ function deriveMetricsFromStatements(annual, quarterly){
     }
     if(n===4) ttmEPS=s;
   }
+  // Semi-annual EPS: apply the same period-merging logic as revenue.
+  if (ttmEPS==null && semiAnnual && Array.isArray(qIS)) {
+    const rawEPS = saVal(qIS,'eps');
+    if (rawEPS!=null) {
+      ttmEPS=rawEPS;
+    }
+    // If EPS field is absent but we have TTM NI, applyDerivedMetrics will
+    // derive EPS = ttmNI / sharesOutstanding — leave ttmEPS null here.
+  }
   if (ttmEPS==null && Array.isArray(aIS) && _num(aIS[0]?.eps)!=null) ttmEPS=_num(aIS[0].eps);
+
   out.eps=ttmEPS; out.ttmRev=ttmRev; out.ttmNI=ttmNI;
   return out;
 }
