@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260605k'; // bump this string on every deploy that matters
+  var V='20260605l'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605k · market P/E gauge alignment + consistent thresholds, GDP, overall-score fixes</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605l · market P/E chart 2Y/5Y ranges now extend via TASI index history</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -9683,6 +9683,12 @@ function setMPERange(r) {
     if (x === r) { btn.style.background='var(--acc)'; btn.style.color='#000'; btn.style.borderColor='var(--acc)'; }
     else { btn.style.background=''; btn.style.color=''; btn.style.borderColor=''; }
   });
+  _mktValHistCache = null; // range changed → indicator-history reconstruction must rebuild
+  // 2Y/5Y need deeper index history than the default load (~3Y). Fetch it, then re-render.
+  const needLong = (r === '2Y' || r === '5Y');
+  if (needLong && (tasiIndex.closes || []).length < 600 && typeof fetchTASIIndexLong === 'function') {
+    fetchTASIIndexLong().then(() => { _mktValHistCache = null; _renderMPEChart(); }).catch(()=>{});
+  }
   _renderMPEChart();
 }
 
@@ -9858,12 +9864,15 @@ function _renderMPEChart() {
     else if (mean > 0 && mean < 40)           meanMap.set(dateStr, { t:agg.t, pe:+mean.toFixed(2), estimated:true });
   }
 
-  // ── FALLBACK: if stock histories were too sparse (e.g. before full load), ──
-  // scale the TASI index price series by current market EPS instead.
+  // ── TASI-index extension: fill any dates the per-stock reconstruction doesn't cover. ──
+  // Per-stock `closes` are capped at ~252 points (≈1Y) when cached, so for 2Y/5Y ranges the
+  // per-stock series can't reach back far enough. The TASI index history (up to 5Y via
+  // fetchTASIIndexLong) is scaled by current market EPS to estimate the older P/E, filling
+  // only the gaps so the more-accurate per-stock data still wins where it exists.
   const priceCloses  = tasiIndex.closes || [];
   const priceStamps  = tasiIndex.timestamps || [];
   const currentPrice = tasiIndex.price;
-  if (wtdMap.size < 5 && priceCloses.length > 5 && currentPrice > 0 && wtdAvg > 0) {
+  if (priceCloses.length > 5 && currentPrice > 0 && wtdAvg > 0) {
     const mktEPS = currentPrice / wtdAvg;
     for (let i = 0; i < priceCloses.length; i++) {
       if (!priceCloses[i] || !priceStamps[i]) continue;
@@ -9873,11 +9882,19 @@ function _renderMPEChart() {
       const stored  = storedMap.get(dateStr);
       const estWtd  = +(priceCloses[i] / mktEPS).toFixed(2);
       if (estWtd <= 0 || estWtd > 40) continue;
-      if (stored?.pe  > 0 && stored.pe  < 40) wtdMap.set(dateStr,  { t:tMs, pe:stored.pe  });
-      else                                      wtdMap.set(dateStr,  { t:tMs, pe:estWtd, estimated:true });
-      if (stored?.med > 0 && stored.med < 40) medMap.set(dateStr,  { t:tMs, pe:stored.med });
-      else                                      medMap.set(dateStr,  { t:tMs, pe:+(estWtd*medRatio).toFixed(2), estimated:true });
-      if (stored?.mean> 0 && stored.mean< 40) meanMap.set(dateStr, { t:tMs, pe:+(estWtd*meanRatio).toFixed(2), estimated:true });
+      // Per-stock data wins; only fill dates it didn't already produce.
+      if (!wtdMap.has(dateStr)) {
+        if (stored?.pe  > 0 && stored.pe  < 40) wtdMap.set(dateStr,  { t:tMs, pe:stored.pe  });
+        else                                      wtdMap.set(dateStr,  { t:tMs, pe:estWtd, estimated:true });
+      }
+      if (!medMap.has(dateStr)) {
+        if (stored?.med > 0 && stored.med < 40) medMap.set(dateStr,  { t:tMs, pe:stored.med });
+        else                                      medMap.set(dateStr,  { t:tMs, pe:+(estWtd*medRatio).toFixed(2), estimated:true });
+      }
+      if (!meanMap.has(dateStr)) {
+        if (stored?.mean> 0 && stored.mean< 40) meanMap.set(dateStr, { t:tMs, pe:stored.mean });
+        else                                      meanMap.set(dateStr, { t:tMs, pe:+(estWtd*meanRatio).toFixed(2), estimated:true });
+      }
     }
   }
   // Add stored entries not covered by TASI price timestamps
