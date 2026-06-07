@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260605o'; // bump this string on every deploy that matters
+  var V='20260605p'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605o · 5Y history pass starts 5s after load, batches of 8, live chart refreshes every 40 stocks</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605p · all indicator charts (Buffett/EY/ERP/DY/P-B/P-S) now show TASI-proxy history back 5Y</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -10168,6 +10168,45 @@ function _renderIndicatorHistChart(ctx) {
     const t = new Date(e.d).getTime();
     if (t < cutoffMs) continue;
     merged.set(e.d, { t, v: val });        // stored value overrides reconstruction
+  }
+
+  // TASI-proxy gap-fill — mirrors the same technique used in the Market P/E chart.
+  // For indicators whose value scales predictably with market price, use the TASI long
+  // history (already fetched by setMPERange for 2Y/5Y) to estimate values on dates not
+  // covered by per-stock reconstruction or localStorage snapshots.
+  //
+  // Scaling rules (cur_tasi/hist_tasi = 1/ratio):
+  //   linear  → hist_val = cur_val × ratio       (P/X ratios rise/fall with price)
+  //   inverse → hist_val = cur_val / ratio        (yields fall when price rises)
+  //   erp     → hist_erp = (cur_ey / ratio) − RF (derived from scaled earnings yield)
+  //
+  // Skipped: br50/br200/hl52 (need individual stock SMA/52W data), overall (composite),
+  // cape (needs 10Y of inflation-adjusted earnings).
+  const _PROXY_MODE = {
+    buffett: 'linear', pb: 'linear', ps: 'linear',
+    ey:      'inverse', dy: 'inverse',
+    erp:     'erp',
+  };
+  const _proxyMode = _PROXY_MODE[_mktValIndicator];
+  const _pCloses = tasiIndex.closes || [], _pStamps = tasiIndex.timestamps || [];
+  const _curTasi = tasiIndex.price;
+  if (_proxyMode && _pCloses.length > 5 && _curTasi > 0 && mc != null) {
+    const _curVal = mc[meta.mField];
+    const _curEY  = mc.earningsYield;
+    for (let i = 0; i < _pCloses.length; i++) {
+      if (!_pCloses[i] || !_pStamps[i]) continue;
+      const tMs = _pStamps[i] * 1000;
+      if (tMs < cutoffMs) continue;
+      const dateStr = new Date(tMs).toISOString().slice(0, 10);
+      if (merged.has(dateStr)) continue; // real data always wins
+      const ratio = _pCloses[i] / _curTasi;
+      if (!(ratio > 0)) continue;
+      let estVal = null;
+      if (_proxyMode === 'linear'  && _curVal > 0) estVal = _curVal * ratio;
+      if (_proxyMode === 'inverse' && _curVal > 0) estVal = _curVal / ratio;
+      if (_proxyMode === 'erp'     && _curEY  > 0) estVal = (_curEY / ratio) - SAUDI_RF;
+      if (estVal != null && isFinite(estVal)) merged.set(dateStr, { t: tMs, v: estVal });
+    }
   }
 
   const hist = [...merged.entries()]
