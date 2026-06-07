@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260605m'; // bump this string on every deploy that matters
+  var V='20260605n'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605m · per-stock closes extended to 5Y; market charts now show genuine historical mean/median/P/B/breadth</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605n · criteria now statement-derived in background (cached) so values no longer change on stock click</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -4366,7 +4366,7 @@ function applyDerivedMetrics(d){
 // and persist to the Drive cache. This is the single source of truth so the bulk
 // table criteria match what the modal shows (no "criteria change when I click").
 // Statement-derived metrics (when present) still take priority and are re-applied after.
-async function _fetchAndApplyFundamentals(d){
+async function _fetchAndApplyFundamentals(d, fetchStmts = true){
   const idx = allData.findIndex(x => x.ticker === d.ticker);
   if (idx < 0) return false;
   const tgt = allData[idx];
@@ -4408,6 +4408,36 @@ async function _fetchAndApplyFundamentals(d){
     if (eps > 0) { tgt.eps = eps; if (price > 0) { tgt.pe = +(price/eps).toFixed(2); tgt.livepeLoaded = true; } }
     else if (sd?.trailingPE?.raw > 0) { tgt.pe = +sd.trailingPE.raw.toFixed(2); tgt.livepeLoaded = true; }
     if (tgt.roe != null || tgt.npm != null || tgt.fcf != null || tgt.eps != null) tgt.noHardcodedData = false;
+    // ── Statement-derived criteria: the SAME numbers the modal computes ──
+    // The modal (buildFinancials → applyDerivedMetrics) re-derives ROE/D-E/CR/FCF/P-B/DY
+    // from full financial statements, which OVERRIDE Yahoo's financialData summary values.
+    // To stop criteria from changing on click, fetch the same statements here, cache them to
+    // _stmtCache (so the modal reuses them instead of refetching a different source), and derive.
+    if (!tgt.rawTwelveData) tgt.rawTwelveData = {};
+    const _haveStmts = (tgt.rawTwelveData.annual?.is || tgt.rawTwelveData.annual?.bs ||
+                        tgt.rawTwelveData.quarterly?.is || tgt.rawTwelveData.quarterly?.bs);
+    const _cachedFresh = _stmtCache[tgt.ticker] && (_stmtCache[tgt.ticker].annual || _stmtCache[tgt.ticker].quarterly);
+    if (fetchStmts && !_haveStmts && !_cachedFresh) {
+      try {
+        // Same primary sources the modal uses: Yahoo timeseries (best Saudi depth) + quoteSummary
+        const [ytA, ytQ, qsRaw] = await Promise.all([
+          Promise.race([fetchYahooTimeseries(tgt.ticker, 'annual'),    new Promise(r => setTimeout(() => r({is:null,bs:null,cf:null}), 12000))]),
+          Promise.race([fetchYahooTimeseries(tgt.ticker, 'quarterly'), new Promise(r => setTimeout(() => r({is:null,bs:null,cf:null}), 12000))]),
+          Promise.race([fetchYahooFinancials(tgt.ticker),              new Promise(r => setTimeout(() => r(null), 12000))]),
+        ]);
+        const annMerged = mergeStatements(ytA, parseYahooFinancials(qsRaw, 'annual'));
+        const qtrMerged = mergeStatements(ytQ, parseYahooFinancials(qsRaw, 'quarterly'));
+        if (annMerged && (annMerged.is || annMerged.bs || annMerged.cf)) {
+          tgt.rawTwelveData.annual = annMerged;
+          gdSetStatement(tgt.ticker, { annual: annMerged, annualUpdated: Date.now() });
+        }
+        if (qtrMerged && (qtrMerged.is || qtrMerged.bs || qtrMerged.cf)) {
+          tgt.rawTwelveData.quarterly = qtrMerged;
+          gdSetStatement(tgt.ticker, { quarterly: qtrMerged, quarterlyUpdated: Date.now() });
+        }
+        try { tdCacheSet(tgt.ticker, tgt.rawTwelveData.quarterly||null, tgt.rawTwelveData.annual||null); } catch(e){}
+      } catch(e){}
+    }
     // Statements stay authoritative when available — re-derive on top of Yahoo data
     if (tgt.rawTwelveData?.annual || tgt.rawTwelveData?.quarterly) { try { applyDerivedMetrics(tgt); } catch(e){} }
     recomputeAllScores(tgt);
@@ -4438,20 +4468,30 @@ async function _enrichRemainingFundamentals(){
   if (_enrichInFlight) return;
   _enrichInFlight = true;
   try {
-    // A stock needs enrichment if it lacks a current-ratio (the one criterion input that
-    // only comes from Yahoo financialData) and isn't a financial (banks/insurers skip cr).
-    const _needs = allData.filter(d => d.priceLoaded && d.cr == null
-      && d.sector !== 'Banking' && d.sector !== 'Insurance'
+    // A stock needs enrichment if its criteria aren't yet statement-derived — i.e. it has
+    // NO financial statements in either the Drive bulk cache (_stmtCache) or in-memory
+    // (rawTwelveData). Those are exactly the stocks whose criteria would change on click,
+    // because the modal fetches & derives from statements while the table only has the Yahoo
+    // financialData summary. (Banks/insurers included: the modal derives their ROE/margin from
+    // statements too — only D/E is skipped for them.) Stocks that already have statements are
+    // handled consistently by _applyStmtFundamentalsToAllData(), so they're excluded here.
+    const _hasStmts = t => {
+      const c = _stmtCache[t]; if (c && (c.annual || c.quarterly)) return true;
+      const d = allData.find(x => x.ticker === t);
+      const r = d?.rawTwelveData;
+      return !!(r && (r.annual?.is || r.annual?.bs || r.quarterly?.is || r.quarterly?.bs));
+    };
+    const _needs = allData.filter(d => d.priceLoaded
       && !_enrichAttempted.has(d.ticker)
-      && !(_gdCache[d.ticker]?.fundamentals?.cr != null));
+      && !_hasStmts(d.ticker));
     if (!_needs.length) return;
-    console.log(`[Fundamentals] Background-enriching ${_needs.length} stocks for stable criteria…`);
-    const _B = 6;
+    console.log(`[Fundamentals] Background-enriching ${_needs.length} stocks (with statements) for stable criteria…`);
+    const _B = 4; // each stock now does ~4 requests (fundamentals + 2 timeseries + financials) — keep concurrency low
     for (let i = 0; i < _needs.length; i += _B) {
       let any = false;
       await Promise.allSettled(_needs.slice(i, i+_B).map(async d => { _enrichAttempted.add(d.ticker); if (await _fetchAndApplyFundamentals(d)) any = true; }));
       if (any) { try { computeSectorMedianPE(); renderTable(); } catch(e){} }
-      await new Promise(r => setTimeout(r, 400)); // gentle pacing for proxies
+      await new Promise(r => setTimeout(r, 600)); // gentle pacing for proxies
     }
     console.log('[Fundamentals] Background enrichment complete — all criteria computed.');
     try { gdSaveBulkPrices(); } catch(e){} // persist enriched fundamentals
@@ -4832,7 +4872,9 @@ async function fetchYahoo(ticker) {
 
 // Quick price-only fetch (1 request, for main table refresh)
 async function fetchYahooPrice(ticker){
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=5y`;
+  // 1y: enough for SMA-200 / 52-week technicals immediately without bloating the foreground
+  // load (5y would be ~10× payload per stock). _enrichPriceHistory() extends to 5y in background.
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1y`;
   try{
     const data = await fetchWithProxy(url);
     const meta = data?.chart?.result?.[0]?.meta;
@@ -8513,8 +8555,10 @@ async function refreshAll(forceRefresh=false){
     document.getElementById("pl").textContent = `Fetching fundamentals (top ${_needsPE.length} stocks by market cap)...`;
     const _PE_BATCH = 8; // conservative concurrency — avoid Yahoo rate limiting
     for (let pi = 0; pi < _needsPE.length; pi += _PE_BATCH) {
-      // Shared helper fetches financialData + scores + persists — identical to the modal path
-      await Promise.allSettled(_needsPE.slice(pi, pi + _PE_BATCH).map(d => _fetchAndApplyFundamentals(d)));
+      // Shared helper fetches financialData + scores + persists — identical to the modal path.
+      // Skip the heavy statement fetch here (foreground load stays fast); the background
+      // _enrichRemainingFundamentals() pass fetches statements + derives stable criteria after.
+      await Promise.allSettled(_needsPE.slice(pi, pi + _PE_BATCH).map(d => _fetchAndApplyFundamentals(d, false)));
       const pcPE = 60 + Math.round(((pi + _PE_BATCH) / _needsPE.length) * 20);
       document.getElementById("pf").style.width = Math.min(pcPE, 80) + '%';
       document.getElementById("pl").textContent = `Fundamentals: ${Math.min(pi + _PE_BATCH, _needsPE.length)}/${_needsPE.length} large caps updated`;
@@ -9216,8 +9260,11 @@ async function fetchTASIIndex() {
 }
 
 // ── Change 6: Compute annualized historical volatility from daily closes ──
-function computeVolatility(closes) {
-  if(!closes || closes.length < 20) return null;
+function computeVolatility(closesIn) {
+  if(!closesIn || closesIn.length < 20) return null;
+  // Use only the most recent ~6 months (126 sessions) so the annualized figure stays a
+  // current-regime estimate and doesn't drift now that we cache multi-year closes per stock.
+  const closes = closesIn.length > 126 ? closesIn.slice(-126) : closesIn;
   // Only compute log-returns between valid consecutive prices.
   // Filter out extreme moves (|r| > ln(1.5) ≈ 50%/day): these are data artifacts
   // such as unadjusted rights issues or stale zero-price entries — not real daily moves.
