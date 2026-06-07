@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260605l'; // bump this string on every deploy that matters
+  var V='20260605m'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605l · market P/E chart 2Y/5Y ranges now extend via TASI index history</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605m · per-stock closes extended to 5Y; market charts now show genuine historical mean/median/P/B/breadth</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1662,8 +1662,8 @@ async function gdSaveBulkPrices() {
     // Include TASI index historical closes in bulk file so next load is instant
     if (tasiIndex.closes?.length > 10) {
       prices['_tasi'] = {
-        closes: tasiIndex.closes.slice(-750),
-        timestamps: tasiIndex.timestamps.slice(-750),
+        closes: tasiIndex.closes.slice(-1500),
+        timestamps: tasiIndex.timestamps.slice(-1500),
         price: tasiIndex.price,
         change: tasiIndex.change,
         ytdReturn: tasiIndex.ytdReturn,
@@ -4458,6 +4458,59 @@ async function _enrichRemainingFundamentals(){
   } finally { _enrichInFlight = false; }
 }
 
+// Background pass: extend per-stock price history from the Drive-cached ~252 closes to 5Y
+// so the market P/E chart and Fair Value composite chart can show accurate historical data
+// beyond 1 year without relying on the rough TASI-index proxy.
+let _priceHistInFlight = false;
+const _priceHistAttempted = new Set();
+async function _enrichPriceHistory() {
+  if (_priceHistInFlight) return;
+  _priceHistInFlight = true;
+  try {
+    const _needs = allData.filter(d =>
+      d.priceLoaded && (d.closes || []).length > 5 && (d.closes || []).length < 500
+      && !_priceHistAttempted.has(d.ticker)
+    );
+    if (!_needs.length) return;
+    console.log(`[PriceHistory] Extending history for ${_needs.length} stocks to 5Y…`);
+    let enriched = 0;
+    for (let i = 0; i < _needs.length; i += 4) {
+      await Promise.allSettled(_needs.slice(i, i + 4).map(async d => {
+        _priceHistAttempted.add(d.ticker);
+        try {
+          const url = `https://query1.finance.yahoo.com/v8/finance/chart/${d.ticker}?interval=1d&range=5y`;
+          const data = await fetchWithProxy(url);
+          const rc = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close || [];
+          const rt = data?.chart?.result?.[0]?.timestamp || [];
+          const vi = rc.map((v, j) => v != null ? j : null).filter(j => j !== null);
+          const closes = vi.map(j => rc[j]);
+          const timestamps = vi.map(j => rt[j]);
+          if (closes.length <= (d.closes || []).length) return; // no extension
+          const idx = allData.findIndex(x => x.ticker === d.ticker);
+          if (idx < 0) return;
+          allData[idx].closes = closes;
+          allData[idx].timestamps = timestamps;
+          _gdCache[d.ticker] = Object.assign(_gdCache[d.ticker] || {}, {
+            priceData: Object.assign(_gdCache[d.ticker]?.priceData || {}, {
+              closes: closes.slice(-1260),
+              timestamps: timestamps.slice(-1260),
+            }),
+            priceUpdated: Date.now(),
+          });
+          enriched++;
+        } catch(e) {}
+      }));
+      await new Promise(r => setTimeout(r, 600));
+    }
+    if (enriched > 0) {
+      console.log(`[PriceHistory] Extended history for ${enriched} stocks — refreshing market charts.`);
+      _mktValHistCache = null;
+      try { _renderMPEChart(); } catch(e) {}
+      try { gdSaveBulkPrices(); } catch(e) {}
+    }
+  } finally { _priceHistInFlight = false; }
+}
+
 function getSig(combined,buffett){
   const avg=(combined+buffett)/2;
   if(avg>=65)return{label:"Buy",cls:"b-buy"};
@@ -4766,7 +4819,7 @@ async function autoDiscoverSaudiStocks() {
 }
 
 async function fetchYahoo(ticker) {
-  const chartUrl   = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=2y`;
+  const chartUrl   = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=5y`;
   const summaryUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=incomeStatementHistory,incomeStatementHistoryQuarterly,balanceSheetHistory,balanceSheetHistoryQuarterly,cashflowStatementHistory,cashflowStatementHistoryQuarterly,summaryDetail,financialData,defaultKeyStatistics,earningsHistory,earningsTrend`;
   try{
     const [chart, summary] = await Promise.all([
@@ -4779,7 +4832,7 @@ async function fetchYahoo(ticker) {
 
 // Quick price-only fetch (1 request, for main table refresh)
 async function fetchYahooPrice(ticker){
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=6mo`;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=5y`;
   try{
     const data = await fetchWithProxy(url);
     const meta = data?.chart?.result?.[0]?.meta;
@@ -5248,7 +5301,7 @@ async function saveCache(){
   try{saveUIState();}catch(e){}
   const slim=allData.map(d=>{
     const{rawData,...rest}=d;
-    return{...rest,closes:d.closes?.slice(-126)||[],timestamps:d.timestamps?.slice(-126)||[]};
+    return{...rest,closes:d.closes?.slice(-252)||[],timestamps:d.timestamps?.slice(-252)||[]};
   });
   const meta={savedAt:Date.now(),count:slim.length,ttl:CACHE_TTL};
   await dbPut(CACHE_KEY,slim);
@@ -8382,7 +8435,7 @@ async function refreshAll(forceRefresh=false){
         // Update Drive cache entry
         _gdCache[q.symbol] = Object.assign(_gdCache[q.symbol] || {}, {
           priceData: { price, change,
-            closes: existingCloses.slice(-252), timestamps: existingTimestamps.slice(-252),
+            closes: existingCloses.slice(-1260), timestamps: existingTimestamps.slice(-1260),
             volume: allData[idx].volume, avgVolume3M: allData[idx].avgVolume3M },
           priceUpdated: Date.now(),
         });
@@ -8432,7 +8485,7 @@ async function refreshAll(forceRefresh=false){
             combined: _combined2,
           });
           _gdCache[q.symbol] = Object.assign(_gdCache[q.symbol] || {}, {
-            priceData: { price, change, closes: existingCloses.slice(-252), timestamps: (allData[idx].timestamps||[]).slice(-252) },
+            priceData: { price, change, closes: existingCloses.slice(-1260), timestamps: (allData[idx].timestamps||[]).slice(-1260) },
             priceUpdated: Date.now(),
           });
         }
@@ -8611,6 +8664,10 @@ async function refreshAll(forceRefresh=false){
   // Background: fetch full fundamentals for every remaining stock so ALL criteria are
   // computed automatically — opening a stock no longer changes its criteria values.
   _enrichRemainingFundamentals();
+  // Background: extend per-stock price history to 5Y so market charts reach beyond 1 year.
+  // Starts after a brief delay so fundamentals enrichment (heavier, more important) gets
+  // first access to the proxy pool.
+  setTimeout(() => _enrichPriceHistory(), 20000);
 }
 
 // Derive mktCap and sharesOutstanding whenever the inputs are available.
