@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260605n'; // bump this string on every deploy that matters
+  var V='20260605o'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605n · criteria now statement-derived in background (cached) so values no longer change on stock click</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605o · 5Y history pass starts 5s after load, batches of 8, live chart refreshes every 40 stocks</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -4507,15 +4507,20 @@ async function _enrichPriceHistory() {
   if (_priceHistInFlight) return;
   _priceHistInFlight = true;
   try {
-    const _needs = allData.filter(d =>
-      d.priceLoaded && (d.closes || []).length > 5 && (d.closes || []).length < 500
-      && !_priceHistAttempted.has(d.ticker)
-    );
+    // Sort by market cap descending so the stocks that matter most for the cap-weighted
+    // P/E chart get 5Y history first — chart starts showing real divergence faster.
+    const _needs = allData
+      .filter(d => d.priceLoaded && (d.closes || []).length > 5 && (d.closes || []).length < 500
+                   && !_priceHistAttempted.has(d.ticker))
+      .sort((a, b) => (b.mktCap || 0) - (a.mktCap || 0));
     if (!_needs.length) return;
-    console.log(`[PriceHistory] Extending history for ${_needs.length} stocks to 5Y…`);
+    console.log(`[PriceHistory] Extending history for ${_needs.length} stocks to 5Y (largest caps first)…`);
+    const _failed = [];
     let enriched = 0;
-    for (let i = 0; i < _needs.length; i += 4) {
-      await Promise.allSettled(_needs.slice(i, i + 4).map(async d => {
+    // v8/chart is a cheap endpoint; higher concurrency + shorter pause than quoteSummary passes
+    const _BATCH = 8, _PAUSE = 200;
+    for (let i = 0; i < _needs.length; i += _BATCH) {
+      await Promise.allSettled(_needs.slice(i, i + _BATCH).map(async d => {
         _priceHistAttempted.add(d.ticker);
         try {
           const url = `https://query1.finance.yahoo.com/v8/finance/chart/${d.ticker}?interval=1d&range=5y`;
@@ -4525,7 +4530,7 @@ async function _enrichPriceHistory() {
           const vi = rc.map((v, j) => v != null ? j : null).filter(j => j !== null);
           const closes = vi.map(j => rc[j]);
           const timestamps = vi.map(j => rt[j]);
-          if (closes.length <= (d.closes || []).length) return; // no extension
+          if (closes.length <= (d.closes || []).length) return; // no extension needed
           const idx = allData.findIndex(x => x.ticker === d.ticker);
           if (idx < 0) return;
           allData[idx].closes = closes;
@@ -4538,12 +4543,48 @@ async function _enrichPriceHistory() {
             priceUpdated: Date.now(),
           });
           enriched++;
-        } catch(e) {}
+        } catch(e) { _failed.push(d); } // track for retry pass
       }));
-      await new Promise(r => setTimeout(r, 600));
+      await new Promise(r => setTimeout(r, _PAUSE));
+      // Refresh the market P/E chart every 40 stocks so the chart begins showing real
+      // divergence between mean/median/wtd-avg as per-stock history fills in.
+      if (enriched > 0 && (i + _BATCH) % 40 === 0) {
+        _mktValHistCache = null;
+        try { _renderMPEChart(); } catch(e) {}
+      }
+    }
+    // Single retry pass for any stocks that failed (proxy rotation, transient timeout)
+    if (_failed.length) {
+      console.log(`[PriceHistory] Retrying ${_failed.length} failed stocks…`);
+      for (let i = 0; i < _failed.length; i += 4) {
+        await Promise.allSettled(_failed.slice(i, i + 4).map(async d => {
+          try {
+            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${d.ticker}?interval=1d&range=5y`;
+            const data = await fetchWithProxy(url);
+            const rc = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close || [];
+            const rt = data?.chart?.result?.[0]?.timestamp || [];
+            const vi = rc.map((v, j) => v != null ? j : null).filter(j => j !== null);
+            const closes = vi.map(j => rc[j]);
+            const timestamps = vi.map(j => rt[j]);
+            if (closes.length <= (d.closes || []).length) return;
+            const idx = allData.findIndex(x => x.ticker === d.ticker);
+            if (idx < 0) return;
+            allData[idx].closes = closes;
+            allData[idx].timestamps = timestamps;
+            _gdCache[d.ticker] = Object.assign(_gdCache[d.ticker] || {}, {
+              priceData: Object.assign(_gdCache[d.ticker]?.priceData || {}, {
+                closes: closes.slice(-1260), timestamps: timestamps.slice(-1260),
+              }),
+              priceUpdated: Date.now(),
+            });
+            enriched++;
+          } catch(e) {}
+        }));
+        await new Promise(r => setTimeout(r, 400));
+      }
     }
     if (enriched > 0) {
-      console.log(`[PriceHistory] Extended history for ${enriched} stocks — refreshing market charts.`);
+      console.log(`[PriceHistory] Extended history for ${enriched} stocks — final market chart refresh.`);
       _mktValHistCache = null;
       try { _renderMPEChart(); } catch(e) {}
       try { gdSaveBulkPrices(); } catch(e) {}
@@ -8709,9 +8750,9 @@ async function refreshAll(forceRefresh=false){
   // computed automatically — opening a stock no longer changes its criteria values.
   _enrichRemainingFundamentals();
   // Background: extend per-stock price history to 5Y so market charts reach beyond 1 year.
-  // Starts after a brief delay so fundamentals enrichment (heavier, more important) gets
-  // first access to the proxy pool.
-  setTimeout(() => _enrichPriceHistory(), 20000);
+  // v8/chart and quoteSummary hit different Yahoo endpoints, so this can start alongside
+  // the fundamentals pass without contention. 5s delay lets the main render settle first.
+  setTimeout(() => _enrichPriceHistory(), 5000);
 }
 
 // Derive mktCap and sharesOutstanding whenever the inputs are available.
