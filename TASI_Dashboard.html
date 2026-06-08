@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260608a'; // bump this string on every deploy that matters
+  var V='20260608b'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260608a · RF 5.5%, CPI 1.8%, aligned sector P/E targets, RSI fix, ERP de-duped from Overall, DCF weight fix, Sets cleared on force-refresh</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260608b · auto-discovered stocks now fetch 5Y closes on first load · Fair Value shows ±15% range · dividend yield-trap detection (payout >90%)</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -3752,8 +3752,23 @@ function scoreFundamental(d){
   } else add("Debt/Equity","N/A (bank)",+3,"Bank — assessed on capital ratios","Banks operate with structural leverage by design. SAMA regulates under Basel III. Look at: Tier 1 Capital Ratio (strong if above 14%), Non-Performing Loan ratio (excellent if below 1.5%), Net Interest Margin (good above 3%), and Return on Assets (strong above 1.5%). These replace D/E for banks.");
 
   if(dy!=null){
-    if(dy>0.06)add("Dividend Yield",(dy*100).toFixed(2)+"%",+10,"High dividend yield above 6%","Excellent income well above Saudi government bond yields of 4–5%. Verify sustainability: is it covered by free cashflow? Check payout ratio (dividends ÷ earnings). If the payout ratio exceeds 80% of earnings or 100% of FCF the dividend may be cut during a downturn. Sustainable high yield from FCF is rare and valuable.");
-    else if(dy>0.04)add("Dividend Yield",(dy*100).toFixed(2)+"%",+7,"Good dividend yield 4–6%","Strong income above risk-free rates. Combined with potential price appreciation, total returns can reach 10–15% annually. Verify the dividend has been consistent for at least 3 years and covered by operating cashflow, not financed by debt or asset sales.");
+    // Payout ratio = DPS ÷ EPS = (dy × price) ÷ (price ÷ pe) = dy × pe. REITs distribute
+    // ~90% of income by mandate, so their high payout is structural — exclude them.
+    const isReitDiv = d.isReit || d.sector === 'REITs';
+    const payoutR = (pe != null && pe > 0 && !isReitDiv) ? dy * pe : null;
+    const unsustainable = payoutR != null && payoutR > 0.90;
+    if(dy>0.06){
+      if(unsustainable)
+        add("Dividend Yield",(dy*100).toFixed(2)+"%",-6,`Yield-trap risk — ${(payoutR*100).toFixed(0)}% payout`,`A ${(dy*100).toFixed(2)}% yield looks attractive but the payout ratio is ~${(payoutR*100).toFixed(0)}% of earnings — above the 90% sustainability threshold. When a company pays out more than it earns, the dividend is funded by debt or reserves and is a prime candidate to be cut in a downturn. High yields driven by a falling share price are the classic value trap. Verify FCF coverage before treating this as income.`);
+      else
+        add("Dividend Yield",(dy*100).toFixed(2)+"%",+10,"High dividend yield above 6%",`Excellent income well above Saudi government bond yields of 4–5%${payoutR!=null?`, and the ~${(payoutR*100).toFixed(0)}% payout ratio is sustainable`:''}. Still verify it is covered by free cashflow, not financed by debt or asset sales. Sustainable high yield from FCF is rare and valuable.`);
+    }
+    else if(dy>0.04){
+      if(unsustainable)
+        add("Dividend Yield",(dy*100).toFixed(2)+"%",0,`Good yield but ${(payoutR*100).toFixed(0)}% payout`,`A ${(dy*100).toFixed(2)}% yield is strong, but the payout ratio is ~${(payoutR*100).toFixed(0)}% of earnings — leaving little buffer. The dividend has limited room to grow and is vulnerable to an earnings dip. Confirm 3+ years of consistent coverage by operating cashflow before relying on this income.`);
+      else
+        add("Dividend Yield",(dy*100).toFixed(2)+"%",+7,"Good dividend yield 4–6%",`Strong income above risk-free rates${payoutR!=null?` with a sustainable ~${(payoutR*100).toFixed(0)}% payout`:''}. Combined with potential price appreciation, total returns can reach 10–15% annually. Verify the dividend has been consistent for at least 3 years and covered by operating cashflow, not financed by debt or asset sales.`);
+    }
     else if(dy>0.02)add("Dividend Yield",(dy*100).toFixed(2)+"%",+4,"Moderate dividend yield 2–4%","Meaningful income component. Check if the dividend has been growing over time — a growing dividend signals management confidence in future earnings. Buffett says a growing dividend is one of the best signals of a financially healthy business with predictable earnings.");
     else if(dy>0)add("Dividend Yield",(dy*100).toFixed(2)+"%",+1,"Low dividend yield below 2%","Modest income. Management prioritises reinvestment over cash returns. Only acceptable if ROE is high (above 15%) — reinvesting at high ROE creates more long-term value than paying dividends. If both ROE and dividend yield are low, ask where the earnings are going.");
     else add("Dividend Yield","0%",-2,"No dividend paid","Company retains all earnings. Acceptable for genuine high-growth compounders reinvesting at high ROE. Not acceptable for mature, slow-growth businesses — suggests poor capital allocation or undisclosed cash flow problems. Review cash flow statement directly to understand where retained earnings are deployed.");
@@ -4755,9 +4770,11 @@ function _addDiscoveredStock(ticker, name, sector, extra, existing) {
 }
 
 async function autoDiscoverSaudiStocks() {
+  // Snapshot tickers present before this run so we can fetch closes for whatever is new.
+  const _preExisting = new Set(allData.map(d => d.ticker));
   // Build existing ticker set — never overwrite curated entries
   const existing = new Set([
-    ...allData.map(d => d.ticker),
+    ..._preExisting,
     ...(typeof STOCKS !== 'undefined' ? STOCKS.map(s => s.t) : []),
     ...(typeof MORE_TICKERS !== 'undefined' ? MORE_TICKERS.map(s => s.t) : []),
   ]);
@@ -4925,6 +4942,42 @@ async function autoDiscoverSaudiStocks() {
 
   if (totalAdded > 0) {
     console.log(`[TASI] Auto-discovered ${totalAdded} new Saudi stock(s) from all sources`);
+    doFilter();
+    updateMetrics();
+    // Fetch 5Y closes for the newly discovered stocks so their charts, technical score
+    // and RSI populate on this load — the background _enrichPriceHistory() pass skips
+    // them (it requires closes.length > 5, and new stocks start with none).
+    const _newWithPrice = allData.filter(d =>
+      !_preExisting.has(d.ticker) && d.price > 0 && (d.closes || []).length < 6);
+    for (let i = 0; i < _newWithPrice.length; i += 15) {
+      const slice = _newWithPrice.slice(i, i + 15);
+      try {
+        const sparkMap = await fetchSparkBatch(slice.map(d => d.ticker));
+        for (const d of slice) {
+          const hit = sparkMap.get(d.ticker);
+          if (!hit || !(hit.closes || []).length) continue;
+          const idx = allData.findIndex(x => x.ticker === d.ticker);
+          if (idx < 0) continue;
+          const tRes = scoreTechnicalWithSteps(hit.closes);
+          Object.assign(allData[idx], {
+            closes: hit.closes, timestamps: hit.timestamps,
+            technical: tRes.score, techSteps: tRes.steps,
+            rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
+            volatility: computeVolatility(hit.closes),
+            dataSource: 'yahoo-spark',
+          });
+          allData[idx].combined = calcCombined(allData[idx]);
+          if (GD_TOKEN) {
+            _gdCache[d.ticker] = Object.assign(_gdCache[d.ticker] || {}, {
+              priceData: Object.assign(_gdCache[d.ticker]?.priceData || {}, {
+                closes: hit.closes.slice(-1260), timestamps: hit.timestamps.slice(-1260),
+              }),
+              priceUpdated: Date.now(),
+            });
+          }
+        }
+      } catch(e) { /* spark unavailable — _enrichPriceHistory will retry next load */ }
+    }
     doFilter();
     updateMetrics();
   }
@@ -7301,6 +7354,7 @@ async function buildDCF(d, _opts={}) {
       <div ${T('intrinsic')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:5px;cursor:help">Fair Value (${primaryMethod})</div>
       <div style="font-size:24px;font-weight:700;color:${uColor};font-family:var(--mono)">${primaryPS.toFixed(2)}</div>
       <div style="font-family:var(--mono);font-size:9px;color:var(--tx3)">SAR</div>
+      <div title="±15% sensitivity band — a 1% change in cost-of-equity moves fair value 15–30%. Treat this as a range, not a precise target." style="font-family:var(--mono);font-size:8.5px;color:var(--tx3);margin-top:4px;border-top:1px dashed var(--b1);padding-top:4px;cursor:help">≈ ${(primaryPS*0.85).toFixed(2)} – ${(primaryPS*1.15).toFixed(2)}<div style="font-size:7px;color:var(--tx3)">EST. RANGE ±15%</div></div>
     </div>
     <div style="flex:1;min-width:90px;text-align:center;background:var(--bg3);border-radius:7px;padding:10px 8px;border:1px solid ${uColor}55">
       <div ${T('upside')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:5px;cursor:help">Upside / Downside</div>
