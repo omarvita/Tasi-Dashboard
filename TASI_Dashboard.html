@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260605r'; // bump this string on every deploy that matters
+  var V='20260605s'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605r · proxies raced in pairs (lower tail latency) · fixed Bawan 1302 + added Aslak 1301 · Alkhorayef 2081 name</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605s · warm load now hydrates 5Y per-stock closes from Drive → Breadth/52W-High-Low/CAPE charts show full history</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -8498,6 +8498,26 @@ async function refreshAll(forceRefresh=false){
       }
     }
     if (peFromDrive > 0) console.log(`[Fundamentals] Loaded ${peFromDrive} stocks' metrics from Drive cache`);
+
+    // Hydrate per-stock closes/timestamps from the Drive cache into allData. Without this,
+    // allData[].closes stays empty on a warm load, so (a) Phase 2 overwrites the cached 5Y
+    // closes with [], (b) Phase 3 spark re-fetches only 1Y, and (c) the reconstruction-based
+    // indicators (Breadth >SMA-200, 52W High/Low, CAPE) — which have no TASI-index proxy and
+    // depend entirely on per-stock daily history — can only render ~1Y. Copying the cached
+    // closes here gives those charts their full 5Y immediately and skips redundant re-fetches.
+    let closesFromDrive = 0;
+    for (let i = 0; i < allData.length; i++) {
+      const pd = _gdCache[allData[i].ticker]?.priceData;
+      if (pd?.closes?.length > (allData[i].closes || []).length) {
+        allData[i].closes = pd.closes;
+        allData[i].timestamps = pd.timestamps || [];
+        if (pd.volume != null)      allData[i].volume      = pd.volume;
+        if (pd.avgVolume3M != null) allData[i].avgVolume3M = pd.avgVolume3M;
+        if (pd.volatility != null)  allData[i].volatility  = pd.volatility;
+        closesFromDrive++;
+      }
+    }
+    if (closesFromDrive > 0) console.log(`[PriceHistory] Hydrated ${closesFromDrive} stocks' closes from Drive cache`);
   }
 
   // ── Phase 2: Bulk Yahoo v7/quote — all 238 stocks, 20 per request ───────
