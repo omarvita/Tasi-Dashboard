@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260605p'; // bump this string on every deploy that matters
+  var V='20260605q'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605p · all indicator charts (Buffett/EY/ERP/DY/P-B/P-S) now show TASI-proxy history back 5Y</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605q · faster load: bulk spark closes fetch (15 symbols/req) + pre-seeded Yahoo CORS hosts</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -4623,7 +4623,13 @@ const PROXIES = [
   { fn: url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,    raw: false },
 ];
 let proxyIdx = 1; // start at index 1 (first proxy) — direct fetch is always attempt 0
-const _directFailedHosts = new Set(); // tracks hosts where direct fetch failed CORS — skip 5s wait
+// Pre-seed the CORS-blocked set with Yahoo's API hosts: browser direct-fetch to these
+// always fails the same-origin policy, so attempting it just burns one slow first-try per
+// host. Other hosts (e.g. stooq) may allow CORS, so they still get the direct attempt.
+const _directFailedHosts = new Set([
+  'query1.finance.yahoo.com',
+  'query2.finance.yahoo.com',
+]); // tracks hosts where direct fetch failed CORS — skip 5s wait
 
 // Guard against Android Chrome bug: AbortSignal.timeout aborts the request headers
 // but NOT the response body stream — so resp.text()/resp.json() hang indefinitely.
@@ -4935,6 +4941,38 @@ async function fetchYahooPrice(ticker){
       avgVolume3M: meta?.averageDailyVolume3Month??null,
     };
   }catch(e){ return {price:null,prev:null,closes:[],timestamps:[],volume:null,avgVolume3M:null}; }
+}
+
+// Bulk closes fetch — Yahoo's `spark` endpoint returns daily close series for MANY
+// symbols in a single request, collapsing the per-stock chart loop (1 req/stock) into
+// a handful of requests. Closes-only (no price/volume meta) — that's all Phase 3 needs,
+// since price already arrived via the v7/quote bulk pass.
+// Returns Map<ticker, {closes:[], timestamps:[]}> for symbols that came back with data.
+async function fetchSparkBatch(tickers) {
+  const out = new Map();
+  if (!tickers || !tickers.length) return out;
+  const syms = tickers.join(',');
+  const url1 = `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${encodeURIComponent(syms)}&range=1y&interval=1d`;
+  const url2 = `https://query2.finance.yahoo.com/v8/finance/spark?symbols=${encodeURIComponent(syms)}&range=1y&interval=1d`;
+  let data = await Promise.race([fetchWithProxy(url1), new Promise(r => setTimeout(() => r({}), 12000))]);
+  let results = data?.spark?.result;
+  if (!Array.isArray(results) || !results.length) {
+    data = await Promise.race([fetchWithProxy(url2), new Promise(r => setTimeout(() => r({}), 12000))]);
+    results = data?.spark?.result;
+  }
+  if (!Array.isArray(results)) return out;
+  for (const r of results) {
+    const resp = r?.response?.[0];
+    const rc = resp?.indicators?.quote?.[0]?.close || [];
+    const rt = resp?.timestamp || [];
+    if (!rc.length || rt.length !== rc.length) continue;
+    // Strip null closes (Yahoo pads holidays/halts with null), keeping timestamps aligned
+    const vi = rc.map((v, j) => v != null ? j : null).filter(j => j !== null);
+    const closes = vi.map(j => rc[j]);
+    const timestamps = vi.map(j => rt[j]);
+    if (closes.length > 5) out.set(r.symbol, { closes, timestamps });
+  }
+  return out;
 }
 
 // ── PRICE-ONLY FETCH: used during main refresh (fast, 1 req per stock) ──
@@ -8610,19 +8648,86 @@ async function refreshAll(forceRefresh=false){
   allData.forEach(_deriveSharesMktCap);
   updateMarketPEStats();
 
-  // ── Phase 3: Per-stock chart fetch for historical closes (technical scores) ──
-  // Only fetch stocks missing closes — prices already loaded above.
+  // ── Phase 3: Historical closes for technical scores — only stocks missing closes ──
+  // Two stages: (1) a bulk `spark` pass that pulls closes for ~15 symbols per request,
+  // then (2) a per-stock fallback for any symbol spark didn't return. Stage 1 collapses
+  // what used to be ~1 request/stock into a handful of calls; stage 2 guarantees no
+  // regression if Yahoo throttles or omits the bulk endpoint for some tickers.
+  const _tickerIdx = new Map(allData.map((d,i) => [d.ticker, i]));
+
+  // Shared applier — mutates allData[idx] in-place (window._fd holds same references).
+  // `fetched` may come from spark (closes-only) or fetchStockPrice (closes+price+volume);
+  // missing fields fall back to the existing object value via `??`.
+  const _applyFetchedCloses = (idx, fetched) => {
+    if (!((fetched.closes||[]).length > 5)) return false;
+    const tRes = scoreTechnicalWithSteps(fetched.closes);
+    // Recompute daily change from fresh closes when market appears open: closes[-1] is the
+    // last completed day's close; if live price differs meaningfully, the market is intraday
+    // and the closes-based change is more reliable.
+    let validatedChange = allData[idx].priceLoaded ? allData[idx].change : (fetched.change ?? allData[idx].change);
+    const currPx = allData[idx].price;
+    const lastClose = fetched.closes[fetched.closes.length - 1];
+    if (currPx > 0 && lastClose > 0 && Math.abs(currPx - lastClose) / lastClose > 0.001) {
+      validatedChange = +((currPx - lastClose) / lastClose * 100).toFixed(2);
+    }
+    const _combined3 = calcCombined({...allData[idx], technical: tRes.score});
+    const _obj3 = allData[idx];
+    Object.assign(_obj3, {
+      price:  _obj3.priceLoaded ? _obj3.price  : (fetched.price  ?? _obj3.price),
+      change: validatedChange,
+      priceLoaded: _obj3.priceLoaded || fetched.price != null,
+      closes: fetched.closes, timestamps: fetched.timestamps,
+      dataSource: _obj3.dataSource || fetched.dataSource,
+      technical: tRes.score, techSteps: tRes.steps,
+      rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
+      volatility: fetched.volatility ?? _obj3.volatility,
+      volume: fetched.volume ?? _obj3.volume,
+      avgVolume3M: fetched.avgVolume3M ?? _obj3.avgVolume3M,
+      combined: _combined3,
+    });
+    return true;
+  };
+
+  // Stage 1 — bulk spark fetch (closes only; price already loaded in Phase 2)
+  const _sparkNeeds = allData.filter(d => (d.closes||[]).length < 6 && d.ticker.endsWith('.SR'));
+  const _SPARK_BATCH = 15;
+  for (let si = 0; si < _sparkNeeds.length; si += _SPARK_BATCH) {
+    const slice = _sparkNeeds.slice(si, si + _SPARK_BATCH);
+    document.getElementById("pf").style.width = (60 + Math.round((si / Math.max(_sparkNeeds.length,1)) * 30)) + "%";
+    document.getElementById("pl").textContent = `Loading chart data (bulk): ${si+1}–${Math.min(si+_SPARK_BATCH,_sparkNeeds.length)} of ${_sparkNeeds.length}`;
+    try {
+      const sparkMap = await fetchSparkBatch(slice.map(d => d.ticker));
+      for (const d of slice) {
+        const hit = sparkMap.get(d.ticker);
+        if (!hit) continue;
+        const idx = _tickerIdx.get(d.ticker) ?? -1;
+        if (idx < 0) continue;
+        const ok = _applyFetchedCloses(idx, {
+          closes: hit.closes, timestamps: hit.timestamps,
+          volatility: computeVolatility(hit.closes), dataSource: 'yahoo-spark',
+        });
+        if (ok && GD_TOKEN) {
+          _gdCache[d.ticker] = Object.assign(_gdCache[d.ticker] || {}, {
+            priceData: Object.assign(_gdCache[d.ticker]?.priceData || {}, {
+              closes: hit.closes.slice(-1260), timestamps: hit.timestamps.slice(-1260),
+            }),
+            priceUpdated: Date.now(),
+          });
+        }
+      }
+    } catch(e) { console.warn('spark batch failed', e); }
+    scheduleRender();
+  }
+
+  // Stage 2 — per-stock fallback for anything still missing closes
   const B = 6;
   const _priceTimeout = () => new Promise(r => setTimeout(() => r({
     price:null,change:null,closes:[],timestamps:[],dataSource:'timeout',
     dataDate:'—',volume:null,avgVolume3M:null,volatility:null
   }), 10000));
   const _needsCloses = allData.filter(d => (d.closes||[]).length < 6);
-  const _tickerIdx = new Map(allData.map((d,i) => [d.ticker, i]));
-  // Build _fd position map once so per-batch sync is O(batch) not O(N)
-  const _fdPosMap = window._fd ? new Map(window._fd.map((d,i) => [d.ticker, i])) : null;
   for(let i = 0; i < _needsCloses.length; i += B){
-    const pct = 60 + Math.round((i / Math.max(_needsCloses.length,1)) * 40);
+    const pct = 90 + Math.round((i / Math.max(_needsCloses.length,1)) * 10);
     document.getElementById("pf").style.width = pct + "%";
     document.getElementById("pl").textContent = `Loading chart data: ${i+1}–${Math.min(i+B,_needsCloses.length)} of ${_needsCloses.length}`;
     await Promise.all(_needsCloses.slice(i, i+B).map(async d => {
@@ -8630,34 +8735,7 @@ async function refreshAll(forceRefresh=false){
       if (idx < 0) return;
       try {
         const fetched = await Promise.race([fetchStockPrice(allData[idx], true), _priceTimeout()]);
-        if ((fetched.closes||[]).length > 5) {
-          const tRes = scoreTechnicalWithSteps(fetched.closes);
-          // Recompute daily change from fresh closes when market appears open.
-          // closes[-1] = last completed day's close; if price differs meaningfully,
-          // market is intraday-open and closes-based change is more reliable.
-          let validatedChange = allData[idx].priceLoaded ? allData[idx].change : (fetched.change ?? allData[idx].change);
-          const currPx = allData[idx].price;
-          const lastClose = fetched.closes[fetched.closes.length - 1];
-          if (currPx > 0 && lastClose > 0 && Math.abs(currPx - lastClose) / lastClose > 0.001) {
-            validatedChange = +((currPx - lastClose) / lastClose * 100).toFixed(2);
-          }
-          // Mutate in-place — window._fd holds same object references, auto-updated
-          const _combined3 = calcCombined({...allData[idx], technical: tRes.score});
-          const _obj3 = allData[idx];
-          Object.assign(_obj3, {
-            price:  _obj3.priceLoaded ? _obj3.price  : (fetched.price  ?? _obj3.price),
-            change: validatedChange,
-            priceLoaded: _obj3.priceLoaded || fetched.price != null,
-            closes: fetched.closes, timestamps: fetched.timestamps,
-            dataSource: _obj3.dataSource || fetched.dataSource,
-            technical: tRes.score, techSteps: tRes.steps,
-            rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
-            volatility: fetched.volatility ?? _obj3.volatility,
-            volume: fetched.volume ?? _obj3.volume,
-            avgVolume3M: fetched.avgVolume3M ?? _obj3.avgVolume3M,
-            combined: _combined3,
-          });
-        }
+        _applyFetchedCloses(idx, fetched);
       } catch(e) {}
     }));
     scheduleRender();
