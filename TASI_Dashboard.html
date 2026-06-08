@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260605s'; // bump this string on every deploy that matters
+  var V='20260608a'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605s · warm load now hydrates 5Y per-stock closes from Drive → Breadth/52W-High-Low/CAPE charts show full history</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260608a · RF 5.5%, CPI 1.8%, aligned sector P/E targets, RSI fix, ERP de-duped from Overall, DCF weight fix, Sets cleared on force-refresh</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -3570,7 +3570,7 @@ const TIPS = {
   wacc:           'Weighted Average Cost of Capital — the minimum return needed to create value. Formula: ke × E/(D+E) + kd×(1−t) × D/(D+E). TASI range: 9–13%.',
   ke:             'Cost of Equity — the return shareholders require. Calculated via CAPM: Risk-Free Rate + Beta × Equity Risk Premium.',
   kd:             'Cost of Debt — effective interest rate the company pays on borrowings, after the Zakat/tax shield benefit.',
-  rfr:            'Risk-Free Rate — return on Saudi government bonds (10Y SAR sukuk, ~4.8%). Used as the baseline for all investment returns in the DCF and WACC models.',
+  rfr:            'Risk-Free Rate — return on Saudi government bonds (10Y SAR sukuk, ~5.5% as of June 2026). Used as the baseline for all investment returns in the DCF and WACC models.',
   erp:            'Equity Risk Premium — extra return demanded over the risk-free rate for taking equity risk. Saudi/MENA ERP: ~6.5% (Damodaran 2024).',
   term_growth:    'Perpetual growth rate assumed after year 5 — typically at or below long-run nominal GDP growth (2–3%). Small changes have a large impact on valuation.',
   term_value:     'Present value of all cash flows beyond the 5-year forecast. Typically 60–80% of total DCF value — highly sensitive to WACC and terminal growth.',
@@ -3669,14 +3669,19 @@ function dcfUpsideToScore(upside) {
 function calcCombined(d) {
   const nW = normalizeScoreWeights();
   if (!nW) return 50;
-  const dcfScore = (nW.dcf > 0 && d.dcfUpside != null) ? dcfUpsideToScore(d.dcfUpside) : 50;
-  return Math.round(
-    (d.fundamental||50) * nW.fundamental +
-    (d.technical||50)   * nW.technical +
-    (d.buffett||50)     * nW.buffett +
-    (d.pegScore||50)    * nW.peg +
-    dcfScore            * nW.dcf
-  );
+  // Only include components that have actual data — if a weighted component has no data,
+  // exclude it from the denominator rather than pulling the score toward a neutral 50.
+  const components = [
+    { w: nW.fundamental, v: d.fundamental },
+    { w: nW.technical,   v: d.technical   },
+    { w: nW.buffett,     v: d.buffett     },
+    { w: nW.peg,         v: d.pegScore    },
+    { w: nW.dcf,         v: (nW.dcf > 0 && d.dcfUpside != null) ? dcfUpsideToScore(d.dcfUpside) : null },
+  ];
+  const available = components.filter(c => c.w > 0 && c.v != null);
+  if (!available.length) return 50;
+  const totalW = available.reduce((s, c) => s + c.w, 0);
+  return Math.round(available.reduce((s, c) => s + c.v * c.w, 0) / totalW);
 }
 const PG=30;
 let chartInst=null;
@@ -4067,7 +4072,7 @@ function scoreTechnicalWithSteps(closes){
   for(let i=_wStart+1;i<=_seedEnd;i++){const dv=c[i]-c[i-1];if(dv>0)_ag+=dv;else _al-=dv;}
   _ag/=_rsiPer;_al/=_rsiPer;
   for(let i=_seedEnd+1;i<n;i++){const dv=c[i]-c[i-1];_ag=(_ag*(_rsiPer-1)+Math.max(dv,0))/_rsiPer;_al=(_al*(_rsiPer-1)+Math.max(-dv,0))/_rsiPer;}
-  const rsiV=_al===0?100:100-(100/(1+_ag/_al));
+  const rsiV=(_ag===0&&_al===0)?50:(_al===0?100:100-(100/(1+_ag/_al)));
 
   if(rsiV<30)add("RSI (14-day)",rsiV.toFixed(1),+22,"Oversold (RSI < 30) — potential reversal","RSI below 30 means the stock has been sold heavily in recent weeks and is statistically oversold. Historically 70% of oversold readings (RSI < 30) lead to a price recovery within 4–6 weeks. However in a strong downtrend RSI can stay below 30 for months. Best used as a buy signal when combined with strong fundamentals.");
   else if(rsiV<40)add("RSI (14-day)",rsiV.toFixed(1),+12,"Near oversold zone (RSI 30–40)","Approaching oversold territory. Selling pressure is elevated but not extreme. Often a good entry zone for quality stocks — the market is pricing in more bad news than may actually materialize. Watch for RSI turning upward from this zone as a buy signal.");
@@ -6978,10 +6983,10 @@ async function buildDCF(d, _opts={}) {
   }
 
   // ── WACC ──
-  // rfRate: 10Y SAR sukuk yield estimate (SAMA policy rate 4.25% Dec-2025 + term premium ≈ 4.8%).
-  // erp: Damodaran 2026 Saudi total ERP — mature 4.2% + CRP ~1.8% (Aa3/A+, elevated for 2026 risk).
+  // rfRate: 10Y SAR sukuk yield estimate (SAMA policy rate ~5.5% as of June 2026).
+  // erp: Damodaran 2026 Saudi total ERP — mature 4.2% + CRP ~1.5% (Aa3/A+, calibrated June 2026).
   // kd: rfRate + 150 bps (IG Saudi corp. sukuk; Aramco/banks ~115bps, blended IG ≈ 150bps).
-  const rfRate = 0.048;
+  const rfRate = 0.055;
   const erp    = 0.060;
   const kd     = Math.max(rfRate + 0.015, 0.05);
   // Sector-aware terminal growth — Vision 2030 tailwinds lift domestic sectors;
@@ -7575,7 +7580,7 @@ async function buildDCF(d, _opts={}) {
 
   html += `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px;border-top:1px solid var(--b1);padding-top:8px;line-height:1.7">
     <strong style="color:var(--tx2)">Saudi DCF Assumptions:</strong><br>
-    Risk-free rate (4.8%): 10Y SAR sukuk yield. ERP (6.5%): Damodaran 2024 MENA. Terminal growth (2.5%): Vision 2030 nominal GDP.<br>
+    Risk-free rate (5.5%): 10Y SAR sukuk yield (SAMA, June 2026). ERP (6.0%): Damodaran 2026 Saudi. Terminal growth (2.5%): Vision 2030 nominal GDP.<br>
     Beta: sector defaults when Yahoo Finance unavailable (Banking 0.80, Energy 0.80, Real Estate 1.20, Telecom 0.85). Growth cap: cyclicals 15%, growth stocks 22%, others 20%.<br>
     Composite: sector-weighted blend — cyclicals favour EV/EBITDA (40%), banks favour DDM+P/B (75%), growth stocks favour DCF (50%). Each method is a range estimate, not a price target. NOT financial advice.<br>
     ⚠ A 1% ke change shifts fair value 15–30%. This is a range, not a price target. NOT financial advice.
@@ -8460,6 +8465,9 @@ async function refreshAll(forceRefresh=false){
     // Force-refresh reloads statements from Drive too — reset state so load is retried
     _stmtBulkLoaded = false;
     _stmtBulkLoadPromise = null;
+    // Clear per-session skip-sets so force-refresh actually re-fetches every ticker
+    _priceHistAttempted.clear();
+    _enrichAttempted.clear();
   }
 
   // On force-refresh: kick off statement reload now (runs in parallel with price fetch)
@@ -8587,7 +8595,7 @@ async function refreshAll(forceRefresh=false){
         });
         // Quick P/E-relative fair value — shows in main table without needing full DCF
         if (!allData[idx].dcfPS && livePE > 0 && price > 0) {
-          const _SFVPE = {'Banking':11,'Insurance':13,'Energy':18,'Petrochemicals':14,'Chemicals':13,'Materials':13,'Building Materials':14,'Real Estate':20,'REITs':16,'Telecom':20,'Technology':28,'Healthcare':25,'Consumer':18,'Utilities':16,'Transportation':14,'Industrial':16};
+          const _SFVPE = {'Banking':11,'Insurance':13,'Energy':18,'Petrochemicals':14,'Chemicals':13,'Materials':13,'Building Materials':14,'Real Estate':17,'REITs':16,'Telecom':20,'Technology':22,'Healthcare':22,'Consumer':18,'Utilities':16,'Transportation':14,'Industrial':16};
           const sFVPE = _SFVPE[allData[idx].sector] || 15;
           allData[idx].dcfPS = +(price / livePE * sFVPE).toFixed(2);
           allData[idx].dcfUpside = (allData[idx].dcfPS - price) / price;
@@ -9466,7 +9474,7 @@ function _mpeCalc() {
 // Saudi nominal GDP ≈ SAR 4.83 trillion (2025 IMF/SAMA estimate; 2024 actual was 4.55T).
 // Update annually from: https://www.sama.gov.sa/en-US/EconomicReports
 const SAUDI_GDP_SAR = 4.83e12;
-const SAUDI_RF = 0.048;
+const SAUDI_RF = 0.055;
 const _clamp01 = x => Math.max(0, Math.min(1, x));
 
 function _marketConditions() {
@@ -9539,8 +9547,8 @@ function _marketConditions() {
 
   // Shiller CAPE — 10-year inflation-adjusted average earnings yield, then invert.
   // Uses the _mpeHistCache daily P/E series (grows as the app runs over time).
-  // Saudi CPI ≈ 2.5%/yr used to bring historical earnings to today's purchasing power.
-  const SAUDI_CPI = 0.025;
+  // Saudi CPI ≈ 1.8%/yr (SAMA 2024-2025 actual; updated from prior 2.5% estimate).
+  const SAUDI_CPI = 0.018;
   let cape = null, capeDataDays = 0;
   if (typeof _mpeHistCache !== 'undefined' && _mpeHistCache && _mpeHistCache.length >= 30) {
     const tenYrMs = 10*365.25*24*3600*1000;
@@ -9569,30 +9577,29 @@ function _computeOverallScore(m) {
   if (!m) return null;
   // Anchors recalibrated to TASI historical ranges (Damodaran 2025 + SAMA data):
   // P/E: TASI avg 17–20x → cheap@14, expensive@26
-  // ERP: vs SAUDI_RF 4.8% → cheap@+3%, expensive@-2%
   // DY: TASI long-run avg ~3.5% → cheap@4%, expensive@2%
   // P/S: TASI range → cheap@1x, expensive@2.5x
-  // CAPE deliberately EXCLUDED: it can't be reconstructed for historical dates
-  // (_buildMktValHistory passes cape:null), so including it live would make the
-  // charted "Overall" line jump at the present point. CAPE stays a standalone tile.
+  // CAPE deliberately EXCLUDED: can't be reconstructed for historical dates.
+  // ERP deliberately EXCLUDED: ERP = 1/P/E − RF, so it is collinear with the P/E
+  // component. Including both would double-weight the earnings-yield signal.
+  // ERP is still shown as its own tile for context.
   const sP    = _clamp01((m.wtdAvg - 14) / 12);
-  const sERP  = m.erp        != null ? _clamp01((0.03 - m.erp)          / 0.05) : null;
   const sBr   = m.breadth    != null ? _clamp01((m.breadth   - 0.30)    / 0.50) : null;
   const sDY   = m.wtdDY      != null ? _clamp01((0.04 - m.wtdDY)        / 0.02) : null;
   const sPB   = m.wtdPB      != null ? _clamp01((m.wtdPB     - 1.5)     / 1.5)  : null;
   const sPS   = m.mktPS      != null ? _clamp01((m.mktPS     - 1.0)     / 1.5)  : null;
   const sBr200= m.breadth200 != null ? _clamp01((m.breadth200 - 0.30)   / 0.50) : null;
-  const parts = [sP, sERP, sBr, sDY, sPB, sPS, sBr200].filter(x=>x!=null);
+  const parts = [sP, sBr, sDY, sPB, sPS, sBr200].filter(x=>x!=null);
   return parts.length ? Math.round(parts.reduce((a,b)=>a+b,0)/parts.length*100) : null;
 }
 
 // Plain-language definitions shown in the description caption when a tile is selected.
 const _MKT_IND_DESC = {
   pe:      'Market P/E — the cap-weighted price-to-earnings ratio of the market (excl. Aramco & REITs). How many riyals investors pay per riyal of annual earnings. <15x is historically cheap for TASI, 15–25x fair, >25x expensive.',
-  overall: 'Overall Score — a single 0–100 valuation gauge blending the indicators below (P/E, ERP, breadth >SMA-50 & >SMA-200, dividend yield, P/B, P/S). 0 = cheap / fearful market, 100 = expensive / greedy market. Equal-weighted average of every available signal. CAPE is shown separately but excluded here so the historical line stays comparable over time.',
+  overall: 'Overall Score — a single 0–100 valuation gauge blending P/E, breadth >SMA-50 & >SMA-200, dividend yield, P/B, and P/S. 0 = cheap / fearful market, 100 = expensive / greedy market. Equal-weighted average of all available signals. CAPE is shown separately but excluded (needs historical reconstruction). ERP is excluded because it is directly derived from P/E (ERP = 1/P/E − RF) — including both would double-weight the earnings-yield signal.',
   buffett: `Buffett Indicator — total stock-market value ÷ GDP (ex-Aramco). Warren Buffett's favourite gauge of whether a whole market is cheap or rich. <80% undervalued, 80–110% fair, 110–150% modestly rich, >150% overvalued (Saudi-calibrated). Saudi GDP ≈ SAR ${(SAUDI_GDP_SAR/1e12).toFixed(2)}T (2025 est.).`,
   ey:      'Earnings Yield — the inverse of the market P/E (1 ÷ P/E). The percentage of earnings the market produces per riyal invested. Directly comparable to bond yields: higher than the risk-free rate means equities are attractive.',
-  erp:     'Equity Risk Premium — earnings yield minus the Saudi risk-free rate (10Y sukuk ≈ 4.8%). The extra reward you get for holding stocks instead of government bonds. Above +2% = equities attractive vs bonds; negative = equities expensive vs bonds.',
+  erp:     'Equity Risk Premium — earnings yield minus the Saudi risk-free rate (10Y sukuk ≈ 5.5% as of June 2026). The extra reward you get for holding stocks instead of government bonds. Above +2% = equities attractive vs bonds; negative = equities expensive vs bonds.',
   dy:      'Dividend Yield — cap-weighted dividend yield across all dividend-paying stocks (annual dividend ÷ price). Higher yields usually accompany cheaper markets. The TASI long-run average is roughly 3.5%; below 2% is expensive, above 4% is cheap.',
   pb:      'Price-to-Book — cap-weighted price ÷ book (net asset) value of the market. Less distorted by earnings cycles than P/E. Below 1.8x is historically cheap for TASI, above 2.5x rich.',
   br50:    'Breadth >SMA-50 — the share of stocks trading above their own 50-day moving average. Measures how broadly the market is participating in the trend. >60% is a healthy broad uptrend, <40% is weak.',
