@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260605q'; // bump this string on every deploy that matters
+  var V='20260605r'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605q · faster load: bulk spark closes fetch (15 symbols/req) + pre-seeded Yahoo CORS hosts</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260605r · proxies raced in pairs (lower tail latency) · fixed Bawan 1302 + added Aslak 1301 · Alkhorayef 2081 name</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -3351,7 +3351,8 @@ const MORE_TICKERS = [
 {t:"1201.SR",n:"Takween Advanced Industries Co.",s:"Industrial",r:false},
 {t:"1202.SR",n:"MEPCO (Middle East Paper Co.)",s:"Industrial",r:false},
 {t:"1212.SR",n:"Astra Industrial Group",s:"Industrial",r:false},
-{t:"1301.SR",n:"Bawan Company",s:"Industrial",r:false},
+{t:"1301.SR",n:"United Wire Factories Co. (Aslak)",s:"Materials",r:false},
+{t:"1302.SR",n:"Bawan Company",s:"Industrial",r:false},
 {t:"1303.SR",n:"Electrical Industries Co. (EIC)",s:"Industrial",r:false},
 {t:"1304.SR",n:"Al Yamamah Steel Industries Co.",s:"Materials",r:false},
 {t:"2020.SR",n:"Saudi Arabian Packaging (SAPCO)",s:"Industrial",r:false},
@@ -3386,7 +3387,7 @@ const MORE_TICKERS = [
 
 // ── UTILITIES ──
 // (5110 Saudi Electricity, 2082 ACWA Power in STOCKS)
-{t:"2081.SR",n:"Arabian Water and Power (AWPT)",s:"Utilities",r:false},
+{t:"2081.SR",n:"Alkhorayef Water & Power Technologies (AWPT)",s:"Utilities",r:false},
 {t:"2083.SR",n:"Marafiq (Power & Water Utility Co.)",s:"Utilities",r:false},
 {t:"2084.SR",n:"Miahona (Water National Co.)",s:"Utilities",r:false},
 
@@ -4647,6 +4648,21 @@ function _bodyJson(resp, ms) {
   ]);
 }
 
+// Single-proxy attempt — resolves parsed data, or null on any failure/empty body.
+async function _tryProxy(proxy, url){
+  try{
+    const resp = await fetch(proxy.fn(url), {signal: AbortSignal.timeout(7000)});
+    if(!resp.ok) return null;
+    const text = await _bodyText(resp, 7000);
+    let data;
+    try{
+      if(proxy.raw){ data = JSON.parse(text); }
+      else { const j = JSON.parse(text); data = j.contents ? JSON.parse(j.contents) : j; }
+    }catch(e){ return null; }
+    return (data && Object.keys(data).length > 0) ? data : null;
+  }catch(e){ return null; }
+}
+
 async function fetchWithProxy(url){
   // Try direct first — skip if this host has already failed CORS this session (saves 5s per call)
   const _urlHost = url.match(/^https?:\/\/([^\/]+)/)?.[1] || '';
@@ -4659,22 +4675,26 @@ async function fetchWithProxy(url){
       }
     }catch(e){ _directFailedHosts.add(_urlHost); } // mark host as CORS-blocked for this session
   }
-  // Fall back to rotating CORS proxies
-  for(let attempt=0; attempt<PROXIES.length; attempt++){
-    const pi = (proxyIdx + attempt) % PROXIES.length;
-    const proxy = PROXIES[pi];
-    if(proxy.direct) continue; // skip direct-fetch entry in rotation
+  // Fall back to CORS proxies — raced in pairs so one slow/dead proxy no longer stalls the
+  // whole call for its full 7s timeout. First proxy to return non-empty data wins; the other
+  // request is abandoned. Pairs (not all-at-once) keep request amplification on the free
+  // proxies bounded to 2× while still cutting tail latency on the bulk passes.
+  const order = [];
+  for(let a=0; a<PROXIES.length; a++){
+    const pi = (proxyIdx + a) % PROXIES.length;
+    if(PROXIES[pi].direct) continue; // skip direct-fetch entry in rotation
+    order.push(pi);
+  }
+  for(let i=0; i<order.length; i+=2){
+    const pair = order.slice(i, i+2);
+    const racers = pair.map(pi =>
+      _tryProxy(PROXIES[pi], url).then(d => { if(d) return {pi, d}; throw new Error('empty'); })
+    );
     try{
-      const resp = await fetch(proxy.fn(url), {signal: AbortSignal.timeout(7000)});
-      if(!resp.ok) continue;
-      const text = await _bodyText(resp, 7000);
-      let data;
-      try{
-        if(proxy.raw){ data = JSON.parse(text); }
-        else { const j = JSON.parse(text); data = j.contents ? JSON.parse(j.contents) : j; }
-      }catch(e){ data = {}; }
-      if(data && Object.keys(data).length > 0){ proxyIdx = pi; return data; }
-    }catch(e){ continue; }
+      const winner = await Promise.any(racers);
+      proxyIdx = winner.pi; // stick to the proxy that just worked
+      return winner.d;
+    }catch(e){ /* both in this pair failed — fall through to the next pair */ }
   }
   return {};
 }
