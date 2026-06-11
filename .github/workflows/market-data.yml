@@ -10,6 +10,7 @@ on:
     - cron: '30 12 * * 0-4'
   workflow_dispatch:
   push:
+    branches: [main]
     paths:
       - 'scripts/fetch_market_data.mjs'
       - '.github/workflows/market-data.yml'
