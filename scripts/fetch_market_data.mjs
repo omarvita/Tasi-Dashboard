@@ -99,13 +99,20 @@ async function fetchCloses(tickers) {
     try {
       const j = await fetchJSON(
         `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${syms}&range=1y&interval=1d`);
-      const results = j?.spark?.result || [];
-      for (const r of results) {
-        const sym = r.symbol;
-        const resp = r.response?.[0];
-        const ts = resp?.timestamp || [];
-        const cl = resp?.indicators?.quote?.[0]?.close || [];
-        if (!sym || cl.length < 6) continue;
+      // Yahoo serves spark in TWO shapes: browsers get {spark:{result:[{symbol,response:[…]}]}},
+      // server-side callers get the compact map {"1010.SR":{timestamp:[…],close:[…]}}.
+      let entries = [];
+      if (Array.isArray(j?.spark?.result)) {
+        entries = j.spark.result.map(r => {
+          const resp = r.response?.[0];
+          return { sym: r.symbol, ts: resp?.timestamp || [], cl: resp?.indicators?.quote?.[0]?.close || [] };
+        });
+      } else if (j && typeof j === 'object') {
+        entries = Object.entries(j).map(([sym, v]) =>
+          ({ sym, ts: v?.timestamp || [], cl: v?.close || [] }));
+      }
+      for (const { sym, ts, cl } of entries) {
+        if (!sym || !Array.isArray(cl) || cl.length < 6) continue;
         const vi = cl.map((v, k) => v != null ? k : null).filter(k => k !== null);
         out[sym] = { c: vi.map(k => r2(cl[k])), t: vi.map(k => ts[k]) };
       }
