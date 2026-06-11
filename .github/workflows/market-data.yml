@@ -9,6 +9,10 @@ on:
     - cron: '5 9 * * 0-4'
     - cron: '30 12 * * 0-4'
   workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/fetch_market_data.mjs'
+      - '.github/workflows/market-data.yml'
 
 permissions:
   contents: write
