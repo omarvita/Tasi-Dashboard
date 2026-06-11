@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260608b'; // bump this string on every deploy that matters
+  var V='20260611a'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260608b · auto-discovered stocks now fetch 5Y closes on first load · Fair Value shows ±15% range · dividend yield-trap detection (payout >90%)</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:9px;color:var(--tx3);margin-top:1px;font-family:var(--mono)" id="ver-label">v20260611a · one-click refresh: Drive prices show instantly while live data loads · auto-retry on proxy failure · TASI chart date fix · alert + yield fixes</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -727,13 +727,19 @@ async function gdLoadWatchlist() {
   } catch(e) { console.warn('gdLoadWatchlist:', e); }
   return false;
 }
+const _alertsNotified = new Set(); // ticker|dir|target keys toasted this session — no re-fire spam
 function checkAlerts() {
   const triggered = [];
   allData.forEach(d => {
     const alert = priceAlerts[d.ticker];
     if(!alert || !d.price) return;
-    if(alert.dir === 'below' && d.price <= alert.target) triggered.push({...d, alert});
-    if(alert.dir === 'above' && d.price >= alert.target) triggered.push({...d, alert});
+    const hit = (alert.dir === 'below' && d.price <= alert.target)
+             || (alert.dir === 'above' && d.price >= alert.target);
+    if(!hit) return;
+    const key = `${d.ticker}|${alert.dir}|${alert.target}`;
+    if(_alertsNotified.has(key)) return; // already toasted this session
+    _alertsNotified.add(key);
+    triggered.push({...d, alert});
   });
   if(triggered.length > 0) {
     const names = triggered.map(d => `${d.name}: ${d.price?.toFixed(2)} SAR (target ${d.alert.target})`).join('\n');
@@ -1569,6 +1575,14 @@ async function gdLoadBulkPrices(onProgress) {
     // First: try the bulk file (2 API calls, instant)
     const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name%3D%27TASI_prices_bulk.json%27+and+trashed%3Dfalse&fields=files(id,modifiedTime)&orderBy=modifiedTime%20desc`;
     const sr = await fetch(searchUrl, { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(8000) });
+    if (sr.status === 401) {
+      // Token expired — surface it instead of silently returning 0 hits, so the user
+      // knows why Drive data is missing and the UI can say "reconnect" explicitly.
+      GD_TOKEN = null; sessionStorage.removeItem('TASI_gd_token');
+      try { updateGDStatus(); } catch(e){}
+      showToast('⚠ Google Drive token expired — reconnect in Settings to restore cached data');
+      return 0;
+    }
     const sd = await _bodyJson(sr, 7000);
     const priceFiles = sd?.files || [];
     for (const f of priceFiles.slice(1)) {
@@ -4647,10 +4661,14 @@ let proxyIdx = 1; // start at index 1 (first proxy) — direct fetch is always a
 // Pre-seed the CORS-blocked set with Yahoo's API hosts: browser direct-fetch to these
 // always fails the same-origin policy, so attempting it just burns one slow first-try per
 // host. Other hosts (e.g. stooq) may allow CORS, so they still get the direct attempt.
-const _directFailedHosts = new Set([
-  'query1.finance.yahoo.com',
-  'query2.finance.yahoo.com',
-]); // tracks hosts where direct fetch failed CORS — skip 5s wait
+const _DIRECT_FAIL_PRESEED = ['query1.finance.yahoo.com', 'query2.finance.yahoo.com'];
+const _directFailedHosts = new Set(_DIRECT_FAIL_PRESEED); // tracks hosts where direct fetch failed CORS — skip 5s wait
+// Reset to just the pre-seed on each user-initiated refresh: a transient network glitch on
+// one click must not permanently route every later click through the slow proxy ladder.
+function _resetDirectFailedHosts() {
+  _directFailedHosts.clear();
+  for (const h of _DIRECT_FAIL_PRESEED) _directFailedHosts.add(h);
+}
 
 // Guard against Android Chrome bug: AbortSignal.timeout aborts the request headers
 // but NOT the response body stream — so resp.text()/resp.json() hang indefinitely.
@@ -4744,7 +4762,15 @@ async function fetchWithProxyPost(url, body) {
 
 // Helper: add a newly discovered stock to allData (avoids duplicates)
 function _addDiscoveredStock(ticker, name, sector, extra, existing) {
-  if (!ticker || !ticker.endsWith('.SR') || existing.has(ticker)) return false;
+  // Strict ticker format: Tadawul symbols are exactly 4 digits + .SR. Anything else
+  // from a scraped/proxied source is rejected — also prevents attribute injection,
+  // since tickers are interpolated into onclick="...('${d.ticker}')" handlers.
+  if (!ticker || !/^\d{4}\.SR$/.test(ticker) || existing.has(ticker)) return false;
+  // Yahoo v7/quote + screener return dividendYield in PERCENT (e.g. 4.4); the app
+  // convention is a fraction (0.044). Normalize here — without this, discovered
+  // stocks showed 100× yields ("440%"), maxed the dividend score, and inflated
+  // portfolio income projections.
+  if (extra?.dy != null && extra.dy > 0.5) extra = { ...extra, dy: extra.dy / 100 };
   const isReit = name.toLowerCase().includes('reit') || name.toLowerCase().includes('صندوق') || sector?.toLowerCase().includes('reit');
   allData.push({
     ticker, name: name || ticker,
@@ -4800,7 +4826,7 @@ async function autoDiscoverSaudiStocks() {
           q.symbol,
           q.shortName || q.longName || q.symbol,
           q.sector || q.industry || 'Other',
-          { pe: q.trailingPE, pb: q.priceToBook, dy: q.dividendYield,
+          { pe: q.trailingPE, pb: q.priceToBook, dy: q.trailingAnnualDividendYield ?? (q.dividendYield != null ? q.dividendYield/100 : null),
             price: q.regularMarketPrice, change: q.regularMarketChangePercent,
             w52high: q.fiftyTwoWeekHigh, w52low: q.fiftyTwoWeekLow,
             mktCap: q.marketCap, desc: 'Auto-discovered from Yahoo Finance screener.' },
@@ -4814,7 +4840,9 @@ async function autoDiscoverSaudiStocks() {
           if (existingIdx >= 0 && !allData[existingIdx].livepeLoaded) {
             const scPE = +q.trailingPE.toFixed(2);
             const scPB = q.priceToBook > 0 ? +q.priceToBook.toFixed(2) : allData[existingIdx].pb;
-            allData[existingIdx] = { ...allData[existingIdx], pe: scPE, pb: scPB, livepeLoaded: true };
+            // Mutate in-place — replacing the object orphans references held across awaits
+            // by refreshAll Phase 2 / enrichment passes, silently losing their updates.
+            Object.assign(allData[existingIdx], { pe: scPE, pb: scPB, livepeLoaded: true });
             // Persist to in-memory cache so Phase 2.5 skips this stock
             _gdCache[q.symbol] = Object.assign(_gdCache[q.symbol] || {}, {
               fundamentals: Object.assign((_gdCache[q.symbol]?.fundamentals || {}), {
@@ -4848,7 +4876,7 @@ async function autoDiscoverSaudiStocks() {
       for (const q of batchQuotes) {
         if (!q.symbol || !q.regularMarketPrice) continue; // skip if no price (not listed)
         _addDiscoveredStock(q.symbol, q.shortName || q.longName || q.symbol, 'REITs',
-          { price: q.regularMarketPrice, dy: q.dividendYield,
+          { price: q.regularMarketPrice, dy: q.trailingAnnualDividendYield ?? (q.dividendYield != null ? q.dividendYield/100 : null),
             mktCap: q.marketCap, desc: 'Saudi REIT — auto-discovered.' }, existing);
       }
     } catch(e) {}
@@ -4930,7 +4958,7 @@ async function autoDiscoverSaudiStocks() {
             q.shortName || q.longName || q.symbol,
             q.sector || q.industry || 'Other',
             { price: q.regularMarketPrice, change: q.regularMarketChangePercent,
-              mktCap: q.marketCap, dy: q.dividendYield,
+              mktCap: q.marketCap, dy: q.trailingAnnualDividendYield ?? (q.dividendYield != null ? q.dividendYield/100 : null),
               desc: 'Auto-discovered via range probe.' },
             existing
           );
@@ -5370,7 +5398,7 @@ function renderTable(){
       : '';
     return`<tr class="data-row" onclick="openModal(${start+i})" onmouseenter="gdPrefetch(${start+i})">
       <td class="rk">${start+i+1}</td>
-      <td class="tk" style="white-space:normal;min-width:54px">${d.ticker.replace(".SR","")}<span class="mob-company" style="display:none">${shortName}</span></td>
+      <td class="tk" style="white-space:normal;min-width:54px">${escapeHTML(d.ticker.replace(".SR",""))}<span class="mob-company" style="display:none">${escapeHTML(shortName)}</span></td>
       <td class="col-co" title="${escapeHTML(d.name)}" style="color:var(--tx)">${escapeHTML(getStockName(d))}${earningsBadge}</td>
       <td style="min-width:52px"><span class="pv">${hasPx?d.price.toFixed(2):'—'}</span>${lv}</td>
       <td class="${cc}" style="min-width:44px">${cs}</td>
@@ -5516,11 +5544,17 @@ async function loadCache(){
   const cacheDay  = toSaudiDate(meta.savedAt);
   const todayDay  = toSaudiDate(Date.now());
   const sameDay   = cacheDay === todayDay;
-  if(!sameDay || Date.now()-meta.savedAt>meta.ttl) return false;
+  // meta.ttl ?? Infinity: JSON.stringify turns Infinity into null on the localStorage
+  // fallback path, and `x > null` is always true — which made the cache permanently
+  // "expired" on devices without IndexedDB (private mode etc.), forcing a full live
+  // fetch on every open. Null/undefined ttl means "no expiry".
+  if(!sameDay || Date.now()-meta.savedAt>(meta.ttl ?? Infinity)) return false;
   const cached=await dbGet(CACHE_KEY);
   if(!cached?.length)return false;
   const tickerIdx = new Map(allData.map((d, i) => [d.ticker, i]));
-  cached.forEach(c=>{const idx=tickerIdx.get(c.ticker);if(idx!=null&&idx>=0)allData[idx]={...allData[idx],...c};});
+  // Object.assign (not replace): background passes from a prior load may still hold
+  // references to these objects — replacing them silently orphans those updates.
+  cached.forEach(c=>{const idx=tickerIdx.get(c.ticker);if(idx!=null&&idx>=0)Object.assign(allData[idx],c);});
   updateCacheUI(meta);
   return true;
 }
@@ -5560,7 +5594,7 @@ async function importCache(input){
     await dbPut(META_KEY,meta);
     p.stocks.forEach(c=>{
       ['name','desc','sector','website'].forEach(k=>{if(typeof c[k]==='string')c[k]=c[k].replace(/<[^>]*>/g,'');});
-      const idx=allData.findIndex(d=>d.ticker===c.ticker);if(idx>=0)allData[idx]={...allData[idx],...c};
+      const idx=allData.findIndex(d=>d.ticker===c.ticker);if(idx>=0)Object.assign(allData[idx],c);
     });
     updateCacheUI(meta);
     doFilter();updateMetrics();
@@ -8434,22 +8468,41 @@ function init(){
   setTimeout(autoDiscoverSaudiStocks, 3000);
 }
 
+let _refreshInFlight = false;
 async function refreshAll(forceRefresh=false){
+  // Concurrency guard: a second click (or the boot-chain retry, or the mobile-nav
+  // Reload) while a refresh is running used to interleave two full fetch passes —
+  // double traffic, mixed state, and a corrupted cache save at the end.
+  if (_refreshInFlight) { console.warn('[refreshAll] already running — ignored'); return; }
+  _refreshInFlight = true;
   _mktValHistCache = null; // invalidate history cache — prices about to change
+  // A refresh click is a fresh start: clear every per-session skip-set so this attempt
+  // behaves exactly like a first attempt. Without this, a ticker or proxy host that
+  // failed once was silently skipped on every later click, which is why a 2nd/3rd
+  // click used to behave differently from the 1st.
+  _resetDirectFailedHosts();
+  _priceHistAttempted.clear();
+  _enrichAttempted.clear();
   const btn=document.getElementById("rbtn");
   if(btn){btn.disabled=true;btn.textContent="Loading...";}
   const pw=document.getElementById("pw");if(pw)pw.style.display="block";
   // Start TASI index fetch immediately — runs in parallel, not awaited, so it never blocks stock loading
   fetchTASIIndex();
-  // Hard timeout: if refresh takes >4 minutes, stop and show whatever we have
+  // Hard timeout: if refresh takes >4 minutes, abort the fetch loops and show whatever we have
+  let _refreshAborted = false;
   const _hardStop = setTimeout(()=>{
-    console.warn('[refreshAll] 4-minute hard timeout — stopping fetch loop');
-    if(pw)pw.style.display="none";
-    if(btn){btn.disabled=false;btn.textContent="↻ Reload Data";}
+    console.warn('[refreshAll] 4-minute hard timeout — aborting fetch loop');
+    _refreshAborted = true; // phase loops check this and bail out
     const loaded=allData.filter(d=>d.priceLoaded).length;
-    document.getElementById("pl").textContent=`⚠ Timed out — ${loaded} stocks loaded. Click ↻ to retry.`;
-    setTimeout(()=>{ if(pw)pw.style.display="none"; },3000);
+    // Show the message BEFORE hiding the bar — it lives inside #pw, so hiding first
+    // made the timeout invisible and the app just looked frozen.
+    document.getElementById("pl").textContent = loaded===0
+      ? '⚠ Timed out with 0 stocks — proxies may be blocked. Try ⟳ Force, or check your connection.'
+      : `⚠ Timed out — ${loaded}/${allData.length} loaded. Click ↻ to fetch the rest.`;
+    if(btn){btn.disabled=false;btn.textContent="↻ Reload Data";}
+    setTimeout(()=>{ if(pw)pw.style.display="none"; },6000);
   }, 4*60*1000);
+  try {
 
   // Try cache first unless forced
   if(!forceRefresh){
@@ -8509,6 +8562,7 @@ async function refreshAll(forceRefresh=false){
         gdLoadWatchlist(); // restore watchlist + alerts from Drive if available
       }
       doFilter();updateMetrics();
+      checkAlerts(); // cache-hit path previously skipped alert checks for the whole session
       return;
       } // end else (loaded>0): a price-less cache falls through to live fetch below
     }
@@ -8519,16 +8573,16 @@ async function refreshAll(forceRefresh=false){
     // Force-refresh reloads statements from Drive too — reset state so load is retried
     _stmtBulkLoaded = false;
     _stmtBulkLoadPromise = null;
-    // Clear per-session skip-sets so force-refresh actually re-fetches every ticker
-    _priceHistAttempted.clear();
-    _enrichAttempted.clear();
   }
 
   // On force-refresh: kick off statement reload now (runs in parallel with price fetch)
   if (GD_TOKEN && forceRefresh) gdLoadStatementsBulk().catch(() => {});
 
   // ── Phase 1: Bulk Drive price cache (2 API calls for all 238 stocks) ────
-  if (GD_TOKEN && !forceRefresh) {
+  // Runs on force-refresh too: the table shows last-saved Drive prices instantly
+  // (marked as cached) while Phases 2–3 stream in fresh data and overwrite them.
+  if (GD_TOKEN) {
+    const _hadToken = !!GD_TOKEN;
     document.getElementById("pl").textContent = "Loading prices from Google Drive...";
     const driveHits = await gdLoadBulkPrices((done, total) => {
       document.getElementById("pl").textContent = `Drive: loading ${done}–${Math.min(done+12,total)} of ${total}...`;
@@ -8536,11 +8590,16 @@ async function refreshAll(forceRefresh=false){
     });
     if (driveHits > 0) {
       document.getElementById("pl").textContent = `Drive: ${driveHits} stocks loaded`;
+    } else if (_hadToken && !GD_TOKEN) {
+      // gdLoadBulkPrices hit a 401 and cleared the token
+      document.getElementById("pl").textContent = "⚠ Drive token expired — reconnect in Settings. Fetching live data…";
     }
     // Apply cached P/E/PB from Drive fundamentals (saved on previous loads or modal opens)
-    // This means stocks already fetched don't need Phase 2.5 again
+    // This means stocks already fetched don't need Phase 2.5 again.
+    // Skipped on force-refresh: marking livepeLoaded here would make Phase 2.5 skip
+    // the re-fetch, defeating the point of Force.
     let peFromDrive = 0;
-    for (let i = 0; i < allData.length; i++) {
+    if (!forceRefresh) for (let i = 0; i < allData.length; i++) {
       const c = _gdCache[allData[i].ticker];
       if (c?.fundamentals && c.fundUpdated && Date.now() - c.fundUpdated < GD_FUND_TTL &&
           (c.fundamentals.pe > 0 || c.fundamentals.roe != null)) {
@@ -8567,10 +8626,12 @@ async function refreshAll(forceRefresh=false){
     // indicators (Breadth >SMA-200, 52W High/Low, CAPE) — which have no TASI-index proxy and
     // depend entirely on per-stock daily history — can only render ~1Y. Copying the cached
     // closes here gives those charts their full 5Y immediately and skips redundant re-fetches.
-    let closesFromDrive = 0;
+    let closesFromDrive = 0, pricesFromDrive = 0;
     for (let i = 0; i < allData.length; i++) {
-      const pd = _gdCache[allData[i].ticker]?.priceData;
-      if (pd?.closes?.length > (allData[i].closes || []).length) {
+      const c = _gdCache[allData[i].ticker];
+      const pd = c?.priceData;
+      if (!pd) continue;
+      if (pd.closes?.length > (allData[i].closes || []).length) {
         allData[i].closes = pd.closes;
         allData[i].timestamps = pd.timestamps || [];
         if (pd.volume != null)      allData[i].volume      = pd.volume;
@@ -8578,8 +8639,35 @@ async function refreshAll(forceRefresh=false){
         if (pd.volatility != null)  allData[i].volatility  = pd.volatility;
         closesFromDrive++;
       }
+      // Show the last-saved Drive price immediately so the table is usable while
+      // Phases 2–3 fetch fresh data. _livePrice=false marks it as cached: the
+      // Phase 2 retry and Phase 3 fallback still treat the stock as needing a
+      // live quote, and fresh data overwrites it the moment it arrives.
+      if (pd.price > 0 && !allData[i].priceLoaded) {
+        const d = allData[i];
+        d.price = pd.price;
+        if (pd.change != null) d.change = pd.change;
+        d.priceLoaded = true;
+        d._livePrice = false;
+        d.dataSource = 'drive-cache';
+        if (c.priceUpdated) d.dataDate = new Date(c.priceUpdated).toISOString().slice(0,10);
+        if ((d.closes || []).length > 5) {
+          const tRes = scoreTechnicalWithSteps(d.closes);
+          d.technical = tRes.score; d.techSteps = tRes.steps;
+          d.rsi = tRes.rsi; d.sma20 = tRes.sma20; d.sma50 = tRes.sma50; d.momentum = tRes.momentum;
+        }
+        try { d.combined = calcCombined(d); } catch(e) {}
+        pricesFromDrive++;
+      }
     }
     if (closesFromDrive > 0) console.log(`[PriceHistory] Hydrated ${closesFromDrive} stocks' closes from Drive cache`);
+    if (pricesFromDrive > 0) {
+      // Render NOW — table shows last-known prices in seconds instead of waiting
+      // for the full Yahoo pass.
+      doFilter(); updateMetrics();
+      document.getElementById("pl").textContent = `Showing ${pricesFromDrive} cached prices from Drive — fetching live prices…`;
+      document.getElementById("lu").textContent = `${pricesFromDrive}/${allData.length} cached — refreshing…`;
+    }
   }
 
   // ── Phase 2: Bulk Yahoo v7/quote — all 238 stocks, 20 per request ───────
@@ -8589,7 +8677,16 @@ async function refreshAll(forceRefresh=false){
   document.getElementById("pl").textContent = `Fetching live prices (${allData.length} stocks)...`;
   const _QBATCH = 12; // smaller batches reduce Yahoo rate-limiting on later stocks
   const _p2TickerIdx = new Map(allData.map((d,i) => [d.ticker, i]));
+  // The whole batch pass is a function so it can re-run automatically: if every
+  // batch fails (proxies all blocked/rate-limited), one automatic retry after a
+  // pause replaces what used to require the user to click Refresh again.
+  // Race timeout is 16s: the proxy ladder (2 pairs × 7s) can legitimately take
+  // ~14s, and the old 12s wrapper was cutting off the second proxy pair.
+  const _phase2Pass = async () => {
+  let _applied = 0, _failedBatches = 0;
+  const _totalBatches = Math.ceil(allData.length / _QBATCH);
   for (let qi = 0; qi < allData.length; qi += _QBATCH) {
+    if (_refreshAborted) break;
     try {
       const batch = allData.slice(qi, qi + _QBATCH);
       const syms  = batch.map(d => d.ticker).join(',');
@@ -8597,11 +8694,16 @@ async function refreshAll(forceRefresh=false){
       const qurl  = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}`;
       const qurl6 = `https://query2.finance.yahoo.com/v6/finance/quote?symbols=${syms}`;
       let qdata = {};
-      qdata = await Promise.race([fetchWithProxy(qurl), new Promise(r => setTimeout(() => r({}), 12000))]);
+      qdata = await Promise.race([fetchWithProxy(qurl), new Promise(r => setTimeout(() => r({}), 16000))]);
       if (!(qdata?.quoteResponse?.result?.length)) {
-        qdata = await Promise.race([fetchWithProxy(qurl6), new Promise(r => setTimeout(() => r({}), 12000))]);
+        qdata = await Promise.race([fetchWithProxy(qurl6), new Promise(r => setTimeout(() => r({}), 16000))]);
       }
       const quotes = qdata?.quoteResponse?.result || qdata?.quote || [];
+      if (!quotes.length) {
+        _failedBatches++;
+        document.getElementById("pl").textContent =
+          `Fetching live prices — batch ${Math.floor(qi/_QBATCH)+1}/${_totalBatches} got no data (${_failedBatches} failed so far)…`;
+      }
       for (const q of quotes) {
         if (!q.symbol || q.regularMarketPrice == null) continue;
         const idx = _p2TickerIdx.get(q.symbol) ?? -1;
@@ -8636,6 +8738,7 @@ async function refreshAll(forceRefresh=false){
           eps: liveEPS || _obj.eps,
           livepeLoaded,
           priceLoaded: true,
+          _livePrice: true,
           dataSource: 'yahoo-quote',
           dataDate: new Date().toISOString().slice(0,10),
           volume:      q.regularMarketVolume      ?? _obj.volume,
@@ -8655,32 +8758,50 @@ async function refreshAll(forceRefresh=false){
           allData[idx].dcfUpside = (allData[idx].dcfPS - price) / price;
           allData[idx].dcfMethod = 'P/E Est.';
         }
-        // Update Drive cache entry
+        // Update Drive cache entry — merge into the existing priceData so fields this
+        // pass doesn't produce (e.g. volatility) aren't wiped from the Drive cache.
         _gdCache[q.symbol] = Object.assign(_gdCache[q.symbol] || {}, {
-          priceData: { price, change,
+          priceData: Object.assign(_gdCache[q.symbol]?.priceData || {}, { price, change,
             closes: existingCloses.slice(-1260), timestamps: existingTimestamps.slice(-1260),
-            volume: allData[idx].volume, avgVolume3M: allData[idx].avgVolume3M },
+            volume: allData[idx].volume, avgVolume3M: allData[idx].avgVolume3M }),
           priceUpdated: Date.now(),
         });
+        _applied++;
       }
     } catch(e) { console.warn('bulk quote batch failed', e); }
     document.getElementById("pf").style.width = Math.round(((qi + _QBATCH) / allData.length) * 60) + '%';
     scheduleRender();
   }
+  return _applied;
+  }; // end _phase2Pass
+  let _p2Applied = await _phase2Pass();
+  if (_p2Applied === 0 && allData.some(d => d.ticker.endsWith('.SR'))) {
+    // Every batch failed — proxies blocked or rate-limited. One automatic retry
+    // after a pause (proxies often recover within seconds) instead of making the
+    // user click Refresh again.
+    console.warn('[refreshAll] Phase 2 got 0 live quotes — automatic retry in 4s');
+    document.getElementById("pl").textContent = '⚠ All price requests failed — retrying automatically in 4s…';
+    await new Promise(r => setTimeout(r, 4000));
+    _resetDirectFailedHosts();
+    _p2Applied = await _phase2Pass();
+  }
 
   // ── Phase 2 retry: stocks that got no price in the batch pass ──
   // Batches of 20 trigger Yahoo rate-limiting by batch ~10+, so later stocks
   // silently come back empty. Retry them one at a time with a small delay.
-  const _failed = allData.filter(d => !d.priceLoaded && d.ticker.endsWith('.SR'));
+  // Retry anything without a LIVE quote — includes stocks showing a cached Drive
+  // price (priceLoaded=true but _livePrice=false), which still need a fresh price.
+  const _failed = allData.filter(d => !d._livePrice && d.ticker.endsWith('.SR'));
   if (_failed.length) {
-    document.getElementById("pl").textContent = `Retrying ${_failed.length} stocks that missed price…`;
+    document.getElementById("pl").textContent = `Retrying ${_failed.length} stocks that missed live price…`;
     for (let ri = 0; ri < _failed.length; ri += 5) {
+      if (_refreshAborted) break;
       const slice = _failed.slice(ri, ri + 5);
       const syms  = slice.map(d => d.ticker).join(',');
       try {
         await new Promise(r => setTimeout(r, 300)); // brief pause to let Yahoo recover
         const qurl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}`;
-        const qdata = await Promise.race([fetchWithProxy(qurl), new Promise(r => setTimeout(() => r({}), 10000))]);
+        const qdata = await Promise.race([fetchWithProxy(qurl), new Promise(r => setTimeout(() => r({}), 16000))]);
         const quotes = qdata?.quoteResponse?.result || [];
         for (const q of quotes) {
           if (!q.symbol || q.regularMarketPrice == null) continue;
@@ -8697,7 +8818,7 @@ async function refreshAll(forceRefresh=false){
           const _obj2 = allData[idx];
           Object.assign(_obj2, { price, change, pe: livePE, pb: q.priceToBook > 0 ? +q.priceToBook.toFixed(2) : _obj2.pb,
             eps: q.epsTrailingTwelveMonths > 0 ? +q.epsTrailingTwelveMonths.toFixed(4) : _obj2.eps,
-            livepeLoaded, priceLoaded: true, dataSource: 'yahoo-quote-retry',
+            livepeLoaded, priceLoaded: true, _livePrice: true, dataSource: 'yahoo-quote-retry',
             mktCap: q.marketCap ?? _obj2.mktCap,
             volume: q.regularMarketVolume ?? _obj2.volume,
             avgVolume3M: q.averageDailyVolume3Month ?? _obj2.avgVolume3M,
@@ -8708,7 +8829,7 @@ async function refreshAll(forceRefresh=false){
             combined: _combined2,
           });
           _gdCache[q.symbol] = Object.assign(_gdCache[q.symbol] || {}, {
-            priceData: { price, change, closes: existingCloses.slice(-1260), timestamps: (allData[idx].timestamps||[]).slice(-1260) },
+            priceData: Object.assign(_gdCache[q.symbol]?.priceData || {}, { price, change, closes: existingCloses.slice(-1260), timestamps: (allData[idx].timestamps||[]).slice(-1260) }),
             priceUpdated: Date.now(),
           });
         }
@@ -8736,6 +8857,7 @@ async function refreshAll(forceRefresh=false){
     document.getElementById("pl").textContent = `Fetching fundamentals (top ${_needsPE.length} stocks by market cap)...`;
     const _PE_BATCH = 8; // conservative concurrency — avoid Yahoo rate limiting
     for (let pi = 0; pi < _needsPE.length; pi += _PE_BATCH) {
+      if (_refreshAborted) break;
       // Shared helper fetches financialData + scores + persists — identical to the modal path.
       // Skip the heavy statement fetch here (foreground load stays fast); the background
       // _enrichRemainingFundamentals() pass fetches statements + derives stable criteria after.
@@ -8766,8 +8888,11 @@ async function refreshAll(forceRefresh=false){
     // Recompute daily change from fresh closes when market appears open: closes[-1] is the
     // last completed day's close; if live price differs meaningfully, the market is intraday
     // and the closes-based change is more reliable.
-    let validatedChange = allData[idx].priceLoaded ? allData[idx].change : (fetched.change ?? allData[idx].change);
-    const currPx = allData[idx].price;
+    // A price is "settled" only if it came from a live quote this session; a Drive-cached
+    // price (_livePrice=false) must yield to any fresh price Phase 3 fetches.
+    const _settled = allData[idx].priceLoaded && allData[idx]._livePrice;
+    let validatedChange = _settled ? allData[idx].change : (fetched.change ?? allData[idx].change);
+    const currPx = _settled ? allData[idx].price : (fetched.price ?? allData[idx].price);
     const lastClose = fetched.closes[fetched.closes.length - 1];
     if (currPx > 0 && lastClose > 0 && Math.abs(currPx - lastClose) / lastClose > 0.001) {
       validatedChange = +((currPx - lastClose) / lastClose * 100).toFixed(2);
@@ -8775,11 +8900,12 @@ async function refreshAll(forceRefresh=false){
     const _combined3 = calcCombined({...allData[idx], technical: tRes.score});
     const _obj3 = allData[idx];
     Object.assign(_obj3, {
-      price:  _obj3.priceLoaded ? _obj3.price  : (fetched.price  ?? _obj3.price),
+      price:  _settled ? _obj3.price : (fetched.price ?? _obj3.price),
       change: validatedChange,
       priceLoaded: _obj3.priceLoaded || fetched.price != null,
+      _livePrice: _obj3._livePrice || fetched.price != null,
       closes: fetched.closes, timestamps: fetched.timestamps,
-      dataSource: _obj3.dataSource || fetched.dataSource,
+      dataSource: (fetched.price != null && !_settled) ? fetched.dataSource : (_obj3.dataSource || fetched.dataSource),
       technical: tRes.score, techSteps: tRes.steps,
       rsi: tRes.rsi, sma20: tRes.sma20, sma50: tRes.sma50, momentum: tRes.momentum,
       volatility: fetched.volatility ?? _obj3.volatility,
@@ -8794,6 +8920,7 @@ async function refreshAll(forceRefresh=false){
   const _sparkNeeds = allData.filter(d => (d.closes||[]).length < 6 && d.ticker.endsWith('.SR'));
   const _SPARK_BATCH = 15;
   for (let si = 0; si < _sparkNeeds.length; si += _SPARK_BATCH) {
+    if (_refreshAborted) break;
     const slice = _sparkNeeds.slice(si, si + _SPARK_BATCH);
     document.getElementById("pf").style.width = (60 + Math.round((si / Math.max(_sparkNeeds.length,1)) * 30)) + "%";
     document.getElementById("pl").textContent = `Loading chart data (bulk): ${si+1}–${Math.min(si+_SPARK_BATCH,_sparkNeeds.length)} of ${_sparkNeeds.length}`;
@@ -8829,6 +8956,7 @@ async function refreshAll(forceRefresh=false){
   }), 10000));
   const _needsCloses = allData.filter(d => (d.closes||[]).length < 6);
   for(let i = 0; i < _needsCloses.length; i += B){
+    if (_refreshAborted) break;
     const pct = 90 + Math.round((i / Math.max(_needsCloses.length,1)) * 10);
     document.getElementById("pf").style.width = pct + "%";
     document.getElementById("pl").textContent = `Loading chart data: ${i+1}–${Math.min(i+B,_needsCloses.length)} of ${_needsCloses.length}`;
@@ -8846,6 +8974,13 @@ async function refreshAll(forceRefresh=false){
   clearTimeout(_hardStop); // normal completion — cancel the 4-min failsafe
   document.getElementById("pf").style.width="100%";
   const loaded=allData.filter(d=>d.priceLoaded).length;
+  if (loaded === 0) {
+    // Total failure must look like a failure, not "✓ Done: 0/239". Every batch
+    // returned empty — offline, or all CORS proxies blocked.
+    document.getElementById("pl").textContent = '✗ No prices loaded — you appear offline or all proxies are blocked. Check your connection and click ↻ to retry.';
+    setTimeout(()=>{ if(pw)pw.style.display="none"; },8000);
+    return;
+  }
   document.getElementById("pl").textContent=`✓ Done: ${loaded}/${allData.length} stocks loaded. Saving to cache...`;
   // Save to IndexedDB and Drive bulk file in parallel
   await Promise.all([saveCache(), gdSaveBulkPrices()]);
@@ -8933,6 +9068,13 @@ async function refreshAll(forceRefresh=false){
   // v8/chart and quoteSummary hit different Yahoo endpoints, so this can start alongside
   // the fundamentals pass without contention. 5s delay lets the main render settle first.
   setTimeout(() => _enrichPriceHistory(), 5000);
+  } finally {
+    // Runs on every exit path (early cache-hit return, 0-loaded return, uncaught throw):
+    // the refresh lock is always released and the button never sticks at "Loading...".
+    _refreshInFlight = false;
+    clearTimeout(_hardStop);
+    if (btn && btn.disabled) { btn.disabled = false; btn.textContent = "↻ Reload Data"; }
+  }
 }
 
 // Derive mktCap and sharesOutstanding whenever the inputs are available.
@@ -9099,8 +9241,12 @@ async function fetchTASIIndexLong() {
       const data = await Promise.race([fetchWithProxy(url), new Promise(r=>setTimeout(()=>r(null),15000))]);
       const res = data?.chart?.result?.[0];
       if (!res) continue;
-      const closes = (res.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
-      const timestamps = res.timestamp||[];
+      // Keep closes/timestamps index-aligned (strip nulls from both together)
+      const _rc = res.indicators?.quote?.[0]?.close || [];
+      const _rt = res.timestamp || [];
+      const _vi = _rc.map((v,i) => v!=null ? i : null).filter(i => i!==null);
+      const closes = _vi.map(i => _rc[i]);
+      const timestamps = _vi.map(i => _rt[i]);
       if (closes.length > tasiIndex.closes.length) {
         _applyTASICloses(closes, timestamps);
         return;
@@ -9384,7 +9530,12 @@ async function recalculateAllFromCache() {
 }
 
 
+let _tasiIdxInFlight = false;
 async function fetchTASIIndex() {
+  // In-flight guard: refreshAll fires this at start AND in the cache-hit path; two
+  // concurrent runs raced to assign tasiIndex and the partial run could win.
+  if (_tasiIdxInFlight) return; _tasiIdxInFlight = true;
+  try {
   let price = null, change = null, closes = [], timestamps = [], ytdReturn = null;
   try {
     // Primary: v7/quote (most reliable for live index price — same endpoint as stocks)
@@ -9423,8 +9574,13 @@ async function fetchTASIIndex() {
     }
     if (res) {
       const meta = res.meta;
-      closes     = (res.indicators?.quote?.[0]?.close||[]).filter(v=>v!=null);
-      timestamps = res.timestamp||[];
+      // Strip null closes AND their timestamps together — filtering only closes
+      // shifted closes[i] off its date, skewing YTD% and the chart's date axis.
+      const _rc = res.indicators?.quote?.[0]?.close || [];
+      const _rt = res.timestamp || [];
+      const _vi = _rc.map((v,i) => v!=null ? i : null).filter(i => i!==null);
+      closes     = _vi.map(i => _rc[i]);
+      timestamps = _vi.map(i => _rt[i]);
       // Use chart meta price only if v7/quote failed
       if (!price && meta?.regularMarketPrice) {
         price  = meta.regularMarketPrice;
@@ -9457,7 +9613,15 @@ async function fetchTASIIndex() {
     } catch(e) {}
   }
   if (!price) { console.warn('[TASI] All index sources failed'); return; }
-  tasiIndex = { price, change, closes, timestamps, ytdReturn };
+  // Merge — never clobber. A 1y chart fetch (or a quote-only success with closes=[])
+  // must not wipe the 10y history that fetchTASIIndexLong / Drive restore loaded.
+  const _keepOld = (tasiIndex.closes||[]).length > closes.length;
+  tasiIndex = {
+    price, change,
+    closes:     _keepOld ? tasiIndex.closes     : closes,
+    timestamps: _keepOld ? tasiIndex.timestamps : timestamps,
+    ytdReturn:  ytdReturn ?? tasiIndex.ytdReturn,
+  };
 
   // Update market bar
   const lvlEl = document.getElementById('tasi-idx-level');
@@ -9477,7 +9641,8 @@ async function fetchTASIIndex() {
   // Refresh market P/E chart if open (uses tasiIndex.closes for historical line)
   if (marketPEChartVisible) _renderMPEChart();
   // Queue long-range fetch for full 10Y closes (used by TASI modal chart)
-  if (closes.length < 1000) fetchTASIIndexLong();
+  if ((tasiIndex.closes||[]).length < 1000) fetchTASIIndexLong();
+  } finally { _tasiIdxInFlight = false; }
 }
 
 // ── Change 6: Compute annualized historical volatility from daily closes ──
@@ -9504,6 +9669,15 @@ let marketPEChartVisible = false;
 let _mpeRange = '1Y'; // active range button
 let _mpeCurve = 'wtd'; // 'wtd' | 'med' | 'mean'
 let _mpeHistCache = null; // in-memory cache to avoid repeated localStorage parse
+// Guarded loader: one corrupted/quota-truncated write to tasi_mpe_hist used to throw
+// inside every chart render until the user manually cleared storage.
+function _loadMpeHist() {
+  if (_mpeHistCache) return _mpeHistCache;
+  try { _mpeHistCache = JSON.parse(localStorage.getItem('tasi_mpe_hist') || '[]'); }
+  catch(e) { console.warn('tasi_mpe_hist corrupted — resetting', e); _mpeHistCache = []; }
+  if (!Array.isArray(_mpeHistCache)) _mpeHistCache = [];
+  return _mpeHistCache;
+}
 let _mktValIndicator = 'pe'; // active tile: 'pe'|'overall'|'buffett'|'ey'|'erp'|'dy'|'pb'|'br50'|'br200'|'cape'|'ps'|'hl52'
 
 function _mpeCalc() {
@@ -9963,7 +10137,7 @@ function updateMarketPEStats() {
   // Store today's calculated P/E + all indicator values in localStorage for historical charts
   try {
     const today = new Date().toISOString().slice(0,10);
-    if (!_mpeHistCache) _mpeHistCache = JSON.parse(localStorage.getItem('tasi_mpe_hist')||'[]');
+    _loadMpeHist();
     const existing = _mpeHistCache.findIndex(e=>e.d===today);
     const mc = _marketConditions();
     const overall = _computeOverallScore(mc);
@@ -10072,7 +10246,7 @@ function _renderMPEChart() {
   const cutoffMs  = Date.now() - rangeDays * 864e5;
 
   // Filter out pre-REIT-exclusion data (inflated entries with pe > 40)
-  const rawHist   = _mpeHistCache || JSON.parse(localStorage.getItem('tasi_mpe_hist')||'[]');
+  const rawHist   = _loadMpeHist();
   const validHist = rawHist.filter(e => e.pe > 0 && e.pe < 40);
   const storedMap = new Map(validHist.map(e=>[e.d, e]));
 
@@ -10335,7 +10509,7 @@ function _renderIndicatorHistChart(ctx) {
     _mktValHistCache = { cutoffMs, data: _buildMktValHistory(cutoffMs) };
   }
   const recon = _mktValHistCache.data;              // Map<dateStr,{...}>
-  const rawHist = _mpeHistCache || JSON.parse(localStorage.getItem('tasi_mpe_hist')||'[]');
+  const rawHist = _loadMpeHist();
   const merged  = new Map();
   for (const [d, v] of recon) {
     const val = v[_mktValIndicator];
@@ -10590,7 +10764,7 @@ function buildSectorPerf() {
     const border= pos ? '#166534'      : '#991b1b';
     const isActive = activeSector === name;
     return `<span class="sp-pill${isActive?' sp-active':''}" data-s="${escapeHTML(name)}" style="color:${color};background:${bg};border-color:${border}" onclick="setSector(this.dataset.s)" title="${count} stocks · daily avg">
-      ${name} <strong>${avg>=0?'+':''}${avg.toFixed(1)}%</strong>
+      ${escapeHTML(name)} <strong>${avg>=0?'+':''}${avg.toFixed(1)}%</strong>
     </span>`;
   };
 
