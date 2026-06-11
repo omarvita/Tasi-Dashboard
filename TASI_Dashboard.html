@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260611b'; // bump this string on every deploy that matters
+  var V='20260611c'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -286,7 +286,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label">v20260611b · one-click refresh: Drive prices show instantly while live data loads · auto-retry on proxy failure · TASI chart date fix · alert + yield fixes</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label">v20260611c · NEW: GitHub robot fetches prices 3×/day server-side (no proxies) — dashboard loads them instantly · TradingView fallback when Yahoo fails · daily auto-refresh scheduler (Settings ⚙)</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -8468,6 +8468,162 @@ function init(){
   setTimeout(autoDiscoverSaudiStocks, 3000);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// GITHUB SNAPSHOT — data/market_snapshot.json is written by a scheduled GitHub
+// Action (.github/workflows/market-data.yml) that fetches Yahoo SERVER-SIDE —
+// no CORS proxies involved — and is served same-origin by GitHub Pages. It is
+// the most reliable source available to the browser: one fetch that always
+// works, at most a few hours old on trading days. Live Yahoo quotes (Phase 2)
+// still override it when the proxies cooperate.
+// ═══════════════════════════════════════════════════════════════════════════
+let _snapshotData = null; // parsed snapshot, cached for the session
+async function loadRepoSnapshot() {
+  try {
+    if (!_snapshotData) {
+      const resp = await fetch(`data/market_snapshot.json?_cb=${Date.now()}`,
+        { cache: 'no-store', signal: AbortSignal.timeout(15000) });
+      if (!resp.ok) return 0; // 404 until the Action's first run — fine
+      _snapshotData = await _bodyJson(resp, 15000);
+    }
+    const snap = _snapshotData;
+    if (!snap?.quotes || !snap.generated) return 0;
+    if (Date.now() - snap.generated > 7*24*36e5) return 0; // ignore week-old snapshots
+    const snapDate = new Date(snap.generated).toISOString().slice(0, 10);
+    const idxMap = new Map(allData.map((d, i) => [d.ticker, i]));
+    let applied = 0;
+    for (const [tk, q] of Object.entries(snap.quotes)) {
+      const i = idxMap.get(tk);
+      if (i == null || q?.p == null || q.p <= 0) continue;
+      const d = allData[i];
+      // Never clobber a live quote from this session. A cached (Drive) price is
+      // replaced only when the snapshot is newer than that cache entry.
+      const cachedTs = _gdCache[tk]?.priceUpdated || 0;
+      const snapNewer = !d.priceLoaded || (!d._livePrice && snap.generated > cachedTs);
+      if (snapNewer) {
+        d.price = q.p;
+        if (q.c != null) d.change = q.c;
+        d.priceLoaded = true;
+        d._livePrice = false; // Phase 2/retry still fetch a true live quote
+        d.dataSource = 'gh-snapshot';
+        d.dataDate = snapDate;
+        if (q.pe > 0)  { d.pe = q.pe; d.livepeLoaded = true; }
+        if (q.eps > 0) d.eps = q.eps;
+        if (q.pb > 0)  d.pb = q.pb;
+        if (q.mc > 0)  d.mktCap = q.mc;
+        if (q.v  != null) d.volume = q.v;
+        if (q.av != null) d.avgVolume3M = q.av;
+        if (q.h52 > 0) d.w52high = q.h52;
+        if (q.l52 > 0) d.w52low  = q.l52;
+        if (q.dy != null) d.dy = q.dy; // already a fraction — normalized in the Action script
+        applied++;
+      }
+      // Closes: take the snapshot's history when it beats what we have
+      const sc = snap.closes?.[tk];
+      if (sc?.c?.length > (d.closes || []).length) {
+        d.closes = sc.c;
+        d.timestamps = sc.t || [];
+        if (d.closes.length > 5) {
+          const tRes = scoreTechnicalWithSteps(d.closes);
+          d.technical = tRes.score; d.techSteps = tRes.steps;
+          d.rsi = tRes.rsi; d.sma20 = tRes.sma20; d.sma50 = tRes.sma50; d.momentum = tRes.momentum;
+        }
+      }
+      if (snapNewer) { try { d.combined = calcCombined(d); } catch(e) {} }
+    }
+    // TASI index from the snapshot — same merge rule as fetchTASIIndex (never clobber longer history)
+    const st = snap.tasi;
+    if (st?.price > 0) {
+      const keepOld = (tasiIndex.closes || []).length > (st.closes || []).length;
+      tasiIndex = {
+        price: tasiIndex.price ?? st.price,
+        change: tasiIndex.change ?? st.change,
+        closes:     keepOld ? tasiIndex.closes     : (st.closes || []),
+        timestamps: keepOld ? tasiIndex.timestamps : (st.timestamps || []),
+        ytdReturn:  tasiIndex.ytdReturn ?? st.ytdReturn,
+      };
+    }
+    if (applied > 0) {
+      allData.forEach(_deriveSharesMktCap);
+      doFilter(); updateMetrics();
+      console.log(`[Snapshot] Applied ${applied} prices from GitHub snapshot (${snapDate})`);
+    }
+    return applied;
+  } catch(e) { console.warn('[Snapshot] load failed', e); return 0; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TRADINGVIEW FALLBACK — one POST to scanner.tradingview.com returns the whole
+// Tadawul market (price, change, P/E, EPS, P/B, mkt cap, volume, yield). Used
+// when the Yahoo bulk pass fails completely: a single request through a single
+// proxy beats retrying 20 Yahoo batches through dead proxies.
+// ═══════════════════════════════════════════════════════════════════════════
+async function _fetchTVQuotes() {
+  const body = {
+    columns: ['name','close','change','volume','market_cap_basic',
+              'price_earnings_ttm','earnings_per_share_basic_ttm',
+              'price_book_fq','dividends_yield_current'],
+    range: [0, 600],
+  };
+  const url = 'https://scanner.tradingview.com/saudi/scan';
+  let j = null;
+  // Direct first — TradingView may allow cross-origin POST; costs <8s if not
+  try {
+    const resp = await fetch(url, {
+      method: 'POST', headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(body), signal: AbortSignal.timeout(8000),
+    });
+    if (resp.ok) j = await _bodyJson(resp, 8000);
+  } catch(e) {}
+  if (!j?.data) { try { j = await fetchWithProxyPost(url, body); } catch(e) {} }
+  if (!Array.isArray(j?.data)) return 0;
+
+  const idxMap = new Map(allData.map((d, i) => [d.ticker, i]));
+  let applied = 0;
+  for (const row of j.data) {
+    // row.s is like "TADAWUL:1010" — map to the app's "1010.SR"
+    const m = /^TADAWUL:(\d{4})$/.exec(row.s || '');
+    if (!m) continue;
+    const i = idxMap.get(`${m[1]}.SR`);
+    if (i == null) continue;
+    const [, close, change, volume, mktCap, pe, eps, pb, dyPct] = row.d || [];
+    if (!(close > 0)) continue;
+    const d = allData[i];
+    if (d._livePrice) continue; // already have a live Yahoo quote this session
+    d.price = close;
+    if (change != null) d.change = change;
+    d.priceLoaded = true;
+    d._livePrice = true;
+    d.dataSource = 'tradingview';
+    d.dataDate = new Date().toISOString().slice(0, 10);
+    if (pe > 0)  { d.pe = +pe.toFixed(2); d.livepeLoaded = true; }
+    if (eps > 0) d.eps = +eps.toFixed(4);
+    if (pb > 0)  d.pb = +pb.toFixed(2);
+    if (mktCap > 0) d.mktCap = mktCap;
+    if (volume != null) d.volume = volume;
+    if (dyPct != null && dyPct >= 0) d.dy = +(dyPct / 100).toFixed(4); // TV yield is percent
+    if ((d.closes || []).length > 5) {
+      const tRes = scoreTechnicalWithSteps(d.closes);
+      d.technical = tRes.score; d.techSteps = tRes.steps;
+      d.rsi = tRes.rsi; d.sma20 = tRes.sma20; d.sma50 = tRes.sma50; d.momentum = tRes.momentum;
+    }
+    try { d.combined = calcCombined(d); } catch(e) {}
+    _gdCache[d.ticker] = Object.assign(_gdCache[d.ticker] || {}, {
+      priceData: Object.assign(_gdCache[d.ticker]?.priceData || {},
+        { price: d.price, change: d.change,
+          closes: (d.closes||[]).slice(-1260), timestamps: (d.timestamps||[]).slice(-1260),
+          volume: d.volume, avgVolume3M: d.avgVolume3M }),
+      priceUpdated: Date.now(),
+    });
+    applied++;
+  }
+  if (applied > 0) {
+    allData.forEach(_deriveSharesMktCap);
+    doFilter(); updateMetrics();
+    console.log(`[TradingView] Applied ${applied} live quotes via scanner fallback`);
+  }
+  return applied;
+}
+
 let _refreshInFlight = false;
 async function refreshAll(forceRefresh=false){
   // Concurrency guard: a second click (or the boot-chain retry, or the mobile-nav
@@ -8483,6 +8639,10 @@ async function refreshAll(forceRefresh=false){
   _resetDirectFailedHosts();
   _priceHistAttempted.clear();
   _enrichAttempted.clear();
+  // _livePrice means "live quote fetched THIS refresh". saveCache/loadCache round-trips
+  // whole stock objects, so yesterday's true could leak back in and make the retry
+  // pass / snapshot loader skip rows that actually need fresh data.
+  allData.forEach(d => { if (d._livePrice) d._livePrice = false; });
   const btn=document.getElementById("rbtn");
   if(btn){btn.disabled=true;btn.textContent="Loading...";}
   const pw=document.getElementById("pw");if(pw)pw.style.display="block";
@@ -8509,6 +8669,9 @@ async function refreshAll(forceRefresh=false){
     const plEl=document.getElementById("pl");if(plEl)plEl.textContent="Checking cache...";
     let hit=false;
     try{hit=await loadCache();}catch(e){hit=false;}
+    // loadCache Object.assigns whole cached objects — strip any persisted _livePrice
+    // flag so a stale "live" marker from a previous session can't suppress updates.
+    allData.forEach(d => { if (d._livePrice) d._livePrice = false; });
     if(hit){
       const loaded=allData.filter(d=>d.priceLoaded).length;
       if(loaded===0){
@@ -8563,6 +8726,12 @@ async function refreshAll(forceRefresh=false){
       }
       doFilter();updateMetrics();
       checkAlerts(); // cache-hit path previously skipped alert checks for the whole session
+      // Background: the GitHub Action snapshot may be newer than this morning's cache —
+      // apply any fresher prices without blocking the cache-restored render.
+      loadRepoSnapshot().then(n => { if (n > 0) {
+        document.getElementById("pl").textContent = `✓ Cache + ${n} newer prices from GitHub snapshot`;
+        checkAlerts();
+      }}).catch(()=>{});
       return;
       } // end else (loaded>0): a price-less cache falls through to live fetch below
     }
@@ -8667,6 +8836,21 @@ async function refreshAll(forceRefresh=false){
       doFilter(); updateMetrics();
       document.getElementById("pl").textContent = `Showing ${pricesFromDrive} cached prices from Drive — fetching live prices…`;
       document.getElementById("lu").textContent = `${pricesFromDrive}/${allData.length} cached — refreshing…`;
+    }
+  }
+
+  // ── Phase 1.5: GitHub Action snapshot — same-origin, no proxies, always works ──
+  // One fetch covers prices + closes + TASI for every stock. On trading days it is
+  // at most a few hours old (refreshed 10:30 / 12:05 / 15:30 Saudi time). Live
+  // Yahoo quotes in Phase 2 still overwrite it where the proxies cooperate.
+  if (!_refreshAborted) {
+    document.getElementById("pl").textContent = "Loading bundled market snapshot…";
+    const snapN = await loadRepoSnapshot();
+    if (snapN > 0) {
+      const ageH = _snapshotData?.generated ? Math.max(0, Math.round((Date.now() - _snapshotData.generated)/36e5)) : null;
+      document.getElementById("pl").textContent = `Snapshot: ${snapN} prices${ageH != null ? ` (${ageH}h old)` : ''} — fetching live quotes…`;
+      document.getElementById("lu").textContent = `${allData.filter(d=>d.priceLoaded).length}/${allData.length} loaded — refreshing…`;
+      document.getElementById("pf").style.width = '55%';
     }
   }
 
@@ -8776,14 +8960,21 @@ async function refreshAll(forceRefresh=false){
   }; // end _phase2Pass
   let _p2Applied = await _phase2Pass();
   if (_p2Applied === 0 && allData.some(d => d.ticker.endsWith('.SR'))) {
-    // Every batch failed — proxies blocked or rate-limited. One automatic retry
-    // after a pause (proxies often recover within seconds) instead of making the
-    // user click Refresh again.
-    console.warn('[refreshAll] Phase 2 got 0 live quotes — automatic retry in 4s');
-    document.getElementById("pl").textContent = '⚠ All price requests failed — retrying automatically in 4s…';
-    await new Promise(r => setTimeout(r, 4000));
-    _resetDirectFailedHosts();
-    _p2Applied = await _phase2Pass();
+    // Every batch failed — proxies blocked or rate-limited. Try TradingView's
+    // scanner first: ONE request returns the whole Tadawul market, so it beats
+    // re-running 20 Yahoo batches through proxies that just failed.
+    console.warn('[refreshAll] Phase 2 got 0 live quotes — trying TradingView scanner');
+    document.getElementById("pl").textContent = '⚠ Yahoo unreachable — trying TradingView (1 request, all stocks)…';
+    _p2Applied = await _fetchTVQuotes();
+    if (_p2Applied === 0) {
+      // TradingView failed too — one automatic Yahoo retry after a pause
+      // (proxies often recover within seconds) instead of making the user click again.
+      document.getElementById("pl").textContent = '⚠ All price requests failed — retrying automatically in 4s…';
+      await new Promise(r => setTimeout(r, 4000));
+      _resetDirectFailedHosts();
+      _p2Applied = await _phase2Pass();
+      if (_p2Applied === 0) _p2Applied = await _fetchTVQuotes(); // last resort, second TV attempt
+    }
   }
 
   // ── Phase 2 retry: stocks that got no price in the batch pass ──
@@ -8791,7 +8982,14 @@ async function refreshAll(forceRefresh=false){
   // silently come back empty. Retry them one at a time with a small delay.
   // Retry anything without a LIVE quote — includes stocks showing a cached Drive
   // price (priceLoaded=true but _livePrice=false), which still need a fresh price.
-  const _failed = allData.filter(d => !d._livePrice && d.ticker.endsWith('.SR'));
+  let _failed = allData.filter(d => !d._livePrice && d.ticker.endsWith('.SR'));
+  if (_failed.length > 60) {
+    // Too many gaps for the 5-at-a-time retry loop (12s/batch adds up) — one
+    // TradingView request fills the bulk of them, then the loop mops up the rest.
+    document.getElementById("pl").textContent = `Filling ${_failed.length} missing prices via TradingView…`;
+    const tvFilled = await _fetchTVQuotes();
+    if (tvFilled > 0) _failed = allData.filter(d => !d._livePrice && d.ticker.endsWith('.SR'));
+  }
   if (_failed.length) {
     document.getElementById("pl").textContent = `Retrying ${_failed.length} stocks that missed live price…`;
     for (let ri = 0; ri < _failed.length; ri += 5) {
@@ -10774,6 +10972,45 @@ function buildSectorPerf() {
 }
 
 // ═══════════════════════════════════════
+// SCHEDULED AUTO-REFRESH — while a tab is open, refresh everything at the
+// configured hour (default 12:00) and push all data to Google Drive.
+// The GitHub Action covers the closed-tab case by updating the bundled
+// snapshot 3× per trading day server-side.
+// ═══════════════════════════════════════
+function _autoRefreshCfg() {
+  try {
+    const c = JSON.parse(localStorage.getItem('tasi_auto_refresh') || 'null');
+    if (c && typeof c.hour === 'number') return c;
+  } catch(e) {}
+  return { on: false, hour: 12 };
+}
+function saveAutoRefresh() {
+  const on   = !!document.getElementById('ar-on')?.checked;
+  const hour = Math.min(23, Math.max(0, +(document.getElementById('ar-hour')?.value ?? 12)));
+  localStorage.setItem('tasi_auto_refresh', JSON.stringify({ on, hour }));
+  showToast(on
+    ? `⏰ Auto-refresh ON — daily at ${String(hour).padStart(2,'0')}:00 while a tab is open`
+    : 'Auto-refresh disabled');
+}
+function _autoRefreshTick() {
+  const cfg = _autoRefreshCfg();
+  if (!cfg.on || _refreshInFlight) return;
+  const now = new Date();
+  if (now.getHours() !== cfg.hour || now.getMinutes() > 5) return; // 5-min window at HH:00
+  const key = `${now.toDateString()}@${cfg.hour}`;
+  if (localStorage.getItem('tasi_auto_refresh_last') === key) return; // once per day
+  localStorage.setItem('tasi_auto_refresh_last', key);
+  showToast('⏰ Scheduled auto-refresh — fetching fresh data…');
+  // Force=true bypasses the morning cache so the data is genuinely fresh; the tail
+  // of refreshAll already saves prices to IndexedDB + Drive. Statements are saved
+  // explicitly so "everything possible" lands on Drive after the scheduled run.
+  refreshAll(true).then(() => {
+    if (GD_TOKEN) { gdSaveBulkPrices().catch(()=>{}); gdSaveStatementsBulk().catch(()=>{}); }
+  }).catch(()=>{});
+}
+setInterval(_autoRefreshTick, 60 * 1000);
+
+// ═══════════════════════════════════════
 // BOOT — init runs SYNCHRONOUSLY first so table appears immediately
 // DB opens async in background (safe on Android content:// URLs)
 // ═══════════════════════════════════════
@@ -10857,6 +11094,22 @@ function buildSectorPerf() {
 
     <hr class="sp-divider">
 
+    <!-- Scheduled Auto-Refresh -->
+    <div style="font-family:var(--mono);font-size:10px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Scheduled Auto-Refresh</div>
+    <div class="sp-desc" style="margin-bottom:8px">
+      Refreshes ALL data and saves everything to Google Drive automatically at the chosen hour — works whenever this page is open in any tab.<br>
+      Separately, a GitHub robot updates the bundled price snapshot 3× per trading day (10:30, 12:05, 15:30 Saudi time) even when the page is closed — the dashboard loads it on every refresh, so prices are never more than a few hours old.
+    </div>
+    <div class="sp-row" style="align-items:center;gap:10px;flex-wrap:wrap">
+      <label style="font-family:var(--mono);font-size:10px;color:var(--tx2);display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="ar-on"> Daily auto-refresh at
+      </label>
+      <select id="ar-hour" class="sp-input" style="width:86px;flex:none"></select>
+      <button class="sp-btn" onclick="saveAutoRefresh()">💾 Save</button>
+    </div>
+
+    <hr class="sp-divider">
+
     <!-- Combined Score Weights -->
     <div style="font-family:var(--mono);font-size:10px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Combined Score Weights</div>
     <div class="sp-desc" style="margin-bottom:10px">
@@ -10878,6 +11131,17 @@ function buildSectorPerf() {
 
 <div id="tt"></div>
 <script>
+// Populate the auto-refresh controls from saved config (runs after the settings HTML exists)
+(function(){
+  try {
+    const cfg = _autoRefreshCfg();
+    const sel = document.getElementById('ar-hour');
+    if (sel) sel.innerHTML = Array.from({length:24}, (_,h) =>
+      `<option value="${h}"${h===cfg.hour?' selected':''}>${String(h).padStart(2,'0')}:00</option>`).join('');
+    const cb = document.getElementById('ar-on');
+    if (cb) cb.checked = !!cfg.on;
+  } catch(e) {}
+})();
 (function(){
   const tt=document.getElementById('tt');
   let _t;

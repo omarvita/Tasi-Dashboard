@@ -1,0 +1,44 @@
+name: Market data snapshot
+
+# Saudi market trades Sun–Thu 10:00–15:00 AST (UTC+3).
+# Cron is UTC: 07:30 = 10:30 AST (mid-morning), 09:05 = 12:05 PM AST (the
+# requested "12 o'clock" refresh), 12:30 = 15:30 AST (just after close).
+on:
+  schedule:
+    - cron: '30 7 * * 0-4'
+    - cron: '5 9 * * 0-4'
+    - cron: '30 12 * * 0-4'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: market-data
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Fetch market data from Yahoo Finance
+        run: node scripts/fetch_market_data.mjs
+
+      - name: Commit snapshot if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/market_snapshot.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: market data snapshot $(date -u +'%Y-%m-%d %H:%M UTC')"
+            git push
+          fi
