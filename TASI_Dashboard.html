@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260613d'; // bump this string on every deploy that matters
+  var V='20260613e'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -90,8 +90,11 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 .b-reit{background:#1e1b4b;color:#818cf8;border:1px solid #3730a3;font-size:7px;margin-left:2px}
 .b-live{background:var(--adm);color:var(--acc);border:1px solid var(--acc);font-size:7px}
 .b-est{background:#1a1a2e;color:var(--tx3);border:1px solid var(--b2);font-size:7px}
-.b-snap{background:#172554;color:var(--blue);border:1px solid #1e40af;font-size:7px}
-.b-cache{background:#27272a;color:var(--tx2);border:1px solid var(--b2);font-size:7px}
+.b-snap{background:#172554;color:var(--blue);border:1px solid #1e40af;font-size:7px;opacity:.65}
+.b-cache{background:#27272a;color:var(--tx2);border:1px solid var(--b2);font-size:7px;opacity:.65}
+/* Version label: one line with ellipsis; click/tap to expand the changelog */
+#ver-label{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}
+#ver-label.expanded{-webkit-line-clamp:unset}
 /* BUTTONS */
 .dbtn{font-family:var(--mono);font-size:9px;padding:2px 6px;background:var(--bg3);border:1px solid var(--b2);border-radius:3px;color:var(--tx2);cursor:pointer;transition:all .12s}
 .dbtn:hover{border-color:var(--acc);color:var(--acc)}
@@ -222,6 +225,16 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 .mob-menu-item{font-family:var(--mono);font-size:10px;padding:7px 10px;background:none;border:none;color:var(--tx2);cursor:pointer;border-radius:5px;text-align:left;width:100%}
 .mob-menu-item:active,.mob-menu-item:hover{background:var(--bg3);color:var(--tx)}
 .mob-more-wrap{position:relative;display:none}
+/* ─── LIGHT THEME OVERRIDES ───
+   toggleTheme() swaps CSS variables, but several elements hardcode dark values
+   inline (#1a1a2e buttons, the amber-on-black disclaimer). body.light is set by
+   toggleTheme(); these !important rules pull those elements into the light look. */
+body.light .rbtn[style*="1a1a2e"], body.light label.rbtn[style*="1a1a2e"] {
+  background:var(--bg2) !important; border-color:var(--b2) !important; color:var(--tx2) !important;
+}
+body.light #disclaimer-bar { background:#fff7ed !important; border-bottom-color:#f59e0b !important; color:#92400e !important; }
+body.light #disclaimer-bar button { color:#92400e !important; border-color:#92400e66 !important; }
+body.light .b-est { background:var(--bg3); color:var(--tx2); }
 /* ─── MOBILE RESPONSIVE ─── */
 .mob-only{display:none}
 @media (max-width: 640px) {
@@ -236,8 +249,12 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
   .topbar { padding: 7px 10px; height: auto; min-height: 50px; flex-wrap: wrap; row-gap: 4px; }
   .logo { flex: 1 1 60%; min-width: 0; }
   .logo > div:last-child { min-width: 0; }
-  #ver-label { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-               overflow: hidden; font-size: 8px !important; line-height: 1.4; }
+  #ver-label { font-size: 8px !important; line-height: 1.4; }
+  /* Disclaimer: clamp to 2 lines on phones (40% of the first screen otherwise);
+     tap the text to expand the full legal wording */
+  #disclaimer-text { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+                     overflow:hidden; cursor:pointer; }
+  #disclaimer-text.expanded { -webkit-line-clamp:unset; }
   .tr { flex: 0 1 auto; margin-left: auto; align-items: flex-start; }
   .logo-sub { display: none; }
   .logo-icon { width: 28px; height: 28px; font-size: 10px; }
@@ -254,47 +271,75 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
   .ctrl { gap:4px; }
   .sw { min-width:100%; max-width:100%; order:-1; flex-basis:100%; }
   .ctrl select,.ctrl button { font-size:9px; padding:5px 7px; }
-  /* Compact mode (default): ticker+name, price, chg%, PEG, Score, Fair Val, ★, ⊕.
-     Signal column hidden — it shows as a small chip next to the ticker instead.
-     Width budget on a 360px phone is ~340px for 9 columns, so every saving counts:
-     provenance badges hidden, score bar → colored number, paddings 2px, widths auto. */
+  /* ── CARD LAYOUT (compact mode, default on phones) ──
+     The desktop table can't fit 9 columns on a 360px screen, so each row
+     renders as a card via CSS grid: ticker+name left, price/chg right,
+     ★/⊕ on the edge, and a labelled PEG · SCORE · FAIR VAL stats line below.
+     No HTML change: tds are repositioned by nth-child (hidden cols keep their
+     display:none, so positions are stable). ⊞ All Columns still shows the
+     classic table with horizontal scroll. */
   .col-co,.col-pe,.col-eg,.col-fu,.col-te,.col-bu,.col-vw,.col-sig { display:none !important; }
-  .mob-sig { display:inline-block !important; font-size:6px; padding:0 3px; margin-left:4px; vertical-align:1px; }
-  /* Watchlist ★ and compare ⊕ — still tappable but narrower */
-  .col-st span, .col-cp span { font-size:15px !important; padding:3px 1px; }
+  .mob-sig { display:inline-block !important; font-size:7px; padding:1px 4px; margin-left:5px; vertical-align:1px; }
   table { table-layout:auto; }
   td { padding:7px 2px !important; vertical-align:middle !important; }
   th { padding:6px 2px !important; font-size:8px; vertical-align:middle !important; }
-  /* Ticker cell: stack ticker + company centered, not top-aligned */
-  .tk { display:table-cell; vertical-align:middle !important; }
-  #tbody td { vertical-align:middle !important; }
-  /* Safety net: if content still exceeds the viewport, scroll instead of clipping */
-  .tw { overflow-x:auto; -webkit-overflow-scrolling:touch; }
-  /* Inline desktop th widths (82px Score etc.) force overflow — let content pack */
-  body:not(.mob-full) thead th { width:auto !important; }
-  /* LIVE/SNAP/CACHE provenance badge next to every price eats ~40px — hide it
-     in compact (EST stays: it warns the row is hardcoded estimates) */
+  body:not(.mob-full) .tw { background:transparent; border:none; border-radius:0; overflow:visible; }
+  body:not(.mob-full) .tw > table,
+  body:not(.mob-full) .tw > table tbody { display:block; }
+  body:not(.mob-full) .tw > table thead { display:none; }
+  body:not(.mob-full) tr.data-row {
+    display:grid;
+    grid-template-columns: minmax(0,1.15fr) minmax(0,0.85fr) minmax(0,1.1fr) 30px;
+    grid-template-rows: auto auto auto;
+    column-gap:8px; row-gap:4px;
+    align-items:center;
+    background:var(--bg2); border:1px solid var(--b1); border-radius:10px;
+    padding:9px 11px 8px; margin-bottom:7px;
+  }
+  body:not(.mob-full) tr.data-row td { display:block; padding:0 !important; border:none !important; min-width:0 !important; }
+  body:not(.mob-full) tr.data-row td:nth-child(1)  { display:none !important; }      /* rank */
+  body:not(.mob-full) tr.data-row td:nth-child(2)  { grid-area:1/1/3/3; }            /* ticker + name */
+  body:not(.mob-full) tr.data-row td:nth-child(4)  { grid-area:1/3/2/4; text-align:right; white-space:nowrap; } /* price */
+  body:not(.mob-full) tr.data-row td:nth-child(15) { grid-area:1/4/2/5; text-align:center; } /* ★ */
+  body:not(.mob-full) tr.data-row td:nth-child(5)  { grid-area:2/3/3/4; text-align:right; font-size:10px; } /* chg% */
+  body:not(.mob-full) tr.data-row td:nth-child(16) { grid-area:2/4/3/5; text-align:center; } /* ⊕ */
+  body:not(.mob-full) tr.data-row td:nth-child(8)  { grid-area:3/1/4/2; }             /* PEG */
+  body:not(.mob-full) tr.data-row td:nth-child(12) { grid-area:3/2/4/3; }             /* score */
+  body:not(.mob-full) tr.data-row td:nth-child(14) { grid-area:3/3/4/5; }             /* fair val */
+  /* Stats line: small uppercase label above each value */
+  body:not(.mob-full) tr.data-row td:nth-child(8)::before,
+  body:not(.mob-full) tr.data-row td:nth-child(12)::before,
+  body:not(.mob-full) tr.data-row td:nth-child(14)::before {
+    display:block; font-family:var(--mono); font-size:7px; color:var(--tx3);
+    letter-spacing:.08em; margin-bottom:1px;
+  }
+  body:not(.mob-full) tr.data-row td:nth-child(8)::before  { content:'PEG'; }
+  body:not(.mob-full) tr.data-row td:nth-child(12)::before { content:'SCORE'; }
+  body:not(.mob-full) tr.data-row td:nth-child(14)::before { content:'FAIR VAL'; }
+  body:not(.mob-full) tr.data-row td:nth-child(8) span { font-size:11px !important; }
+  /* Fair Val cell: stack its value/upside divs inline on one line */
+  body:not(.mob-full) tr.data-row td:nth-child(14) div { display:inline-block !important; margin-right:5px; border:none !important; padding:0 !important; vertical-align:baseline; }
+  body:not(.mob-full) tr.data-row td:nth-child(14) div[style*="font-size:10px"] { font-size:11px !important; font-weight:700 !important; }
+  body:not(.mob-full) tr.data-row td:nth-child(14) div[style*="font-size:8px"]  { font-size:9px !important; }
+  body:not(.mob-full) tr.data-row td:nth-child(14) div[style*="font-size:7.5px"] { display:none !important; } /* analyst microline — too dense for cards */
+  /* LIVE/SNAP/CACHE provenance badges: summary lives in the header; EST stays
+     because it warns the row is hardcoded estimates */
   body:not(.mob-full) #tbody .b-live, body:not(.mob-full) #tbody .b-snap,
   body:not(.mob-full) #tbody .b-cache { display:none !important; }
   /* Score: drop the bar track, keep just the colored number */
   body:not(.mob-full) #tbody .bt { display:none !important; }
-  body:not(.mob-full) #tbody .bn { font-size:11px; font-weight:700; min-width:0; }
-  /* Fair Val: main price number should match score size/weight */
-  body:not(.mob-full) #tbody .col-tr div[style*="font-size:10px"] { font-size:11px !important; font-weight:700 !important; }
-  /* Fair Val % line: keep smaller but legible */
-  body:not(.mob-full) #tbody .col-tr div[style*="font-size:8px"] { font-size:8.5px !important; }
-  /* Override inline td min-widths (54/52/44/60px) so columns can pack tighter */
-  body:not(.mob-full) #tbody td:nth-child(2)  { min-width:48px !important; }
-  body:not(.mob-full) #tbody td:nth-child(4)  { min-width:42px !important; }
-  body:not(.mob-full) #tbody td:nth-child(5)  { min-width:36px !important; font-size:9px; }
-  body:not(.mob-full) #tbody td:nth-child(12) { min-width:0 !important; }
+  body:not(.mob-full) #tbody .bn { font-size:12px; font-weight:700; min-width:0; text-align:left; }
+  /* Touch targets for ★ / ⊕ */
+  body:not(.mob-full) .col-st span, body:not(.mob-full) .col-cp span { font-size:18px !important; padding:4px; }
+  body.mob-full .col-st span, body.mob-full .col-cp span { font-size:15px !important; padding:3px 1px; }
   .rk { font-size:8px; }
   .bw { gap:2px; }
   .bt { min-width:16px; }
   .bn { font-size:9px; min-width:14px; }
-  /* Full company name under the ticker, clamped to 2 lines */
-  .mob-company { display:-webkit-box !important; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; white-space:normal; max-width:80px; font-size:7.5px; color:var(--tx3); line-height:1.3; }
-  .pv { font-size:11px; }
+  /* Full company name under the ticker — cards have room for it */
+  .mob-company { display:block !important; white-space:normal; max-width:none; font-size:9px; color:var(--tx3); line-height:1.35; margin-top:1px; }
+  body:not(.mob-full) .tk { font-size:12px; }
+  body:not(.mob-full) .pv { font-size:14px; font-weight:600; }
   /* ⊞ All Columns mode: every desktop column, horizontal scroll, sticky #/Ticker.
      Densified — tighter fonts/padding/bars so most columns fit one screen-width;
      th width overrides (!important beats the inline desktop widths) let the
@@ -394,7 +439,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label">v20260613d · table cells vertically centered · score/fair-val same size</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260613e · mobile card rows · light theme polish · honest data-source labels · collapsible disclaimer & changelog</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -428,7 +473,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 </header>
 
 <div id="disclaimer-bar" style="background:#1a1000;border-bottom:1px solid #a16207;padding:6px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-family:var(--mono);font-size:10px;color:#d97706;line-height:1.5">
-  <span>⚖ <strong>For personal research only.</strong> Scores, signals (BUY/HOLD/SELL), and valuations are algorithmic estimates — not investment advice. Providing investment recommendations to others without a <strong>CMA licence</strong> is regulated under Saudi Capital Market Law. Past performance does not guarantee future results.</span>
+  <span id="disclaimer-text" onclick="this.classList.toggle('expanded')">⚖ <strong>For personal research only.</strong> Scores, signals (BUY/HOLD/SELL), and valuations are algorithmic estimates — not investment advice. Providing investment recommendations to others without a <strong>CMA licence</strong> is regulated under Saudi Capital Market Law. Past performance does not guarantee future results.</span>
   <button onclick="this.parentElement.style.display='none';localStorage.setItem('tasi_disc','1')" style="background:none;border:1px solid #a1620755;color:#a16207;border-radius:4px;padding:2px 8px;cursor:pointer;font-family:var(--mono);font-size:9px;white-space:nowrap;flex-shrink:0">Dismiss</button>
 </div>
 <script>if(localStorage.getItem('tasi_disc')==='1')document.getElementById('disclaimer-bar').style.display='none';</script>
@@ -2782,6 +2827,8 @@ function toggleTheme() {
   }
   const btn = document.getElementById('theme-btn');
   if(btn) btn.textContent = isDark ? '☀ Light' : '🌙 Dark';
+  // class hook for CSS overrides of hardcoded dark inline styles (buttons, disclaimer)
+  document.body.classList.toggle('light', !isDark);
   try { localStorage.setItem('TASI_theme', isDark?'dark':'light'); } catch(e){}
 }
 function loadTheme() {
@@ -2935,7 +2982,7 @@ function renderPortfolioHTML(stats) {
     <div class="mi"><div class="mil">P&L</div><div class="miv" style="color:${pnlColor}">${stats.totalPnL>=0?'+':''}${stats.totalPnL.toFixed(0)} SAR<br><span style="font-size:9px">(${stats.totalPnLPct.toFixed(1)}%)</span></div></div>
     <div class="mi"><div class="mil">Annual Dividends</div><div class="miv" style="color:var(--green)">${stats.totalAnnualDiv.toFixed(0)} SAR<br><span style="font-size:9px">${divYield.toFixed(2)}% yield on cost</span></div></div>
     <div class="mi"><div class="mil" data-tip="Value-weighted average beta of all positions. Below 1 = less volatile than TASI index.">Portfolio Beta</div><div class="miv" style="color:${betaClr}">${stats.portBeta?.toFixed(2)||'—'}</div></div>
-    <div class="mi"><div class="mil">Avg Score</div><div class="miv" style="color:${sc(stats.avgScore)}">${stats.avgScore}/100</div></div>
+    <div class="mi"><div class="mil">Avg Score</div><div class="miv" style="color:${stats.totalValue>0?sc(stats.avgScore):'var(--tx3)'}">${stats.totalValue>0?stats.avgScore+'/100':'—'}</div></div>
   </div>`;
 
   if (stats.positions.length === 0) {
@@ -5802,7 +5849,12 @@ function _renderModalShell(d) {
     <div class="mhtop">
       <div>
         <div class="mtitle">${escapeHTML(d.name)} ${moat}${reit}${_capTier?` <span style="color:${_capTier.color};font-size:8px;font-family:var(--mono)">${_capTier.label}</span>`:''}</div>
-        <div class="msub">${escapeHTML(d.ticker)} · ${escapeHTML(d.sector)} · Signal: <span class="badge ${sig.cls}">${sig.label}</span> &nbsp;<span style="font-family:var(--mono);font-size:9px;font-weight:600;padding:2px 7px;border-radius:3px;background:${_risk.color}22;color:${_risk.color};border:1px solid ${_risk.color}55" title="Risk factors: ${_risk.flags.join(', ')||'None identified'}">Risk: ${_risk.level}</span> · ${d.priceLoaded?'<span style="color:var(--acc)">● Live data</span>':'<span style="color:var(--tx3)">○ Loading…</span>'}</div>
+        <div class="msub">${escapeHTML(d.ticker)} · ${escapeHTML(d.sector)} · Signal: <span class="badge ${sig.cls}">${sig.label}</span> &nbsp;<span style="font-family:var(--mono);font-size:9px;font-weight:600;padding:2px 7px;border-radius:3px;background:${_risk.color}22;color:${_risk.color};border:1px solid ${_risk.color}55" title="Risk factors: ${_risk.flags.join(', ')||'None identified'}">Risk: ${_risk.level}</span> · ${(()=>{ // honest provenance: only call it Live when the quote came from this session
+          if (d._livePrice) return '<span style="color:var(--acc);white-space:nowrap">● Live data</span>';
+          if (d.dataSource === 'gh-snapshot') return `<span style="color:var(--blue);white-space:nowrap" title="Server snapshot fetched by GitHub Action${d._priceTs?' · '+new Date(d._priceTs).toLocaleString('en-SA',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):''}">● Snapshot${d._priceTs?' '+new Date(d._priceTs).toLocaleTimeString('en-SA',{hour:'2-digit',minute:'2-digit'}):''}</span>`;
+          if (d.priceLoaded) return '<span style="color:var(--tx2);white-space:nowrap">● Cached price</span>';
+          return '<span style="color:var(--tx3);white-space:nowrap">○ Loading…</span>';
+        })()}</div>
       </div>
       <div style="display:flex;gap:4px;align-items:center">
         <button id="fs-btn" onclick="toggleModalFS()" title="Toggle fullscreen" style="width:22px;height:22px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;cursor:pointer;color:var(--tx2);font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .12s;padding:0" onmouseover="this.style.borderColor='var(--acc)';this.style.color='var(--acc)'" onmouseout="this.style.borderColor='var(--b2)';this.style.color='var(--tx2)'">⛶</button>
@@ -6268,9 +6320,14 @@ function buildOverview(d){
   <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
     <span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Data source:</span>
     ${d.dataDate?`<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Period: ${d.dataDate}</span>`:''}
-    ${d.priceLoaded?
-      '<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:#1a1a2e;color:var(--blue);border:1px solid var(--blue)">✓ Yahoo Finance Live</span>':
-      '<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:var(--bg3);color:var(--tx3);border:1px solid var(--b1)">Hardcoded estimates</span>'}
+    ${(()=>{ // label must reflect where the price actually came from
+      const pill = (txt,col) => `<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:var(--bg3);color:${col};border:1px solid ${col}">${txt}</span>`;
+      const ts = d._priceTs ? new Date(d._priceTs).toLocaleString('en-SA',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+      if (d._livePrice) return pill('✓ Yahoo Finance Live'+(ts?' · '+ts:''),'var(--acc)');
+      if (d.dataSource === 'gh-snapshot') return pill('GitHub snapshot'+(ts?' · '+ts:''),'var(--blue)');
+      if (d.priceLoaded) return pill('Cached price'+(ts?' · '+ts:''),'var(--tx2)');
+      return pill('Hardcoded estimates','var(--tx3)');
+    })()}
     ${d.fullLoaded?'<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;background:var(--gdim);color:var(--green);border:1px solid #166534">✓ Full data loaded</span>':'<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">Full fundamentals load when you click a stock</span>'}
     ${d.beta!=null?`<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)" ${T('beta')}>Beta: ${d.beta.toFixed(2)}</span>`:''}
     ${d.mktCap!=null?`<span style="font-family:var(--mono);font-size:9px;color:var(--tx3)" ${T('mktcap')}>Market cap: ${(d.mktCap/1e9).toFixed(1)}B SAR</span>`:''}
