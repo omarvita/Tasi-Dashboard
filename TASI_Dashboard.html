@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260612d'; // bump this string on every deploy that matters
+  var V='20260613a'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -292,10 +292,42 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
   body.mob-full .mob-sig { display:none !important; }
   body.mob-full .tw > table th:nth-child(1), body.mob-full .tw > table td:nth-child(1) { position:sticky; left:0; background:var(--bg2); z-index:2; width:20px !important; }
   body.mob-full .tw > table th:nth-child(2), body.mob-full .tw > table td:nth-child(2) { position:sticky; left:20px; background:var(--bg2); z-index:2; }
-  /* modal: bottom sheet style */
-  .modal-overlay { align-items:flex-end; padding:0; }
-  .modal { width:100% !important; border-radius:12px 12px 0 0; max-height:94vh; }
+  /* ── MODAL: true bottom sheet on mobile ── */
+  /* The overlay (.mo) must align-end so the modal panel sits at the bottom of the screen.
+     z-index:300 keeps the modal above the bottom nav bar (z-index:200). */
+  .mo { align-items:flex-end !important; padding:0 !important; z-index:300 !important; }
+  .modal { width:100% !important; border-radius:14px 14px 0 0 !important; max-height:94vh !important; }
+  /* Tighter header/body padding inside modal — 360px viewport → more content space */
+  .mhead { padding:10px 10px 0 !important; }
+  .mbody { padding:10px 10px calc(14px + env(safe-area-inset-bottom, 0px)) !important; }
+  /* Tabs: keep existing touch-friendly target */
   .tab { font-size:10px; padding:9px 11px; }
+  /* ── SCORE CARDS: smaller number on narrow screens ── */
+  .sval { font-size:16px !important; }
+  /* ── SCORE BREAKDOWN: wrap 'why' reasoning to a second line ──
+     The row has: [label 135px] [raw 65px] [why flex:1] [pts] [arrow]
+     On a 340px body that leaves only ~68px for the why column — unreadable.
+     Solution: allow flex-wrap and push the why div (3rd child) to order:10
+     so it fills a second line at full width while label/raw/pts/arrow stay on line 1. */
+  .sb-row { flex-wrap:wrap !important; align-items:center !important; }
+  .sb-row > div:first-child  { flex:0 0 105px !important; }
+  .sb-row > div:nth-child(2) { flex:0 0 52px  !important; }
+  .sb-row > div:nth-child(3) { order:10 !important; flex:0 0 100% !important;
+                                margin-top:2px !important; font-size:9px !important;
+                                padding:0 !important; line-height:1.4 !important; }
+  /* ── 4-COLUMN GRIDS → 2 columns on mobile ── */
+  .mgrid4 { grid-template-columns:repeat(2,1fr) !important; }
+  /* ── FORMULA BOX: smaller font + word-wrap ── */
+  .formula-box { font-size:9px !important; word-break:break-word; overflow-wrap:break-word; }
+  /* ── FINANCIAL TABLES: smaller font + tighter padding ── */
+  .ft { font-size:9px !important; }
+  .ft th { font-size:8px !important; padding:3px 5px !important; }
+  .ft td { padding:3px 5px !important; font-size:9px !important; }
+  .ft td:first-child { min-width:90px !important; font-size:9px !important; }
+  /* ── METRIC ITEMS: slightly smaller value font ── */
+  .miv { font-size:11px !important; }
+  /* ── SETTINGS PANEL: tighter padding ── */
+  .settings-panel { padding:14px 12px !important; }
 }
 #tt{position:fixed;z-index:99999;max-width:270px;background:#05050f;border:1px solid #2d3748;border-radius:6px;padding:7px 11px;font-family:var(--mono);font-size:9px;line-height:1.65;color:#94a3b8;pointer-events:none;display:none;box-shadow:0 6px 24px rgba(0,0,0,.8);word-break:break-word}
 [data-tip]{cursor:help}
@@ -326,7 +358,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label">v20260612d · mobile: compact view now shows full name·PEG·Fair Val·★·⊕ with signal chip on ticker · modal tabs auto-center + jump to top · bigger tap targets</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label">v20260613a · mobile: modal is now a bottom sheet · score breakdown wraps 'why' text · 4-col grids → 2-col · tighter modal padding · smaller ft/formula fonts</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
