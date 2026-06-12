@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260613b'; // bump this string on every deploy that matters
+  var V='20260613c'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -263,8 +263,8 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
   /* Watchlist ★ and compare ⊕ — still tappable but narrower */
   .col-st span, .col-cp span { font-size:15px !important; padding:3px 1px; }
   table { table-layout:auto; }
-  td { padding:7px 2px; }
-  th { padding:6px 2px; font-size:8px; }
+  td { padding:7px 2px; vertical-align:middle; }
+  th { padding:6px 2px; font-size:8px; vertical-align:middle; }
   /* Safety net: if content still exceeds the viewport, scroll instead of clipping */
   .tw { overflow-x:auto; -webkit-overflow-scrolling:touch; }
   /* Inline desktop th widths (82px Score etc.) force overflow — let content pack */
@@ -276,6 +276,10 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
   /* Score: drop the bar track, keep just the colored number */
   body:not(.mob-full) #tbody .bt { display:none !important; }
   body:not(.mob-full) #tbody .bn { font-size:11px; font-weight:700; min-width:0; }
+  /* Fair Val: main price number should match score size/weight */
+  body:not(.mob-full) #tbody .col-tr div[style*="font-size:10px"] { font-size:11px !important; font-weight:700 !important; }
+  /* Fair Val % line: keep smaller but legible */
+  body:not(.mob-full) #tbody .col-tr div[style*="font-size:8px"] { font-size:8.5px !important; }
   /* Override inline td min-widths (54/52/44/60px) so columns can pack tighter */
   body:not(.mob-full) #tbody td:nth-child(2)  { min-width:48px !important; }
   body:not(.mob-full) #tbody td:nth-child(4)  { min-width:42px !important; }
@@ -387,7 +391,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label">v20260613b · mobile: compact table fits all columns · smaller fair-value numbers · readable chart dates · scroll safety on table</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label">v20260613c · table cells vertically centered · score/fair-val same size</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
