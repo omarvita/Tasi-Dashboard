@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260612b'; // bump this string on every deploy that matters
+  var V='20260612c'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -256,23 +256,35 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
   /* table: hide non-essential columns (compact mode, default) */
   .col-co,.col-pe,.col-eg,.col-peg,.col-fu,.col-te,.col-bu,.col-tr,.col-st,.col-cp,.col-vw { display:none !important; }
   table { table-layout:auto; }
-  td { padding:10px 5px; }
+  td { padding:7px 5px; }
   th { padding:6px 5px; font-size:8px; }
   .bw { gap:2px; }
   .bt { min-width:16px; }
   .bn { font-size:9px; min-width:14px; }
-  .mob-company { display:block !important; }
+  /* One-line ellipsised company name — wrapping to 2-3 lines made every row tall */
+  .mob-company { display:block !important; max-width:76px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:8px; color:var(--tx3); }
   .pv { font-size:12px; }
   /* ⊞ All Columns mode: every desktop column, horizontal scroll, sticky #/Ticker.
-     Company column stays hidden — the name already shows under the ticker. */
+     Densified — tighter fonts/padding/bars so most columns fit one screen-width;
+     th width overrides (!important beats the inline desktop widths) let the
+     auto layout pack columns by content instead of desktop's fixed 82px each. */
   body.mob-full .col-pe, body.mob-full .col-eg, body.mob-full .col-peg,
   body.mob-full .col-fu, body.mob-full .col-te, body.mob-full .col-bu,
   body.mob-full .col-tr, body.mob-full .col-st, body.mob-full .col-cp,
   body.mob-full .col-vw { display:table-cell !important; }
   body.mob-full .tw { overflow-x:auto; -webkit-overflow-scrolling:touch; }
-  body.mob-full .tw > table { min-width:880px; }
-  body.mob-full .tw > table th:nth-child(1), body.mob-full .tw > table td:nth-child(1) { position:sticky; left:0; background:var(--bg2); z-index:2; }
-  body.mob-full .tw > table th:nth-child(2), body.mob-full .tw > table td:nth-child(2) { position:sticky; left:26px; background:var(--bg2); z-index:2; }
+  body.mob-full .tw > table { min-width:680px; }
+  body.mob-full .tw > table th { width:auto !important; padding:5px 3px; font-size:7px; }
+  body.mob-full .tw > table td { padding:5px 3px; }
+  body.mob-full .pv { font-size:10px; }
+  body.mob-full .tk { font-size:9px; }
+  body.mob-full .badge { font-size:6px; padding:0 2px; }
+  body.mob-full .bw { gap:2px; }
+  body.mob-full .bt { min-width:18px; }
+  body.mob-full .bn { font-size:8px; min-width:14px; }
+  body.mob-full .mob-company { max-width:60px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:7px; }
+  body.mob-full .tw > table th:nth-child(1), body.mob-full .tw > table td:nth-child(1) { position:sticky; left:0; background:var(--bg2); z-index:2; width:20px !important; }
+  body.mob-full .tw > table th:nth-child(2), body.mob-full .tw > table td:nth-child(2) { position:sticky; left:20px; background:var(--bg2); z-index:2; }
   /* modal: bottom sheet style */
   .modal-overlay { align-items:flex-end; padding:0; }
   .modal { width:100% !important; border-radius:12px 12px 0 0; max-height:94vh; }
@@ -307,7 +319,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label">v20260612b · mobile: ⊞ All Columns mode (P/E·PEG·Fund·Tech·Buffett·Fair Val·★·⊕ with swipe) · tap-to-show tooltips · fixed header overlap · 3-agent review fixes</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label">v20260612c · mobile: denser All-Columns table (most columns fit one screen) · compact rows · tap tooltips · 3-agent review fixes</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
