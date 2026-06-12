@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260612c'; // bump this string on every deploy that matters
+  var V='20260612d'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -111,10 +111,11 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 .mclose{width:22px;height:22px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;cursor:pointer;color:var(--tx2);font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-left:8px;transition:all .12s}
 .mclose:hover{border-color:var(--red);color:var(--red)}
 /* TABS */
-.tabs{display:flex;gap:0;border-bottom:1px solid var(--b1);overflow-x:auto}
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--b1);overflow-x:auto;scroll-behavior:smooth;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
 .tab{font-family:var(--mono);font-size:10px;padding:7px 12px;cursor:pointer;color:var(--tx3);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .12s;white-space:nowrap;flex-shrink:0}
 .tab:hover{color:var(--tx2)}
-.tab.active{color:var(--acc);border-bottom-color:var(--acc)}
+.tab.active{color:var(--acc);border-bottom-color:var(--acc);background:var(--adm);border-radius:6px 6px 0 0}
 .mbody{overflow-y:auto;flex:1;padding:12px 16px}
 /* SCORE TRIO */
 .strio{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:10px}
@@ -253,16 +254,20 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
   .ctrl { gap:4px; }
   .sw { min-width:100%; max-width:100%; order:-1; flex-basis:100%; }
   .ctrl select,.ctrl button { font-size:9px; padding:5px 7px; }
-  /* table: hide non-essential columns (compact mode, default) */
-  .col-co,.col-pe,.col-eg,.col-peg,.col-fu,.col-te,.col-bu,.col-tr,.col-st,.col-cp,.col-vw { display:none !important; }
+  /* Compact mode (default): ticker+name, price, chg%, PEG, Score, Fair Val, ★, ⊕.
+     Signal column hidden — it shows as a small chip next to the ticker instead. */
+  .col-co,.col-pe,.col-eg,.col-fu,.col-te,.col-bu,.col-vw,.col-sig { display:none !important; }
+  .mob-sig { display:inline-block !important; font-size:6px; padding:0 3px; margin-left:4px; vertical-align:1px; }
+  /* Watchlist ★ and compare ⊕ need finger-sized targets */
+  .col-st span, .col-cp span { font-size:17px !important; padding:4px; }
   table { table-layout:auto; }
   td { padding:7px 5px; }
   th { padding:6px 5px; font-size:8px; }
   .bw { gap:2px; }
   .bt { min-width:16px; }
   .bn { font-size:9px; min-width:14px; }
-  /* One-line ellipsised company name — wrapping to 2-3 lines made every row tall */
-  .mob-company { display:block !important; max-width:76px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:8px; color:var(--tx3); }
+  /* Full company name under the ticker, clamped to 2 lines */
+  .mob-company { display:-webkit-box !important; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; white-space:normal; max-width:104px; font-size:8px; color:var(--tx3); line-height:1.3; }
   .pv { font-size:12px; }
   /* ⊞ All Columns mode: every desktop column, horizontal scroll, sticky #/Ticker.
      Densified — tighter fonts/padding/bars so most columns fit one screen-width;
@@ -282,13 +287,15 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
   body.mob-full .bw { gap:2px; }
   body.mob-full .bt { min-width:18px; }
   body.mob-full .bn { font-size:8px; min-width:14px; }
-  body.mob-full .mob-company { max-width:60px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:7px; }
+  body.mob-full .mob-company { display:block !important; max-width:60px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:7px; }
+  body.mob-full .col-sig { display:table-cell !important; }
+  body.mob-full .mob-sig { display:none !important; }
   body.mob-full .tw > table th:nth-child(1), body.mob-full .tw > table td:nth-child(1) { position:sticky; left:0; background:var(--bg2); z-index:2; width:20px !important; }
   body.mob-full .tw > table th:nth-child(2), body.mob-full .tw > table td:nth-child(2) { position:sticky; left:20px; background:var(--bg2); z-index:2; }
   /* modal: bottom sheet style */
   .modal-overlay { align-items:flex-end; padding:0; }
   .modal { width:100% !important; border-radius:12px 12px 0 0; max-height:94vh; }
-  .tab { font-size:9px; padding:6px 8px; }
+  .tab { font-size:10px; padding:9px 11px; }
 }
 #tt{position:fixed;z-index:99999;max-width:270px;background:#05050f;border:1px solid #2d3748;border-radius:6px;padding:7px 11px;font-family:var(--mono);font-size:9px;line-height:1.65;color:#94a3b8;pointer-events:none;display:none;box-shadow:0 6px 24px rgba(0,0,0,.8);word-break:break-word}
 [data-tip]{cursor:help}
@@ -319,7 +326,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label">v20260612c · mobile: denser All-Columns table (most columns fit one screen) · compact rows · tap tooltips · 3-agent review fixes</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label">v20260612d · mobile: compact view now shows full name·PEG·Fair Val·★·⊕ with signal chip on ticker · modal tabs auto-center + jump to top · bigger tap targets</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -488,7 +495,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
         <th class="col-te" style="width:82px;cursor:pointer" onclick="sk('technical')" data-sk="technical">Tech. <span class="tha">↕</span></th>
         <th class="col-bu" style="width:82px;cursor:pointer" onclick="sk('buffett')" data-sk="buffett">Buffett <span class="tha">↕</span></th>
         <th style="width:82px;cursor:pointer" onclick="sk('combined')" data-sk="combined">Score <span class="tha">↓</span></th>
-        <th style="width:48px">Signal</th>
+        <th class="col-sig" style="width:48px">Signal</th>
         <th class="col-tr" style="width:66px;cursor:pointer" onclick="sk('dcfUpside')" title="DCF Fair Value vs current price" data-sk="dcfUpside">Fair Val <span class="tha">↕</span></th>
         <th class="col-st" style="width:32px">★</th>
         <th class="col-cp" style="width:32px">⊕</th>
@@ -5459,7 +5466,7 @@ function renderTable(){
       : '';
     return`<tr class="data-row" onclick="openModal(${start+i})" onmouseenter="gdPrefetch(${start+i})">
       <td class="rk">${start+i+1}</td>
-      <td class="tk" style="white-space:normal;min-width:54px">${escapeHTML(d.ticker.replace(".SR",""))}<span class="mob-company" style="display:none">${escapeHTML(shortName)}</span></td>
+      <td class="tk" style="white-space:normal;min-width:54px">${escapeHTML(d.ticker.replace(".SR",""))}<span class="mob-sig badge ${sig.cls}" style="display:none">${unscored?'—':sig.label}</span><span class="mob-company" style="display:none">${escapeHTML(getStockName(d))}</span></td>
       <td class="col-co" title="${escapeHTML(d.name)}" style="color:var(--tx)">${escapeHTML(getStockName(d))}${earningsBadge}</td>
       <td style="min-width:52px"><span class="pv">${hasPx?d.price.toFixed(2):'—'}</span>${lv}</td>
       <td class="${cc}" style="min-width:44px">${cs}</td>
@@ -5470,7 +5477,7 @@ function renderTable(){
       <td class="col-te">${bar(d.technical)}</td>
       <td class="col-bu">${unscored?'<span class="nav">—</span>':bar(d.buffett??50)}</td>
       <td style="min-width:60px">${unscored?'<span class="nav" style="font-size:11px">Unscored</span>':bar(d.combined??50)}</td>
-      <td style="min-width:40px"><span class="badge ${sig.cls}">${unscored?'—':sig.label}</span></td>
+      <td class="col-sig" style="min-width:40px"><span class="badge ${sig.cls}">${unscored?'—':sig.label}</span></td>
       <td class="col-tr">${(()=>{
         const hasAt = d.analystTarget > 0 && d.price > 0;
         const atUp  = hasAt ? (d.analystTarget - d.price) / d.price : null;
@@ -5961,7 +5968,16 @@ function toggleModalFS(){
 function switchTab(tab){
   window._curTab=tab;
   document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
-  const el=document.getElementById("tab-"+tab);if(el)el.classList.add("active");
+  const el=document.getElementById("tab-"+tab);
+  if(el){
+    el.classList.add("active");
+    // Keep the tapped tab visible: the tab strip scrolls horizontally on mobile, so
+    // center the active tab in it — otherwise the highlight could sit off-screen.
+    try{ el.scrollIntoView({inline:'center',block:'nearest',behavior:'smooth'}); }catch(e){}
+  }
+  // New tab = new content: start reading from the top, not wherever the previous
+  // tab was scrolled to.
+  const _mb=document.getElementById("mbody"); if(_mb)_mb.scrollTop=0;
   const d=window._fd?.[window._curIdx];if(!d)return;
   const body=document.getElementById("panel-content");if(!body)return;
   // Serve from per-stock HTML cache if available (avoids re-render and spinner)
