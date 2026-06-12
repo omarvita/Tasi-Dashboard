@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260613f'; // bump this string on every deploy that matters
+  var V='20260613g'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -1259,6 +1259,7 @@ function showSettings() {
   document.getElementById('td-log').innerHTML = '';
   updateGDStatus();
   renderWeightsUI();
+  try { renderCustomTickerList(); } catch(e){}
   ov.style.display = 'flex';
 }
 
@@ -1371,7 +1372,7 @@ async function validateTickers() {
   const logEl = document.getElementById('td-log');
   if (!logEl) return;
   if (_validating) { logEl.innerHTML = '<span style="color:var(--amb)">Validation already running…</span>'; return; }
-  const allStocks = [...(typeof STOCKS !== 'undefined' ? STOCKS : []), ...(typeof MORE_TICKERS !== 'undefined' ? MORE_TICKERS : [])];
+  const allStocks = [...(typeof STOCKS !== 'undefined' ? STOCKS : []), ...(typeof MORE_TICKERS !== 'undefined' ? MORE_TICKERS : []), ...(typeof _customTickers === 'function' ? _customTickers() : [])];
   if (!allStocks.length) { logEl.innerHTML = '<span style="color:var(--red)">No stock data loaded yet.</span>'; return; }
   _validating = true;
   const results = [];
@@ -3491,8 +3492,11 @@ const MORE_TICKERS = [
 // ════════════════════════════════════════════════════════════════
 
 // ── BANKING / FINANCE / DIVERSIFIED FINANCIALS ──
-// (1010 Riyad, 1020 AlJazira, 1030 SAIB, 1040 Alawwal, 1050 Fransi, 1060 SAB,
-//  1080 ANB, 1111 Tadawul, 1120 Al Rajhi, 1140 AlBilad, 1150 Alinma, 1180 SNB in STOCKS)
+// (1010 Riyad, 1030 SAIB, 1050 Fransi, 1060 SAB, 1080 ANB, 1111 Tadawul,
+//  1120 Al Rajhi, 1150 Alinma, 1180 SNB in STOCKS)
+{t:"1020.SR",n:"Bank AlJazira",s:"Banking",r:false},
+{t:"1140.SR",n:"Bank AlBilad",s:"Banking",r:false},
+{t:"4081.SR",n:"Nayifat Finance Co.",s:"Banking",r:false},
 {t:"1182.SR",n:"Amlak International Finance Co.",s:"Banking",r:false},
 {t:"1183.SR",n:"SHL Finance (Saudi Home Loans)",s:"Banking",r:false},
 {t:"1213.SR",n:"Al Sorayai Trading & Industrial Group",s:"Industrial",r:false},
@@ -3503,6 +3507,12 @@ const MORE_TICKERS = [
 {t:"1833.SR",n:"Almawarid Manpower Co.",s:"Industrial",r:false},
 {t:"1834.SR",n:"SMASCO (Saudi Manpower Solutions Co.)",s:"Industrial",r:false},
 {t:"1835.SR",n:"Tamkeen Human Resources Co.",s:"Industrial",r:false},
+// ── Coverage-gap additions (verified missing, Jun 2026) ──
+{t:"1810.SR",n:"Seera Group Holding",s:"Consumer",r:false},
+{t:"4170.SR",n:"Tourism Enterprise Co. (Shams)",s:"Consumer",r:false},
+{t:"4071.SR",n:"Arabian Contracting Services Co. (Al Arabia)",s:"Consumer",r:false},
+{t:"4292.SR",n:"Ataa Educational Co.",s:"Consumer",r:false},
+{t:"7200.SR",n:"Al Moammar Information Systems (MIS)",s:"Technology",r:false},
 
 // ── ENERGY ──
 // (2222 Aramco, 2380 Petro Rabigh, 2381 Arabian Drilling, 2223 Luberef, 2080 GASCO in STOCKS)
@@ -4962,7 +4972,90 @@ function _addDiscoveredStock(ticker, name, sector, extra, existing) {
     _autoDiscovered: true,
   });
   existing.add(ticker);
+  // Persist so this stock is part of the universe from init() on every future load,
+  // instead of depending on the (proxy-dependent) discovery pass succeeding again.
+  try { _persistCustomTicker(ticker, name || ticker, sector || 'Other', isReit, 'auto'); } catch(e){}
   return true;
+}
+
+// ═══════════════════════════════════════
+// CUSTOM / DISCOVERED TICKER PERSISTENCE
+// localStorage list merged into the stock universe at init().
+// Sources: 'manual' (user added via Settings) and 'auto' (discovery pass).
+// ═══════════════════════════════════════
+const CUSTOM_TICKERS_KEY = 'TASI_custom_tickers';
+function _customTickers(){
+  try {
+    const a = JSON.parse(localStorage.getItem(CUSTOM_TICKERS_KEY) || '[]');
+    return Array.isArray(a) ? a.filter(x => x && /^\d{4}\.SR$/.test(x.t)) : [];
+  } catch(e){ return []; }
+}
+function _saveCustomTickers(list){
+  try { localStorage.setItem(CUSTOM_TICKERS_KEY, JSON.stringify(list.slice(0, 400))); } catch(e){}
+}
+function _persistCustomTicker(t, n, s, r, src){
+  const list = _customTickers();
+  const prev = list.find(x => x.t === t);
+  if (prev) { if (src === 'manual') { prev.src = 'manual'; prev.n = n; prev.s = s; _saveCustomTickers(list); } return; }
+  // Strip markup — names can arrive via third-party proxies (same rule as _addDiscoveredStock)
+  list.push({ t, n: String(n||t).replace(/<[^>]*>/g,''), s: String(s||'Other').replace(/<[^>]*>/g,''), r: !!r, src: src || 'auto' });
+  _saveCustomTickers(list);
+}
+
+// Settings → Stock Universe: manually add a newly listed Tadawul stock.
+async function addCustomTicker(){
+  const st = document.getElementById('ct-status');
+  const code = (document.getElementById('ct-code')?.value || '').trim().replace(/\.SR$/i,'');
+  if (!/^\d{4}$/.test(code)) { if(st){st.textContent='Enter the 4-digit Tadawul code (e.g. 1020)'; st.style.color='var(--red)';} return; }
+  const ticker = code + '.SR';
+  if (allData.some(d => d.ticker === ticker)) { if(st){st.textContent=ticker+' is already in the dashboard'; st.style.color='var(--amb)';} return; }
+  let name = (document.getElementById('ct-name')?.value || '').trim();
+  const sector = document.getElementById('ct-sector')?.value || 'Other';
+  if (st) { st.textContent = 'Looking up ' + ticker + ' on Yahoo Finance…'; st.style.color = 'var(--tx3)'; }
+  const extra = { desc: 'Added manually via Settings.' };
+  try {
+    const q = (await fetchWithProxy(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}`))?.quoteResponse?.result?.[0];
+    if (q?.regularMarketPrice > 0) {
+      extra.price = q.regularMarketPrice; extra.change = q.regularMarketChangePercent;
+      extra.mktCap = q.marketCap; extra.w52high = q.fiftyTwoWeekHigh; extra.w52low = q.fiftyTwoWeekLow;
+      extra.dy = q.trailingAnnualDividendYield ?? (q.dividendYield != null ? q.dividendYield/100 : null);
+      if (!name) name = q.shortName || q.longName || '';
+    }
+  } catch(e){}
+  if (!name) name = ticker;
+  const ok = _addDiscoveredStock(ticker, name, sector, extra, new Set(allData.map(d => d.ticker)));
+  if (!ok) { if(st){st.textContent='Could not add '+ticker+' — invalid code'; st.style.color='var(--red)';} return; }
+  _persistCustomTicker(ticker, name, sector, false, 'manual');
+  try { doFilter(); updateMetrics(); } catch(e){}
+  if (st) {
+    st.innerHTML = '✓ ' + escapeHTML(name) + (extra.price ? ' added at ' + extra.price.toFixed(2) + ' SAR' : ' added (price loads on next refresh)') + ' — open it from the table to load fundamentals';
+    st.style.color = 'var(--green)';
+  }
+  const ci = document.getElementById('ct-code'), ni = document.getElementById('ct-name');
+  if (ci) ci.value = ''; if (ni) ni.value = '';
+  renderCustomTickerList();
+}
+
+function removeCustomTicker(ticker){
+  _saveCustomTickers(_customTickers().filter(x => x.t !== ticker));
+  const idx = allData.findIndex(d => d.ticker === ticker && (d._autoDiscovered || d._fromCustom));
+  if (idx >= 0) { allData.splice(idx, 1); try { doFilter(); updateMetrics(); } catch(e){} }
+  renderCustomTickerList();
+}
+
+function renderCustomTickerList(){
+  const el = document.getElementById('ct-list');
+  if (!el) return;
+  const list = _customTickers();
+  const manual = list.filter(x => x.src === 'manual');
+  const autoN = list.length - manual.length;
+  el.innerHTML =
+    (manual.length ? manual.map(x =>
+      `<span style="display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:9px;background:var(--bg3);border:1px solid var(--b1);border-radius:4px;padding:3px 6px;margin:2px 4px 2px 0">
+        ${escapeHTML(x.t)} ${escapeHTML(x.n)}
+        <span onclick="removeCustomTicker('${x.t}')" style="cursor:pointer;color:var(--red)" title="Remove">✕</span>
+      </span>`).join('') : '') +
+    `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">${manual.length} manually added · ${autoN} auto-discovered (persisted)</div>`;
 }
 
 async function autoDiscoverSaudiStocks() {
@@ -8433,7 +8526,7 @@ function drawChart(d){
                   label:item=>item.datasetIndex===0?"RSI: "+(item.raw!=null?item.raw.toFixed(1):"—"):null
                 }}},
               scales:{x:{display:false},
-                y:{position:'right',min:0,max:100,ticks:{font:fontOpts,color:"#4a5568",stepSize:20,
+                y:{position:'left',min:0,max:100,ticks:{font:fontOpts,color:"#4a5568",stepSize:20,
                   callback:v=>v===70?"OB":v===30?"OS":v},
                   grid:{color:"rgba(255,255,255,0.03)"},border:{color:"#232830"}}
               }}
@@ -8469,7 +8562,7 @@ function drawChart(d){
             options:{responsive:true,maintainAspectRatio:false,
               interaction:{mode:"index",intersect:false},
               plugins:{legend:{display:false},tooltip:{...tooltipStyle,callbacks:{title:items=>"Date: "+items[0].label,label:item=>{const v=item.raw;if(v==null)return null;return item.datasetIndex===0?"Vol: "+fmtVol(v):"MA-20: "+fmtVol(v);}}}},
-              scales:{x:{display:false},y:{position:'right',ticks:{font:fontOpts,color:"#4a5568",maxTicksLimit:4,callback:v=>fmtVol(v)},grid:{color:"rgba(255,255,255,0.04)"},border:{color:"#232830"}}}}}
+              scales:{x:{display:false},y:{position:'left',ticks:{font:fontOpts,color:"#4a5568",maxTicksLimit:4,callback:v=>fmtVol(v)},grid:{color:"rgba(255,255,255,0.04)"},border:{color:"#232830"}}}}}
           );
         },80);
       }
@@ -8494,7 +8587,7 @@ function drawChart(d){
             options:{responsive:true,maintainAspectRatio:false,
               interaction:{mode:"index",intersect:false},
               plugins:{legend:{display:false},tooltip:{...tooltipStyle,callbacks:{title:items=>"Date: "+items[0].label,label:item=>{if(item.raw==null)return null;const lbl=["Hist","MACD","Signal"][item.datasetIndex];return lbl+": "+(item.raw).toFixed(3);}}}},
-              scales:{x:{display:false},y:{position:'right',ticks:{font:fontOpts,color:"#4a5568",maxTicksLimit:4},grid:{color:"rgba(255,255,255,0.03)"},border:{color:"#232830"}}}}
+              scales:{x:{display:false},y:{position:'left',ticks:{font:fontOpts,color:"#4a5568",maxTicksLimit:4},grid:{color:"rgba(255,255,255,0.03)"},border:{color:"#232830"}}}}
           });
         },80);
       }
@@ -8528,7 +8621,7 @@ function drawChart(d){
             options:{responsive:true,maintainAspectRatio:false,
               interaction:{mode:"index",intersect:false},
               plugins:{legend:{display:false},tooltip:{...tooltipStyle,callbacks:{title:items=>"Date: "+items[0].label,label:item=>{if(item.datasetIndex>1||item.raw==null)return null;return ["%K: ","%D: "][item.datasetIndex]+(item.raw).toFixed(1);}}}},
-              scales:{x:{display:false},y:{position:'right',min:0,max:100,ticks:{font:fontOpts,color:"#4a5568",stepSize:20,callback:v=>v===80?"OB":v===20?"OS":v},grid:{color:"rgba(255,255,255,0.03)"},border:{color:"#232830"}}}}
+              scales:{x:{display:false},y:{position:'left',min:0,max:100,ticks:{font:fontOpts,color:"#4a5568",stepSize:20,callback:v=>v===80?"OB":v===20?"OS":v},grid:{color:"rgba(255,255,255,0.03)"},border:{color:"#232830"}}}}
           });
         },80);
       }
@@ -8647,6 +8740,15 @@ function init(){
       }
     });
   }
+  // User-added + previously auto-discovered tickers (persisted in localStorage) —
+  // makes the universe stable across reloads even when the discovery pass fails.
+  try {
+    _customTickers().forEach(ct => {
+      if(!allStockDefs.find(s => s.t === ct.t)){
+        allStockDefs.push({t:ct.t,n:ct.n,s:ct.s||'Other',r:!!ct.r, pe:null,pb:null,roe:null,npm:null,de:null,dy:null,fcf:null,cr:null,rg:null,eg:null,rev:null,ni:null,assets:null,desc:ct.src==='manual'?'Added manually via Settings.':'Auto-discovered stock.',_fromMoreTickers:true,_fromCustom:true});
+      }
+    });
+  } catch(e){ console.warn('customTickers:', e); }
   allData=allStockDefs.map(s=>{
     const noHardcoded = s._fromMoreTickers && s.pe==null && s.pb==null && s.roe==null;
     const fRes=scoreFundamental(s);
@@ -11423,6 +11525,30 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) _aut
       <button class="sp-btn" onclick="saveScoreWeights()">✓ Apply Weights</button>
       <button class="sp-btn sp-btn-sec" onclick="resetScoreWeights()">Reset to Default</button>
     </div>
+
+    <hr class="sp-divider">
+
+    <!-- Stock Universe — add newly listed stocks -->
+    <div style="font-family:var(--mono);font-size:10px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Stock Universe</div>
+    <div class="sp-desc" style="margin-bottom:8px">
+      The dashboard ships with 240+ curated TASI tickers and auto-discovers new listings from Yahoo Finance &amp; Argaam a few seconds after every load. If a newly listed stock still doesn't appear, add it here with its 4-digit Tadawul code — the name is fetched automatically if left blank.
+    </div>
+    <div class="sp-row">
+      <input class="sp-input" id="ct-code" type="text" placeholder="Code e.g. 1020" maxlength="7" style="width:110px;flex:none" autocomplete="off" spellcheck="false">
+      <input class="sp-input" id="ct-name" type="text" placeholder="Company name (optional — auto-fetched)" autocomplete="off" spellcheck="false">
+      <select class="sp-input" id="ct-sector" style="width:150px;flex:none">
+        <option>Banking</option><option>Energy</option><option>Petrochemicals</option><option>Chemicals</option>
+        <option>Materials</option><option>Industrial</option><option>Building Materials</option>
+        <option selected>Consumer</option><option>Healthcare</option><option>Insurance</option>
+        <option>Real Estate</option><option>REITs</option><option>Telecom</option><option>Technology</option>
+        <option>Transportation</option><option>Utilities</option><option>Other</option>
+      </select>
+    </div>
+    <div class="sp-row" style="align-items:center;gap:10px">
+      <button class="sp-btn" onclick="addCustomTicker()">＋ Add Stock</button>
+      <span id="ct-status" style="font-family:var(--mono);font-size:9px;color:var(--tx3)"></span>
+    </div>
+    <div id="ct-list" style="margin-top:4px"></div>
 
     <hr class="sp-divider">
     <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);line-height:1.65">
