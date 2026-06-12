@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260611c'; // bump this string on every deploy that matters
+  var V='20260612a'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -90,6 +90,8 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 .b-reit{background:#1e1b4b;color:#818cf8;border:1px solid #3730a3;font-size:7px;margin-left:2px}
 .b-live{background:var(--adm);color:var(--acc);border:1px solid var(--acc);font-size:7px}
 .b-est{background:#1a1a2e;color:var(--tx3);border:1px solid var(--b2);font-size:7px}
+.b-snap{background:#172554;color:var(--blue);border:1px solid #1e40af;font-size:7px}
+.b-cache{background:#27272a;color:var(--tx2);border:1px solid var(--b2);font-size:7px}
 /* BUTTONS */
 .dbtn{font-family:var(--mono);font-size:9px;padding:2px 6px;background:var(--bg3);border:1px solid var(--b2);border-radius:3px;color:var(--tx2);cursor:pointer;transition:all .12s}
 .dbtn:hover{border-color:var(--acc);color:var(--acc)}
@@ -286,7 +288,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label">v20260611c · NEW: GitHub robot fetches prices 3×/day server-side (no proxies) — dashboard loads them instantly · TradingView fallback when Yahoo fails · daily auto-refresh scheduler (Settings ⚙)</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label">v20260612a · 3-agent review: bank DDM growth cap · Saudi-calibrated beta · index-style market P/E · price provenance badges (LIVE/SNAP/CACHE) · snapshot freshness fixes · smarter auto-refresh</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -2907,7 +2909,7 @@ function renderPortfolioHTML(stats) {
       }
       return `<tr>
         <td class="tk" style="cursor:pointer" onclick="document.getElementById('portfolio-modal').remove();openModal(window._fd?.findIndex(f=>f.ticker==='${p.ticker}'))">${p.ticker.replace('.SR','')}</td>
-        <td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.name}">${p.name.split(' ').slice(0,2).join(' ')}</td>
+        <td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHTML(p.name)}">${escapeHTML(p.name.split(' ').slice(0,2).join(' '))}</td>
         <td style="font-family:var(--mono);color:${p.weight>0.30?'var(--amb)':'var(--tx)'}">${(p.weight*100).toFixed(1)}%</td>
         <td style="font-family:var(--mono)">${p.shares}</td>
         <td style="font-family:var(--mono)">${p.avgCost.toFixed(2)}</td>
@@ -3690,7 +3692,10 @@ function calcCombined(d) {
     { w: nW.technical,   v: d.technical   },
     { w: nW.buffett,     v: d.buffett     },
     { w: nW.peg,         v: d.pegScore    },
-    { w: nW.dcf,         v: (nW.dcf > 0 && d.dcfUpside != null) ? dcfUpsideToScore(d.dcfUpside) : null },
+    // 'P/E Est.' fair value is just sectorPE/pe − 1 — that P/E-cheapness signal is
+    // already scored inside Fundamental, Buffett AND PEG, so feeding it through the
+    // DCF slot counted the same signal up to 4×. Only real DCF/DDM upside scores here.
+    { w: nW.dcf,         v: (nW.dcf > 0 && d.dcfUpside != null && d.dcfMethod !== 'P/E Est.') ? dcfUpsideToScore(d.dcfUpside) : null },
   ];
   const available = components.filter(c => c.w > 0 && c.v != null);
   if (!available.length) return 50;
@@ -3802,9 +3807,11 @@ function scoreFundamental(d){
     else add("Revenue Growth",(rg*100).toFixed(1)+"%",-10,"Significant revenue decline above 8%","Major warning signal outside of well-understood commodity cycles. This level of decline typically means the business model is under structural threat. Companies rarely recover quickly from declines of this magnitude without major restructuring, new leadership, or a fundamental pivot in strategy.");
   }
 
-  // Normalize: raw score ranges roughly -80 to +140
-  // Map to 0-100 with mean around 45
-  const normalized = Math.round(((p - (-80)) / (140 - (-80))) * 100);
+  // Normalize: p starts at 50 and the per-criterion deltas span ≈ −98…+112,
+  // so the real raw range is ≈ −48…+162. The old −80…+140 anchors made the worst
+  // stock bottom out at ~15 (flattering it) and saturated everything above 140
+  // (losing top-decile differentiation). Anchored so all-neutral p=50 maps to ~47.
+  const normalized = Math.round(((p - (-50)) / (162 - (-50))) * 100);
   return{score:Math.min(100,Math.max(0,normalized)),steps};
 }
 
@@ -4575,7 +4582,12 @@ async function _enrichPriceHistory() {
               closes: closes.slice(-1260),
               timestamps: timestamps.slice(-1260),
             }),
-            priceUpdated: Date.now(),
+            // Closes-only update: do NOT bump priceUpdated — it's the freshness stamp
+            // for the PRICE, and bumping it here made a week-old price reject this
+            // morning's snapshot. Keep the old stamp; set one only if missing so
+            // gdSaveBulkPrices (which requires priceUpdated) still persists the closes.
+            priceUpdated: _gdCache[d.ticker]?.priceUpdated ?? Date.now(),
+            closesUpdated: Date.now(),
           });
           enriched++;
         } catch(e) { _failed.push(d); } // track for retry pass
@@ -4766,6 +4778,10 @@ function _addDiscoveredStock(ticker, name, sector, extra, existing) {
   // from a scraped/proxied source is rejected — also prevents attribute injection,
   // since tickers are interpolated into onclick="...('${d.ticker}')" handlers.
   if (!ticker || !/^\d{4}\.SR$/.test(ticker) || existing.has(ticker)) return false;
+  // Names arrive via third-party CORS proxies that could rewrite bodies — strip any
+  // markup at ingestion (same sanitizer importCache uses) so it never reaches innerHTML.
+  name = String(name || '').replace(/<[^>]*>/g, '');
+  sector = String(sector || '').replace(/<[^>]*>/g, '');
   // Yahoo v7/quote + screener return dividendYield in PERCENT (e.g. 4.4); the app
   // convention is a fraction (0.044). Normalize here — without this, discovered
   // stocks showed 100× yields ("440%"), maxed the dividend score, and inflated
@@ -5101,7 +5117,13 @@ async function fetchStockPrice(stock, skipDriveNetwork=false) {
   // Check Drive price cache — memory-only during bulk refresh, full Drive during modal open
   if (GD_TOKEN) {
     const driveData = _gdCache[ticker] ?? null;  // prices always in-memory (bulk-loaded at startup)
-    if (driveData?.priceData && Date.now() - (driveData.priceUpdated || 0) < GD_PRICE_TTL) {
+    // Only short-circuit when the cache can actually satisfy the caller: Phase 3 calls
+    // this precisely for stocks MISSING closes, and a cache entry holding a price but
+    // empty closes used to bounce straight back, leaving the stock chart-less forever.
+    const _cacheHasCloses = (driveData?.priceData?.closes || []).length > 5;
+    const _callerNeedsCloses = (stock.closes || []).length < 6;
+    if (driveData?.priceData && (!_callerNeedsCloses || _cacheHasCloses) &&
+        Date.now() - (driveData.priceUpdated || 0) < GD_PRICE_TTL) {
       const p = driveData.priceData;
       const cls = p.closes || [];
       const change = cls.length >= 2 ? dailyChangeFromCloses(cls) : null;
@@ -5385,7 +5407,14 @@ function renderTable(){
     const cs=hasPx&&d.change!=null?((d.change>=0?"+":"")+d.change.toFixed(2)+"%"):"—";
     const moat=d.criteria?.hasMoat?`<span class="badge b-moat">Moat</span>`:"";
     const reit=d.isReit?`<span class="badge b-reit">REIT</span>`:"";
-    const lv=d.priceLoaded?`<span class="badge b-live" style="margin-left:2px">LIVE</span>`:`<span class="badge b-est" style="margin-left:2px">EST</span>`;
+    // Provenance: LIVE = real-time quote this session (Yahoo/TradingView); SNAP =
+    // GitHub Action snapshot (hours old); CACHE = Drive / earlier-session price.
+    // Showing "LIVE" for everything hid how old a price actually was.
+    const _ts = d._priceTs ? new Date(d._priceTs).toLocaleString('en-SA',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : (d.dataDate || '');
+    const lv = !d.priceLoaded ? `<span class="badge b-est" style="margin-left:2px" title="No price loaded — hardcoded estimates">EST</span>`
+      : d._livePrice ? `<span class="badge b-live" style="margin-left:2px" title="Live quote · ${_ts}">LIVE</span>`
+      : d.dataSource === 'gh-snapshot' ? `<span class="badge b-snap" style="margin-left:2px" title="GitHub snapshot · ${_ts}">SNAP</span>`
+      : `<span class="badge b-cache" style="margin-left:2px" title="Cached price · ${_ts}">CACHE</span>`;
     const pegStr=d.peg!=null?`<span style="font-family:var(--mono);font-size:10px;color:${d.peg<1?"var(--green)":d.peg<2?"var(--amb)":"var(--red)"}">${d.peg.toFixed(2)}</span>`:`<span class="nav">—</span>`;
     const egStr=d.eg!=null?`<span class="${d.eg>=0?'pos':'neg'}">${d.eg>=0?"+":""}${(d.eg*100).toFixed(0)}%</span>`:`<span class="nav">—</span>`;
     const unscored = d.noHardcodedData && !d.priceLoaded;
@@ -7103,11 +7132,15 @@ async function buildDCF(d, _opts={}) {
     'Consumer':0.95,'Utilities':0.75,'Transportation':0.95,'Industrial':1.00,
   };
   const sectorBeta = SECTOR_BETA[d.sector] || 1.0;
-  // Sanity-filter Yahoo beta: reject extreme outliers (data errors, thin float)
-  // Cap raw beta at 2.5: above that the figure almost always reflects thin float/illiquidity
-  // noise on Tadawul rather than true systematic risk. Sector default is used instead.
-  const beta = (d.beta != null && d.beta > 0.1 && d.beta < 2.5) ? d.beta : sectorBeta;
-  const betaSource = (d.beta != null && d.beta > 0.1 && d.beta < 2.5) ? 'Yahoo Finance' : `sector default (${d.sector||'unknown'})`;
+  // Yahoo computes beta against the S&P 500 (5Y monthly). Tadawul stocks have low
+  // SPX correlation, so those betas are structurally understated (often 0.2–0.6) —
+  // they passed the old 0.1–2.5 filter, depressed ke, and inflated every DCF/DDM
+  // fair value. Blend 50/50 with the Damodaran-calibrated sector beta and floor at
+  // 0.65: keeps stock-specific information without letting a cross-market artifact
+  // halve the cost of equity.
+  const _yBetaOk = d.beta != null && d.beta > 0.1 && d.beta < 2.5;
+  const beta = _yBetaOk ? Math.max(0.65, (d.beta + sectorBeta) / 2) : sectorBeta;
+  const betaSource = _yBetaOk ? `Yahoo (${d.beta.toFixed(2)}) blended with sector` : `sector default (${d.sector||'unknown'})`;
   const ke = rfRate + beta * erp;
   // Sector-specific liabilities→financial-debt haircuts.
   // d.de = (total_liabilities / total_equity) × 100 — overstates financial leverage.
@@ -7160,7 +7193,10 @@ async function buildDCF(d, _opts={}) {
   const revVals = annualData?.is?.map(r=>r.revenue).filter(v=>v!=null) || [];
   const fcfVals = annualData?.cf?.map(r=>r.free_cash_flow).filter(v=>v!=null) || [];
   const revGrowth = revVals.length >= 2 ? _cagr(revVals) : null;
-  const fcfGrowth = fcfVals.length >= 2 ? _avgYoY(fcfVals.filter(v=>parseFloat(v)>0)) : null;
+  // Map non-positive FCF years to null (skipped pairwise) instead of FILTERING them out:
+  // filtering made non-adjacent years adjacent, turning multi-year changes into fake
+  // 1-year growth rates and trimming the worst observations from the average.
+  const fcfGrowth = fcfVals.length >= 2 ? _avgYoY(fcfVals.map(v=>parseFloat(v)>0?v:null)) : null;
   if (revGrowth != null || fcfGrowth != null) {
     // Revenue growth is primary; blend with FCF growth if both exist
     const stmtBase = revGrowth != null && fcfGrowth != null
@@ -7243,12 +7279,17 @@ async function buildDCF(d, _opts={}) {
     const dps = d.dy * d.price;
     // REITs distribute ≥90% by regulation; banks modeled from ROE × retention
     const payoutRatio = isReitDCF ? 0.90 : Math.min(d.dy * (d.pe||15), 0.95);
-    // REIT NOI growth capped at 3.5% (rental inflation + new assets); bank = ROE × retention
+    // REIT NOI growth capped at 3.5% (rental inflation + new assets). Bank growth
+    // starts from ROE × retention but is capped at 4%: ROE × retention is a medium-term
+    // rate, and using it as PERPETUAL Gordon growth let high-ROE banks hit the ke−0.5%
+    // ceiling — a 0.5% denominator priced the stock at 200× its dividend. 4% sits
+    // between the model's Banking terminal growth (3%) and nominal GDP growth (~5-6%).
     const gSustain = isReitDCF
       ? Math.min(0.035, ke - 0.005)
-      : Math.min((d.roe||0.12) * (1-payoutRatio), ke - 0.005);
+      : Math.min((d.roe||0.12) * (1-payoutRatio), 0.04, ke - 0.005);
     if (ke > gSustain + 0.003 && dps > 0) {
-      ddmPS = dps / (ke - gSustain);
+      // Spread floor 2% — same protection the FCF-DCF terminal value uses
+      ddmPS = dps / Math.max(ke - gSustain, 0.02);
       ddmUpside = (ddmPS - d.price) / d.price;
       ddmNotes = `DPS ≈ ${dps.toFixed(3)} SAR · payout ${isReitDCF?'90%':((payoutRatio*100).toFixed(0)+'%')} · g = ${(gSustain*100).toFixed(2)}% · ke = ${(ke*100).toFixed(1)}%`;
     }
@@ -8476,14 +8517,19 @@ function init(){
 // works, at most a few hours old on trading days. Live Yahoo quotes (Phase 2)
 // still override it when the proxies cooperate.
 // ═══════════════════════════════════════════════════════════════════════════
-let _snapshotData = null; // parsed snapshot, cached for the session
+let _snapshotData = null;   // parsed snapshot
+let _snapshotFetchedAt = 0; // when we last fetched it
 async function loadRepoSnapshot() {
   try {
-    if (!_snapshotData) {
+    // Re-fetch after 10 min: a long-lived tab (the auto-refresh use case) must pick up
+    // the Action's 3×/day updates — a session-cached copy went stale within hours and
+    // the 7-day guard would eventually disable this phase entirely.
+    if (!_snapshotData || Date.now() - _snapshotFetchedAt > 10*60*1000) {
       const resp = await fetch(`data/market_snapshot.json?_cb=${Date.now()}`,
         { cache: 'no-store', signal: AbortSignal.timeout(15000) });
       if (!resp.ok) return 0; // 404 until the Action's first run — fine
-      _snapshotData = await _bodyJson(resp, 15000);
+      const fresh = await _bodyJson(resp, 15000);
+      if (fresh?.generated) { _snapshotData = fresh; _snapshotFetchedAt = Date.now(); }
     }
     const snap = _snapshotData;
     if (!snap?.quotes || !snap.generated) return 0;
@@ -8495,15 +8541,19 @@ async function loadRepoSnapshot() {
       const i = idxMap.get(tk);
       if (i == null || q?.p == null || q.p <= 0) continue;
       const d = allData[i];
-      // Never clobber a live quote from this session. A cached (Drive) price is
-      // replaced only when the snapshot is newer than that cache entry.
-      const cachedTs = _gdCache[tk]?.priceUpdated || 0;
+      // Never clobber a live quote from this session. A cached price is replaced
+      // only when the snapshot is newer than when that price was actually obtained:
+      // d._priceTs covers the IndexedDB cache path (where _gdCache is empty and the
+      // Drive timestamp alone wrongly let an older snapshot overwrite newer prices).
+      const cachedTs = Math.max(_gdCache[tk]?.priceUpdated || 0, d._priceTs || 0);
       const snapNewer = !d.priceLoaded || (!d._livePrice && snap.generated > cachedTs);
       if (snapNewer) {
+        if (d._htmlCache) { delete d._htmlCache.breakdown; delete d._htmlCache.buffett; delete d._htmlCache.extra; }
         d.price = q.p;
         if (q.c != null) d.change = q.c;
         d.priceLoaded = true;
         d._livePrice = false; // Phase 2/retry still fetch a true live quote
+        d._priceTs = snap.generated;
         d.dataSource = 'gh-snapshot';
         d.dataDate = snapDate;
         if (q.pe > 0)  { d.pe = q.pe; d.livepeLoaded = true; }
@@ -8528,7 +8578,11 @@ async function loadRepoSnapshot() {
           d.rsi = tRes.rsi; d.sma20 = tRes.sma20; d.sma50 = tRes.sma50; d.momentum = tRes.momentum;
         }
       }
-      if (snapNewer) { try { d.combined = calcCombined(d); } catch(e) {} }
+      // Snapshot changed pe/dy/pb — the scores built on them (Fundamental, Buffett,
+      // PEG) must be recomputed too, not just the combined roll-up. On the cache-hit
+      // background path nothing re-scores afterwards, so doing it here is the only
+      // thing keeping the displayed P/E and the scores consistent.
+      if (snapNewer) { try { recomputeAllScores(d); } catch(e) { try { d.combined = calcCombined(d); } catch(e2) {} } }
     }
     // TASI index from the snapshot — same merge rule as fetchTASIIndex (never clobber longer history)
     const st = snap.tasi;
@@ -8593,6 +8647,7 @@ async function _fetchTVQuotes() {
     if (change != null) d.change = change;
     d.priceLoaded = true;
     d._livePrice = true;
+    d._priceTs = Date.now();
     d.dataSource = 'tradingview';
     d.dataDate = new Date().toISOString().slice(0, 10);
     if (pe > 0)  { d.pe = +pe.toFixed(2); d.livepeLoaded = true; }
@@ -8818,6 +8873,7 @@ async function refreshAll(forceRefresh=false){
         if (pd.change != null) d.change = pd.change;
         d.priceLoaded = true;
         d._livePrice = false;
+        d._priceTs = c.priceUpdated || 0;
         d.dataSource = 'drive-cache';
         if (c.priceUpdated) d.dataDate = new Date(c.priceUpdated).toISOString().slice(0,10);
         if ((d.closes || []).length > 5) {
@@ -8923,6 +8979,7 @@ async function refreshAll(forceRefresh=false){
           livepeLoaded,
           priceLoaded: true,
           _livePrice: true,
+          _priceTs: Date.now(),
           dataSource: 'yahoo-quote',
           dataDate: new Date().toISOString().slice(0,10),
           volume:      q.regularMarketVolume      ?? _obj.volume,
@@ -8953,7 +9010,9 @@ async function refreshAll(forceRefresh=false){
         _applied++;
       }
     } catch(e) { console.warn('bulk quote batch failed', e); }
-    document.getElementById("pf").style.width = Math.round(((qi + _QBATCH) / allData.length) * 60) + '%';
+    // Phase 2 maps to 55–75%: Phase 1 (Drive) ends at 50% and the snapshot at 55%,
+    // so starting this scale at 0 made the bar visibly rewind on every refresh.
+    document.getElementById("pf").style.width = (55 + Math.round(((qi + _QBATCH) / allData.length) * 20)) + '%';
     scheduleRender();
   }
   return _applied;
@@ -9016,7 +9075,7 @@ async function refreshAll(forceRefresh=false){
           const _obj2 = allData[idx];
           Object.assign(_obj2, { price, change, pe: livePE, pb: q.priceToBook > 0 ? +q.priceToBook.toFixed(2) : _obj2.pb,
             eps: q.epsTrailingTwelveMonths > 0 ? +q.epsTrailingTwelveMonths.toFixed(4) : _obj2.eps,
-            livepeLoaded, priceLoaded: true, _livePrice: true, dataSource: 'yahoo-quote-retry',
+            livepeLoaded, priceLoaded: true, _livePrice: true, _priceTs: Date.now(), dataSource: 'yahoo-quote-retry',
             mktCap: q.marketCap ?? _obj2.mktCap,
             volume: q.regularMarketVolume ?? _obj2.volume,
             avgVolume3M: q.averageDailyVolume3Month ?? _obj2.avgVolume3M,
@@ -9060,8 +9119,8 @@ async function refreshAll(forceRefresh=false){
       // Skip the heavy statement fetch here (foreground load stays fast); the background
       // _enrichRemainingFundamentals() pass fetches statements + derives stable criteria after.
       await Promise.allSettled(_needsPE.slice(pi, pi + _PE_BATCH).map(d => _fetchAndApplyFundamentals(d, false)));
-      const pcPE = 60 + Math.round(((pi + _PE_BATCH) / _needsPE.length) * 20);
-      document.getElementById("pf").style.width = Math.min(pcPE, 80) + '%';
+      const pcPE = 75 + Math.round(((pi + _PE_BATCH) / _needsPE.length) * 10);
+      document.getElementById("pf").style.width = Math.min(pcPE, 85) + '%';
       document.getElementById("pl").textContent = `Fundamentals: ${Math.min(pi + _PE_BATCH, _needsPE.length)}/${_needsPE.length} large caps updated`;
       scheduleRender();
     }
@@ -9120,7 +9179,7 @@ async function refreshAll(forceRefresh=false){
   for (let si = 0; si < _sparkNeeds.length; si += _SPARK_BATCH) {
     if (_refreshAborted) break;
     const slice = _sparkNeeds.slice(si, si + _SPARK_BATCH);
-    document.getElementById("pf").style.width = (60 + Math.round((si / Math.max(_sparkNeeds.length,1)) * 30)) + "%";
+    document.getElementById("pf").style.width = (85 + Math.round((si / Math.max(_sparkNeeds.length,1)) * 5)) + "%";
     document.getElementById("pl").textContent = `Loading chart data (bulk): ${si+1}–${Math.min(si+_SPARK_BATCH,_sparkNeeds.length)} of ${_sparkNeeds.length}`;
     try {
       const sparkMap = await fetchSparkBatch(slice.map(d => d.ticker));
@@ -9138,7 +9197,9 @@ async function refreshAll(forceRefresh=false){
             priceData: Object.assign(_gdCache[d.ticker]?.priceData || {}, {
               closes: hit.closes.slice(-1260), timestamps: hit.timestamps.slice(-1260),
             }),
-            priceUpdated: Date.now(),
+            // Closes-only: keep the price's freshness stamp (see _enrichPriceHistory note)
+            priceUpdated: _gdCache[d.ticker]?.priceUpdated ?? Date.now(),
+            closesUpdated: Date.now(),
           });
         }
       }
@@ -9230,7 +9291,11 @@ async function refreshAll(forceRefresh=false){
   }
   setTimeout(()=>{pw.style.display="none";},4000);
   btn.disabled=false;btn.textContent="↻ Reload Data";
-  document.getElementById("lu").textContent=`${loaded}/${allData.length} prices · ${new Date().toLocaleTimeString("en-SA",{hour:"2-digit",minute:"2-digit"})}`;
+  // Provenance summary in the header — "239 prices" hid that none of them were live.
+  const _liveN = allData.filter(d=>d._livePrice).length;
+  const _snapN = allData.filter(d=>d.priceLoaded && !d._livePrice && d.dataSource==='gh-snapshot').length;
+  document.getElementById("lu").textContent =
+    `${loaded}/${allData.length}: ${_liveN} live${_snapN?` · ${_snapN} snapshot`:''}${loaded-_liveN-_snapN?` · ${loaded-_liveN-_snapN} cached`:''} · ${new Date().toLocaleTimeString("en-SA",{hour:"2-digit",minute:"2-digit"})}`;
   // ── Change 7: Compute sector-relative P/E medians after all prices loaded ──
   computeSectorMedianPE();
   updateMarketPEStats();
@@ -9892,7 +9957,11 @@ function _mpeCalc() {
   // and drag the market P/E down, inconsistent with the ex-Aramco Buffett Indicator.
   const hasMC = valid.filter(d=>d.mktCap>0 && d.ticker !== '2222.SR');
   const totalMC = hasMC.reduce((s,d)=>s+d.mktCap,0);
-  const wtdAvg = totalMC > 0 ? hasMC.reduce((s,d)=>s+d.pe*(d.mktCap/totalMC),0) : mean;
+  // Aggregate-earnings basis: ΣmktCap / Σearnings (earnings = mktCap/pe). The old
+  // Σ(pe × weight) arithmetic mean of multiples overweights high-P/E names (Jensen's
+  // inequality) — the index P/E everyone quotes is total cap over total earnings.
+  const totalEarnings = hasMC.reduce((s,d)=>s+d.mktCap/d.pe,0);
+  const wtdAvg = totalEarnings > 0 ? totalMC / totalEarnings : mean;
   return { valid, mean, median, wtdAvg, count: valid.length };
 }
 
@@ -9949,15 +10018,19 @@ function _marketConditions() {
   }).length;
   const breadth200 = br200Stocks.length>0 ? aboveSMA200/br200Stocks.length : null;
 
-  // 52-Week New Highs vs Lows — sentiment indicator
-  const yr52Stocks = allData.filter(d=>d.priceLoaded && d.price>0 && (d.closes||[]).length>=50);
+  // 52-Week New Highs vs Lows — sentiment indicator.
+  // ≥200 sessions required: with only 50, a new listing's "52-week range" is its whole
+  // short life and it sits near both extremes by construction. else-if prevents a
+  // tight-range stock counting as BOTH high and low (which dragged the ratio to 0.5);
+  // the historical reconstruction already uses else-if, so live now matches it.
+  const yr52Stocks = allData.filter(d=>d.priceLoaded && d.price>0 && (d.closes||[]).length>=200);
   let near52High=0, near52Low=0;
   yr52Stocks.forEach(d=>{
     const c = d.closes.slice(-252);
     if (!c.length) return;
     const hi = Math.max(...c), lo = Math.min(...c);
     if (d.price >= hi*0.95) near52High++;
-    if (d.price <= lo*1.05) near52Low++;
+    else if (d.price <= lo*1.05) near52Low++;
   });
   const hl52N = near52High + near52Low;
   const hl52Ratio = hl52N > 0 ? near52High / hl52N : null;
@@ -10009,7 +10082,9 @@ function _computeOverallScore(m) {
   // ERP deliberately EXCLUDED: ERP = 1/P/E − RF, so it is collinear with the P/E
   // component. Including both would double-weight the earnings-yield signal.
   // ERP is still shown as its own tile for context.
-  const sP    = _clamp01((m.wtdAvg - 14) / 12);
+  // Null guard: historical reconstruction can pass wtdAvg=null on thin-data days —
+  // null−14 coerced to −14 → sP=0 ("maximally cheap") silently biased those dates.
+  const sP    = m.wtdAvg > 0 ? _clamp01((m.wtdAvg - 14) / 12) : null;
   const sBr   = m.breadth    != null ? _clamp01((m.breadth   - 0.30)    / 0.50) : null;
   const sDY   = m.wtdDY      != null ? _clamp01((0.04 - m.wtdDY)        / 0.02) : null;
   const sPB   = m.wtdPB      != null ? _clamp01((m.wtdPB     - 1.5)     / 1.5)  : null;
@@ -10290,7 +10365,7 @@ function _renderMarketConditions() {
     const capeShortNote = m.capeDataDays < 1825 ? ` ⚠ Only ${(m.capeDataDays/365).toFixed(1)}yr of data — true Shiller CAPE needs 10yr; treat with caution.` : '';
     tiles.push(tile('cape', 'CAPE', c.toFixed(1)+'x',
       `${verdict} · ${coverage}`, col,
-      `Cyclically-Adjusted P/E: market P/E normalised using ${m.capeDataDays} days of earnings history, inflation-adjusted at 2.5%/yr Saudi CPI. Smooths out earnings cycles — CAPE <16 is historically cheap for TASI, >27 expensive. Classic Shiller CAPE uses 10 years; this figure has ${(m.capeDataDays/365).toFixed(1)}yr and becomes more reliable as the app accumulates more data.${capeShortNote}`));
+      `Cyclically-Adjusted P/E: market P/E normalised using ${m.capeDataDays} days of earnings history, inflation-adjusted at 1.8%/yr Saudi CPI. Smooths out earnings cycles — CAPE <16 is historically cheap for TASI, >27 expensive. Classic Shiller CAPE uses 10 years; this figure has ${(m.capeDataDays/365).toFixed(1)}yr and becomes more reliable as the app accumulates more data.${capeShortNote}`));
   }
 
   // 9. Market P/S — price-to-sales (less earnings-cycle distortion)
@@ -10992,23 +11067,36 @@ function saveAutoRefresh() {
     ? `⏰ Auto-refresh ON — daily at ${String(hour).padStart(2,'0')}:00 while a tab is open`
     : 'Auto-refresh disabled');
 }
+let _arLastAttempt = 0;
 function _autoRefreshTick() {
   const cfg = _autoRefreshCfg();
   if (!cfg.on || _refreshInFlight) return;
   const now = new Date();
-  if (now.getHours() !== cfg.hour || now.getMinutes() > 5) return; // 5-min window at HH:00
+  // Catch-up semantics: fire any time AFTER the scheduled hour if today's run hasn't
+  // happened yet. The old exact "HH:00–HH:05 window" silently skipped the whole day
+  // whenever the device slept through it or the browser throttled background timers
+  // (Chrome coalesces hidden-tab timers to ~1/hour after 5 minutes).
+  if (now.getHours() < cfg.hour) return;
   const key = `${now.toDateString()}@${cfg.hour}`;
-  if (localStorage.getItem('tasi_auto_refresh_last') === key) return; // once per day
-  localStorage.setItem('tasi_auto_refresh_last', key);
+  if (localStorage.getItem('tasi_auto_refresh_last') === key) return; // done today
+  if (Date.now() - _arLastAttempt < 30*60*1000) return; // failed earlier — retry every 30 min, not every tick
+  _arLastAttempt = Date.now();
   showToast('⏰ Scheduled auto-refresh — fetching fresh data…');
   // Force=true bypasses the morning cache so the data is genuinely fresh; the tail
   // of refreshAll already saves prices to IndexedDB + Drive. Statements are saved
   // explicitly so "everything possible" lands on Drive after the scheduled run.
   refreshAll(true).then(() => {
-    if (GD_TOKEN) { gdSaveBulkPrices().catch(()=>{}); gdSaveStatementsBulk().catch(()=>{}); }
+    if (allData.some(d => d.priceLoaded)) {
+      // Mark the day done only after a refresh that produced data — a total failure
+      // (offline, all sources down) leaves the key unset so the 30-min retry kicks in.
+      localStorage.setItem('tasi_auto_refresh_last', key);
+      if (GD_TOKEN) { gdSaveBulkPrices().catch(()=>{}); gdSaveStatementsBulk().catch(()=>{}); }
+    }
   }).catch(()=>{});
 }
 setInterval(_autoRefreshTick, 60 * 1000);
+// Foreground ticks aren't throttled — also check the schedule whenever the tab wakes up
+document.addEventListener('visibilitychange', () => { if (!document.hidden) _autoRefreshTick(); });
 
 // ═══════════════════════════════════════
 // BOOT — init runs SYNCHRONOUSLY first so table appears immediately

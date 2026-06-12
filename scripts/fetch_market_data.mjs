@@ -135,7 +135,9 @@ async function fetchTasi() {
     const timestamps = vi.map(k => ts[k]);
     if (closes.length < 10) return null;
     const price = res.meta?.regularMarketPrice ?? closes[closes.length - 1];
-    const prev = res.meta?.chartPreviousClose ?? closes[closes.length - 2];
+    // meta.chartPreviousClose is the close before the RANGE START (5y ago here) —
+    // regularMarketPreviousClose is yesterday's close, which is what "change" means.
+    const prev = res.meta?.regularMarketPreviousClose ?? closes[closes.length - 2];
     const change = prev ? r2((price - prev) / prev * 100) : null;
     // YTD as a FRACTION (0.073 = +7.3%) — matches the dashboard's tasiIndex convention
     const yr = new Date().getFullYear();
@@ -148,6 +150,10 @@ async function fetchTasi() {
 // ── main ──
 const tickers = extractTickers();
 console.log(`Tickers: ${tickers.length}`);
+
+// Previous snapshot — fundamentals fallback if this run's crumb flow breaks
+let prevSnap = null;
+try { prevSnap = JSON.parse(readFileSync(join(ROOT, 'data', 'market_snapshot.json'), 'utf8')); } catch {}
 
 const auth = await getCrumb();
 console.log(auth ? 'Yahoo crumb OK' : 'No crumb — falling back to spark-derived quotes');
@@ -168,6 +174,20 @@ for (const t of tickers) {
     pe: null, eps: null, pb: null, mc: null, v: null, av: null, h52: r2(Math.max(...c)), l52: r2(Math.min(...c)), dy: null };
   derived++;
 }
+
+// When the crumb flow breaks, quotes degrade to price-only (pe/eps/pb/mc/dy all null).
+// Don't let that permanently replace a snapshot that HAD fundamentals — carry the
+// previous run's fundamentals forward per ticker until v7/quote works again.
+let carried = 0;
+for (const [t, q] of Object.entries(quotes)) {
+  const old = prevSnap?.quotes?.[t];
+  if (!old || q.pe != null || q.mc != null) continue;
+  for (const k of ['pe', 'eps', 'pb', 'mc', 'av', 'h52', 'l52', 'dy']) {
+    if (q[k] == null && old[k] != null) q[k] = old[k];
+  }
+  carried++;
+}
+if (carried) console.warn(`Carried fundamentals forward from previous snapshot for ${carried} tickers (crumb flow degraded?)`);
 
 const nq = Object.keys(quotes).length, nc = Object.keys(closes).length;
 console.log(`Quotes: ${nq} (${derived} derived from closes) · Closes: ${nc} · TASI: ${tasi ? 'OK' : 'MISSING'}`);

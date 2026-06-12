@@ -45,5 +45,8 @@ jobs:
             echo "No changes to commit"
           else
             git commit -m "chore: market data snapshot $(date -u +'%Y-%m-%d %H:%M UTC')"
+            # A user push during the multi-minute fetch makes a bare push non-fast-forward;
+            # the snapshot-only commit always rebases cleanly on top.
+            git pull --rebase origin main
             git push
           fi
