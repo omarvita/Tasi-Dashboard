@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260613a'; // bump this string on every deploy that matters
+  var V='20260613b'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -255,20 +255,39 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
   .sw { min-width:100%; max-width:100%; order:-1; flex-basis:100%; }
   .ctrl select,.ctrl button { font-size:9px; padding:5px 7px; }
   /* Compact mode (default): ticker+name, price, chg%, PEG, Score, Fair Val, ★, ⊕.
-     Signal column hidden — it shows as a small chip next to the ticker instead. */
+     Signal column hidden — it shows as a small chip next to the ticker instead.
+     Width budget on a 360px phone is ~340px for 9 columns, so every saving counts:
+     provenance badges hidden, score bar → colored number, paddings 2px, widths auto. */
   .col-co,.col-pe,.col-eg,.col-fu,.col-te,.col-bu,.col-vw,.col-sig { display:none !important; }
   .mob-sig { display:inline-block !important; font-size:6px; padding:0 3px; margin-left:4px; vertical-align:1px; }
-  /* Watchlist ★ and compare ⊕ need finger-sized targets */
-  .col-st span, .col-cp span { font-size:17px !important; padding:4px; }
+  /* Watchlist ★ and compare ⊕ — still tappable but narrower */
+  .col-st span, .col-cp span { font-size:15px !important; padding:3px 1px; }
   table { table-layout:auto; }
-  td { padding:7px 5px; }
-  th { padding:6px 5px; font-size:8px; }
+  td { padding:7px 2px; }
+  th { padding:6px 2px; font-size:8px; }
+  /* Safety net: if content still exceeds the viewport, scroll instead of clipping */
+  .tw { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  /* Inline desktop th widths (82px Score etc.) force overflow — let content pack */
+  body:not(.mob-full) thead th { width:auto !important; }
+  /* LIVE/SNAP/CACHE provenance badge next to every price eats ~40px — hide it
+     in compact (EST stays: it warns the row is hardcoded estimates) */
+  body:not(.mob-full) #tbody .b-live, body:not(.mob-full) #tbody .b-snap,
+  body:not(.mob-full) #tbody .b-cache { display:none !important; }
+  /* Score: drop the bar track, keep just the colored number */
+  body:not(.mob-full) #tbody .bt { display:none !important; }
+  body:not(.mob-full) #tbody .bn { font-size:11px; font-weight:700; min-width:0; }
+  /* Override inline td min-widths (54/52/44/60px) so columns can pack tighter */
+  body:not(.mob-full) #tbody td:nth-child(2)  { min-width:48px !important; }
+  body:not(.mob-full) #tbody td:nth-child(4)  { min-width:42px !important; }
+  body:not(.mob-full) #tbody td:nth-child(5)  { min-width:36px !important; font-size:9px; }
+  body:not(.mob-full) #tbody td:nth-child(12) { min-width:0 !important; }
+  .rk { font-size:8px; }
   .bw { gap:2px; }
   .bt { min-width:16px; }
   .bn { font-size:9px; min-width:14px; }
   /* Full company name under the ticker, clamped to 2 lines */
-  .mob-company { display:-webkit-box !important; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; white-space:normal; max-width:104px; font-size:8px; color:var(--tx3); line-height:1.3; }
-  .pv { font-size:12px; }
+  .mob-company { display:-webkit-box !important; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; white-space:normal; max-width:80px; font-size:7.5px; color:var(--tx3); line-height:1.3; }
+  .pv { font-size:11px; }
   /* ⊞ All Columns mode: every desktop column, horizontal scroll, sticky #/Ticker.
      Densified — tighter fonts/padding/bars so most columns fit one screen-width;
      th width overrides (!important beats the inline desktop widths) let the
@@ -326,6 +345,16 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
   .ft td:first-child { min-width:90px !important; font-size:9px !important; }
   /* ── METRIC ITEMS: slightly smaller value font ── */
   .miv { font-size:11px !important; }
+  /* ── BIG VALUATION NUMBERS: modal cards use inline 24/20/18px font sizes that
+     dwarf a 360px screen. Attribute selectors (+ !important) scale them down
+     without touching dozens of template strings. ── */
+  .mbody div[style*="font-size:24px"] { font-size:18px !important; }
+  .mbody div[style*="font-size:20px"] { font-size:16px !important; }
+  .mbody div[style*="font-size:18px"] { font-size:14px !important; }
+  .mbody div[style*="font-size:28px"] { font-size:21px !important; }
+  /* Valuation card cells: lower min-width so 4-up rows fit a 340px body */
+  .mbody div[style*="min-width:90px"] { min-width:80px !important; padding:8px 4px !important; }
+  .mbody div[style*="min-width:80px"] { min-width:72px !important; padding:8px 4px !important; }
   /* ── SETTINGS PANEL: tighter padding ── */
   .settings-panel { padding:14px 12px !important; }
 }
@@ -358,7 +387,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label">v20260613a · mobile: modal is now a bottom sheet · score breakdown wraps 'why' text · 4-col grids → 2-col · tighter modal padding · smaller ft/formula fonts</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label">v20260613b · mobile: compact table fits all columns · smaller fair-value numbers · readable chart dates · scroll safety on table</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -7506,7 +7535,7 @@ async function buildDCF(d, _opts={}) {
       <div style="font-family:var(--mono);font-size:9px;color:var(--tx3)">SAR</div>
     </div>
     <div style="flex:1;min-width:90px;text-align:center;background:var(--bg3);border-radius:7px;padding:10px 8px;border:1px solid ${uColor}55">
-      <div ${T('intrinsic')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:5px;cursor:help">Fair Value (${primaryMethod})</div>
+      <div ${T('intrinsic')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:5px;cursor:help">Fair Value</div>
       <div style="font-size:24px;font-weight:700;color:${uColor};font-family:var(--mono)">${primaryPS.toFixed(2)}</div>
       <div style="font-family:var(--mono);font-size:9px;color:var(--tx3)">SAR</div>
       <div title="±15% sensitivity band — a 1% change in cost-of-equity moves fair value 15–30%. Treat this as a range, not a precise target." style="font-family:var(--mono);font-size:8.5px;color:var(--tx3);margin-top:4px;border-top:1px dashed var(--b1);padding-top:4px;cursor:help">≈ ${(primaryPS*0.85).toFixed(2)} – ${(primaryPS*1.15).toFixed(2)}<div style="font-size:7px;color:var(--tx3)">EST. RANGE ±15%</div></div>
@@ -7590,7 +7619,7 @@ async function buildDCF(d, _opts={}) {
       <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${peUColor}">${peUpside>=0?'+':''}${(peUpside*100).toFixed(1)}%</div>
     </div>
   </div>
-  <div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:9px">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:2px 10px;font-family:var(--mono);font-size:9px">
     <span style="color:${peColor};font-weight:600">${peLabel}</span>
     <span style="color:var(--tx3)">Premium to sector: ${pePremium>=0?'+':''}${(pePremium*100).toFixed(1)}% · EPS ${stockEPS.toFixed(3)} SAR × ${effectiveSectorPE}× = ${peFairValue.toFixed(2)} SAR${liveSectorPE ? ` (target blended: ${sectorPE}× structural + ${liveSectorPE.toFixed(1)}× live)` : ''}</span>
   </div>
@@ -7622,7 +7651,7 @@ async function buildDCF(d, _opts={}) {
       <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${evUColor}">${evUpside>=0?'+':''}${(evUpside*100).toFixed(1)}%</div>
     </div>
   </div>
-  <div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:9px">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:2px 10px;font-family:var(--mono);font-size:9px">
     <span style="color:${evUColor};font-weight:600">${evLabel}</span>
     <span style="color:var(--tx3)">EBITDA ${(ebitda/1e9).toFixed(2)}B × ${sectorEVEBITDA}× − net debt = ${(Math.max(ebitda*sectorEVEBITDA-netDebt,0)/1e9).toFixed(1)}B equity · ${ebitdaFromStmt?'from statements':'estimated'}</span>
   </div>
@@ -7654,7 +7683,7 @@ async function buildDCF(d, _opts={}) {
       <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${pbUColor}">${pbUpside>=0?'+':''}${(pbUpside*100).toFixed(1)}%</div>
     </div>
   </div>
-  <div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:9px">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:2px 10px;font-family:var(--mono);font-size:9px">
     <span style="color:${pbUColor};font-weight:600">${pbLabel}</span>
     <span style="color:var(--tx3)">Book value ${bookValuePS.toFixed(2)} SAR/share × ${sectorPBMid}× = ${pbFairValue.toFixed(2)} SAR · ${bvpsFromStmt?'from statements':'from P/B ratio'}</span>
   </div>
@@ -8314,7 +8343,7 @@ function drawChart(d){
       }
       const fontOpts={size:8,family:"'IBM Plex Mono'"};
       const tooltipStyle={backgroundColor:"rgba(24,28,34,0.97)",borderColor:"#2d3440",borderWidth:1,titleColor:"#e8eaed",bodyColor:"#8a9ab5",titleFont:{family:"'IBM Plex Mono'",size:10},bodyFont:{family:"'IBM Plex Mono'",size:10},callbacks:{title:items=>`Date: ${items[0].label}`,label:item=>`${item.dataset.label}: ${item.raw!=null?item.raw.toFixed(2)+" SAR":"—"}`}};
-      chartInst=new Chart(ctx,{type:"line",data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},plugins:{legend:{display:datasets.length>1,labels:{color:"#8a9ab5",font:fontOpts,boxWidth:10}},tooltip:tooltipStyle},scales:{x:{ticks:{font:fontOpts,color:"#4a5568",maxTicksLimit:9},grid:{display:false},border:{color:"#232830"}},y:{ticks:{font:fontOpts,color:"#4a5568"},grid:{color:"rgba(255,255,255,0.03)"},border:{color:"#232830"}}}}});
+      chartInst=new Chart(ctx,{type:"line",data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},plugins:{legend:{display:datasets.length>1,labels:{color:"#8a9ab5",font:fontOpts,boxWidth:10}},tooltip:tooltipStyle},scales:{x:{ticks:{font:fontOpts,color:"#4a5568",maxTicksLimit:(window.innerWidth<640?5:9),maxRotation:0},grid:{display:false},border:{color:"#232830"}},y:{ticks:{font:fontOpts,color:"#4a5568"},grid:{color:"rgba(255,255,255,0.03)"},border:{color:"#232830"}}}}});
 
       // RSI chart — show/hide panel and render
       const rsiPanel=document.getElementById("rsi-panel");
@@ -9553,7 +9582,7 @@ function drawTASIChart() {
   const fontOpts = { size:8, family:"'IBM Plex Mono'" };
   const ctx = document.getElementById('tasi-price-chart');
   if (!ctx) return;
-  tasiChartInst2 = new Chart(ctx, { type:'line', data:{ labels, datasets }, options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false}, plugins:{ legend:{ display:datasets.length>1, labels:{color:'#8a9ab5',font:fontOpts,boxWidth:10} }, tooltip:{ backgroundColor:'rgba(24,28,34,0.97)', borderColor:'#2d3440', borderWidth:1, titleColor:'#e8eaed', bodyColor:'#8a9ab5', titleFont:{family:"'IBM Plex Mono'",size:10}, bodyFont:{family:"'IBM Plex Mono'",size:10}, callbacks:{ title:items=>`Date: ${items[0].label}`, label:item=>`${item.dataset.label}: ${item.raw!=null?item.raw.toLocaleString('en-SA',{maximumFractionDigits:2}):'—'}` } } }, scales:{ x:{ticks:{font:fontOpts,color:'#4a5568',maxTicksLimit:9},grid:{display:false},border:{color:'#232830'}}, y:{ticks:{font:fontOpts,color:'#4a5568',callback:v=>v.toLocaleString('en-SA',{maximumFractionDigits:0})},grid:{color:'rgba(255,255,255,0.03)'},border:{color:'#232830'}} } } });
+  tasiChartInst2 = new Chart(ctx, { type:'line', data:{ labels, datasets }, options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false}, plugins:{ legend:{ display:datasets.length>1, labels:{color:'#8a9ab5',font:fontOpts,boxWidth:10} }, tooltip:{ backgroundColor:'rgba(24,28,34,0.97)', borderColor:'#2d3440', borderWidth:1, titleColor:'#e8eaed', bodyColor:'#8a9ab5', titleFont:{family:"'IBM Plex Mono'",size:10}, bodyFont:{family:"'IBM Plex Mono'",size:10}, callbacks:{ title:items=>`Date: ${items[0].label}`, label:item=>`${item.dataset.label}: ${item.raw!=null?item.raw.toLocaleString('en-SA',{maximumFractionDigits:2}):'—'}` } } }, scales:{ x:{ticks:{font:fontOpts,color:'#4a5568',maxTicksLimit:(window.innerWidth<640?5:9),maxRotation:0},grid:{display:false},border:{color:'#232830'}}, y:{ticks:{font:fontOpts,color:'#4a5568',callback:v=>v.toLocaleString('en-SA',{maximumFractionDigits:0})},grid:{color:'rgba(255,255,255,0.03)'},border:{color:'#232830'}} } } });
   // RSI sub-chart
   const rsiPanel = document.getElementById('tasi-rsi-panel');
   if (rsiPanel) rsiPanel.style.display = tasiShowRSI ? 'block' : 'none';
@@ -10820,7 +10849,7 @@ function _renderMPEChart() {
         }
       },
       scales: {
-        x:{ ticks:{font:fontOpts, color:'#4a5568', maxTicksLimit:8, maxRotation:0},
+        x:{ ticks:{font:fontOpts, color:'#4a5568', ..._axDateTicks(allDates)},
             grid:{display:false}, border:{color:'#232830'} },
         y:{ title:{display:true, text:'P/E Ratio', color:'#4a5568', font:fontOpts},
             ticks:{font:fontOpts, color:'#4a5568', callback:v=>v+'x'},
@@ -10828,6 +10857,26 @@ function _renderMPEChart() {
       }
     }
   });
+}
+
+// Short, readable x-axis dates for charts whose labels are 'YYYY-MM-DD' strings.
+// Raw ISO dates collide on a phone (8 ticks × 10 chars). Returns Chart.js tick
+// options: "Jun '25" for multi-year spans, "14 Jun" for ≤ ~6-month spans, and
+// fewer ticks on narrow screens.
+function _axDateTicks(labels) {
+  const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const span = labels.length > 1
+    ? (new Date(labels[labels.length-1]) - new Date(labels[0])) / 864e5 : 0;
+  const fmt = s => {
+    const d = new Date(s);
+    if (isNaN(d)) return s;
+    return span > 200 ? `${MO[d.getMonth()]} '${String(d.getFullYear()).slice(-2)}`
+                      : `${d.getDate()} ${MO[d.getMonth()]}`;
+  };
+  return {
+    maxTicksLimit: (window.innerWidth < 640 ? 5 : 8), maxRotation: 0, autoSkip: true,
+    callback(v) { return fmt(this.getLabelForValue(v)); }
+  };
 }
 
 function _renderIndicatorHistChart(ctx) {
@@ -10960,7 +11009,7 @@ function _renderIndicatorHistChart(ctx) {
         }
       },
       scales: {
-        x:{ ticks:{font:fontOpts, color:'#4a5568', maxTicksLimit:8, maxRotation:0},
+        x:{ ticks:{font:fontOpts, color:'#4a5568', ..._axDateTicks(labels)},
             grid:{display:false}, border:{color:'#232830'} },
         y:{ title:{display:true, text:meta.yLabel, color:'#4a5568', font:fontOpts},
             ticks:{font:fontOpts, color:'#4a5568', callback: v => meta.fmt(v)},
