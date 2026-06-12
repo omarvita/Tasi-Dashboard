@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260613e'; // bump this string on every deploy that matters
+  var V='20260613f'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -367,7 +367,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
   /* The overlay (.mo) must align-end so the modal panel sits at the bottom of the screen.
      z-index:300 keeps the modal above the bottom nav bar (z-index:200). */
   .mo { align-items:flex-end !important; padding:0 !important; z-index:300 !important; }
-  .modal { width:100% !important; border-radius:14px 14px 0 0 !important; max-height:94vh !important; }
+  .modal { width:100% !important; border-radius:14px 14px 0 0 !important; max-height:94vh !important; max-height:94dvh !important; }
   /* Tighter header/body padding inside modal — 360px viewport → more content space */
   .mhead { padding:10px 10px 0 !important; }
   .mbody { padding:10px 10px calc(14px + env(safe-area-inset-bottom, 0px)) !important; }
@@ -5884,6 +5884,7 @@ async function openModal(idx){
 
   // Show modal immediately with whatever data we already have
   _renderModalShell(d);
+  document.body.style.overflow='hidden';
   document.getElementById("modal").style.display="flex";
 
   if(d.fullLoaded){
@@ -8432,7 +8433,7 @@ function drawChart(d){
                   label:item=>item.datasetIndex===0?"RSI: "+(item.raw!=null?item.raw.toFixed(1):"—"):null
                 }}},
               scales:{x:{display:false},
-                y:{min:0,max:100,ticks:{font:fontOpts,color:"#4a5568",stepSize:20,
+                y:{position:'right',min:0,max:100,ticks:{font:fontOpts,color:"#4a5568",stepSize:20,
                   callback:v=>v===70?"OB":v===30?"OS":v},
                   grid:{color:"rgba(255,255,255,0.03)"},border:{color:"#232830"}}
               }}
@@ -8493,7 +8494,7 @@ function drawChart(d){
             options:{responsive:true,maintainAspectRatio:false,
               interaction:{mode:"index",intersect:false},
               plugins:{legend:{display:false},tooltip:{...tooltipStyle,callbacks:{title:items=>"Date: "+items[0].label,label:item=>{if(item.raw==null)return null;const lbl=["Hist","MACD","Signal"][item.datasetIndex];return lbl+": "+(item.raw).toFixed(3);}}}},
-              scales:{x:{display:false},y:{ticks:{font:fontOpts,color:"#4a5568",maxTicksLimit:4},grid:{color:"rgba(255,255,255,0.03)"},border:{color:"#232830"}}}}
+              scales:{x:{display:false},y:{position:'right',ticks:{font:fontOpts,color:"#4a5568",maxTicksLimit:4},grid:{color:"rgba(255,255,255,0.03)"},border:{color:"#232830"}}}}
           });
         },80);
       }
@@ -8527,7 +8528,7 @@ function drawChart(d){
             options:{responsive:true,maintainAspectRatio:false,
               interaction:{mode:"index",intersect:false},
               plugins:{legend:{display:false},tooltip:{...tooltipStyle,callbacks:{title:items=>"Date: "+items[0].label,label:item=>{if(item.datasetIndex>1||item.raw==null)return null;return ["%K: ","%D: "][item.datasetIndex]+(item.raw).toFixed(1);}}}},
-              scales:{x:{display:false},y:{min:0,max:100,ticks:{font:fontOpts,color:"#4a5568",stepSize:20,callback:v=>v===80?"OB":v===20?"OS":v},grid:{color:"rgba(255,255,255,0.03)"},border:{color:"#232830"}}}}
+              scales:{x:{display:false},y:{position:'right',min:0,max:100,ticks:{font:fontOpts,color:"#4a5568",stepSize:20,callback:v=>v===80?"OB":v===20?"OS":v},grid:{color:"rgba(255,255,255,0.03)"},border:{color:"#232830"}}}}
           });
         },80);
       }
@@ -8617,6 +8618,7 @@ function closeModal(){
     if(mc)mc.style.cssText='';
     _modalFS=false;
   }
+  document.body.style.overflow='';
   document.getElementById("modal").style.display="none";
   if(chartInst){try{chartInst.destroy();}catch(e){}chartInst=null;}
   if(rsiChartInst){try{rsiChartInst.destroy();}catch(e){}rsiChartInst=null;}
