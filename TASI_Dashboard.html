@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260612a'; // bump this string on every deploy that matters
+  var V='20260612b'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -222,16 +222,25 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 .mob-menu-item:active,.mob-menu-item:hover{background:var(--bg3);color:var(--tx)}
 .mob-more-wrap{position:relative;display:none}
 /* ─── MOBILE RESPONSIVE ─── */
+.mob-only{display:none}
 @media (max-width: 640px) {
   body { padding-bottom: 60px; }
   .mob-nav { display: flex; }
   .mob-more-wrap { display: inline-block; }
+  .mob-only { display: inline-block; }
   .hdr-sec { display: none !important; }
   .main { padding: 8px 10px; }
+  /* Topbar: fixed 50px height + a multi-line version label made the right-side
+     buttons spill over the metric cards. Let it grow and clamp the label. */
+  .topbar { padding: 7px 10px; height: auto; min-height: 50px; flex-wrap: wrap; row-gap: 4px; }
+  .logo { flex: 1 1 60%; min-width: 0; }
+  .logo > div:last-child { min-width: 0; }
+  #ver-label { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+               overflow: hidden; font-size: 8px !important; line-height: 1.4; }
+  .tr { flex: 0 1 auto; margin-left: auto; align-items: flex-start; }
   .logo-sub { display: none; }
   .logo-icon { width: 28px; height: 28px; font-size: 10px; }
   .logo-text { font-size: 11px; letter-spacing: .05em; }
-  .topbar { padding: 7px 10px; }
   .metrics { grid-template-columns: repeat(4,1fr); gap: 4px; }
   .mc { padding: 6px 7px; }
   .mc-v { font-size: 13px; }
@@ -244,7 +253,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
   .ctrl { gap:4px; }
   .sw { min-width:100%; max-width:100%; order:-1; flex-basis:100%; }
   .ctrl select,.ctrl button { font-size:9px; padding:5px 7px; }
-  /* table: hide non-essential columns */
+  /* table: hide non-essential columns (compact mode, default) */
   .col-co,.col-pe,.col-eg,.col-peg,.col-fu,.col-te,.col-bu,.col-tr,.col-st,.col-cp,.col-vw { display:none !important; }
   table { table-layout:auto; }
   td { padding:10px 5px; }
@@ -254,6 +263,16 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
   .bn { font-size:9px; min-width:14px; }
   .mob-company { display:block !important; }
   .pv { font-size:12px; }
+  /* ⊞ All Columns mode: every desktop column, horizontal scroll, sticky #/Ticker.
+     Company column stays hidden — the name already shows under the ticker. */
+  body.mob-full .col-pe, body.mob-full .col-eg, body.mob-full .col-peg,
+  body.mob-full .col-fu, body.mob-full .col-te, body.mob-full .col-bu,
+  body.mob-full .col-tr, body.mob-full .col-st, body.mob-full .col-cp,
+  body.mob-full .col-vw { display:table-cell !important; }
+  body.mob-full .tw { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  body.mob-full .tw > table { min-width:880px; }
+  body.mob-full .tw > table th:nth-child(1), body.mob-full .tw > table td:nth-child(1) { position:sticky; left:0; background:var(--bg2); z-index:2; }
+  body.mob-full .tw > table th:nth-child(2), body.mob-full .tw > table td:nth-child(2) { position:sticky; left:26px; background:var(--bg2); z-index:2; }
   /* modal: bottom sheet style */
   .modal-overlay { align-items:flex-end; padding:0; }
   .modal { width:100% !important; border-radius:12px 12px 0 0; max-height:94vh; }
@@ -288,7 +307,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label">v20260612a · 3-agent review: bank DDM growth cap · Saudi-calibrated beta · index-style market P/E · price provenance badges (LIVE/SNAP/CACHE) · snapshot freshness fixes · smarter auto-refresh</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label">v20260612b · mobile: ⊞ All Columns mode (P/E·PEG·Fund·Tech·Buffett·Fair Val·★·⊕ with swipe) · tap-to-show tooltips · fixed header overlap · 3-agent review fixes</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -439,6 +458,7 @@ tr.data-row:hover td{background:rgba(255,255,255,.025);cursor:pointer}
       <option value="Watch">Watch</option>
     </select>
     <button class="rbtn" id="wl-btn" style="font-size:10px;padding:5px 10px;background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="toggleWatchlistFilter()" title="Show only watchlisted stocks">☆ Watchlist</button>
+    <button class="rbtn mob-only" id="mob-cols-btn" style="font-size:10px;padding:5px 10px;background:#1a1a2e;border-color:var(--b2);color:var(--tx3)" onclick="toggleMobCols()" title="Show every desktop column — P/E, PEG, Fundamental, Technical, Buffett, Fair Value, watchlist ★, compare ⊕ — with horizontal scroll">⊞ All Columns</button>
   </div>
 
   <div class="tw">
@@ -11046,6 +11066,25 @@ function buildSectorPerf() {
   bar.innerHTML = `<span class="secperf-lbl">Sectors</span>${allPill}${pills}`;
 }
 
+// ── Mobile "All Columns" toggle: shows every desktop column with horizontal scroll ──
+function toggleMobCols() {
+  const on = document.body.classList.toggle('mob-full');
+  localStorage.setItem('tasi_mob_full', on ? '1' : '0');
+  const b = document.getElementById('mob-cols-btn');
+  if (b) {
+    b.textContent = on ? '⊟ Compact' : '⊞ All Columns';
+    b.style.color = on ? 'var(--acc)' : 'var(--tx3)';
+    b.style.borderColor = on ? 'var(--acc)' : 'var(--b2)';
+  }
+  if (on) showToast('Swipe the table sideways to see all columns', 2500);
+}
+// Restore saved preference on load
+if (localStorage.getItem('tasi_mob_full') === '1') {
+  document.body.classList.add('mob-full');
+  const _mcb = document.getElementById('mob-cols-btn');
+  if (_mcb) { _mcb.textContent = '⊟ Compact'; _mcb.style.color = 'var(--acc)'; _mcb.style.borderColor = 'var(--acc)'; }
+}
+
 // ═══════════════════════════════════════
 // SCHEDULED AUTO-REFRESH — while a tab is open, refresh everything at the
 // configured hour (default 12:00) and push all data to Google Drive.
@@ -11247,6 +11286,14 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) _aut
   });
   document.addEventListener('mousemove',function(e){if(tt.style.display==='block')pos(e);});
   document.addEventListener('mouseout',function(e){if(e.target.closest('[data-tip]')){clearTimeout(_t);tt.style.display='none';}});
+  // Touch devices have no hover — tap a [data-tip] element to toggle its tooltip,
+  // tap anywhere else to dismiss. Desktop (hover-capable) keeps the hover behavior.
+  document.addEventListener('click',function(e){
+    if(window.matchMedia('(hover: hover)').matches) return;
+    const el=e.target.closest('[data-tip]');
+    if(el){ tt.textContent=el.dataset.tip; tt.style.display='block'; pos(e); }
+    else tt.style.display='none';
+  });
   document.addEventListener('click',function(e){
     const res=document.getElementById('port-search-results');
     if(res&&!e.target.closest('#port-search-results')&&e.target.id!=='port-search-input')res.style.display='none';
