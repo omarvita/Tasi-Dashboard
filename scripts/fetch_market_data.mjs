@@ -196,7 +196,20 @@ if (nq < tickers.length * 0.5) {
   process.exit(1);
 }
 
-const snapshot = { generated: Date.now(), generatedISO: new Date().toISOString(), quotes, closes, tasi };
+// ── Delisting tracker ──────────────────────────────────────────────────────
+// `seen` records when each ticker last returned a quote. Tickers silent for 35+
+// days (≈ a month of trading incl. Saudi weekends/holidays) are flagged as
+// `delisted` — the dashboard greys them out and drops them from market stats.
+const seen = { ...(prevSnap?.seen || {}) };
+const now = Date.now();
+for (const t of Object.keys(quotes)) seen[t] = now;
+for (const t of tickers) if (seen[t] == null) seen[t] = now; // start the clock at first observation
+for (const t of Object.keys(seen)) if (!tickers.includes(t)) delete seen[t]; // dropped from universe
+const DELIST_MS = 35 * 24 * 36e5;
+const delisted = tickers.filter(t => seen[t] != null && now - seen[t] > DELIST_MS);
+if (delisted.length) console.warn(`Possibly delisted/suspended (${delisted.length}): ${delisted.join(', ')}`);
+
+const snapshot = { generated: Date.now(), generatedISO: new Date().toISOString(), quotes, closes, tasi, seen, delisted };
 mkdirSync(join(ROOT, 'data'), { recursive: true });
 writeFileSync(join(ROOT, 'data', 'market_snapshot.json'), JSON.stringify(snapshot));
 console.log(`Wrote data/market_snapshot.json (${(JSON.stringify(snapshot).length / 1048576).toFixed(2)} MB)`);

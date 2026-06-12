@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260613g'; // bump this string on every deploy that matters
+  var V='20260613h'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -3013,6 +3013,12 @@ function renderPortfolioHTML(stats) {
   </div>
   ${sellWarning ? `<div style="margin-top:8px;padding:6px 8px;background:#1a0000;border-radius:4px;font-family:var(--mono);font-size:9px;color:var(--red)">⚠ SELL signal on: ${sellWarning} — review these positions</div>` : ''}
   ${top1Pct > 30 ? `<div style="margin-top:6px;padding:6px 8px;background:#1a1000;border-radius:4px;font-family:var(--mono);font-size:9px;color:var(--amb)">⚠ ${stats.positions[0].ticker.replace('.SR','')} is ${top1Pct}% of portfolio — consider reducing concentration</div>` : ''}
+  ${(()=>{ // Sector concentration — common Saudi retail pattern is an all-banks portfolio
+    const top = stats.sectorBreakdown[0];
+    if (!top || top.pct <= 0.5) return '';
+    const sev = top.pct > 0.75;
+    return `<div style="margin-top:6px;padding:6px 8px;background:${sev?'#1a0000':'#1a1000'};border-radius:4px;font-family:var(--mono);font-size:9px;color:${sev?'var(--red)':'var(--amb)'}">⚠ ${(top.pct*100).toFixed(0)}% of the portfolio is in ${top.sector} — a single-sector downturn (rate cuts for banks, oil for petrochems) hits most of your capital at once. Consider diversifying across 4+ sectors.</div>`;
+  })()}
 </div>`;
 
   // ── SECTOR BREAKDOWN ──
@@ -3784,6 +3790,7 @@ const TIPS = {
   shares_out:     'Total number of ordinary shares issued by the company. Dividing equity value by this gives intrinsic value per share.',
   fcf_growth:     'Projected annual FCF growth rate for the 5-year forecast. Based on historical earnings growth and analyst estimates. Small changes have a large valuation impact.',
   tax_zakat:      'Saudi domestic companies pay Zakat (~2.5% of net assets ≈ 5% effective income rate). Some subsidiaries pay 20% CIT. Reduces effective cost of debt via tax shield.',
+  div_safety:     'Dividend Safety — can the company keep paying? Payout = dividends per share ÷ EPS (below 70% is comfortable, above 90% leaves no buffer). FCF cover = free cash flow ÷ dividends paid (above 1.2x means dividends are funded by real cash, not debt). Consistency = years of uninterrupted payments. REITs are excluded: CMA rules require them to distribute 90%+ of income, so these thresholds don\'t apply.',
   de_ratio:       'Debt-to-Equity ratio used in WACC — how much debt the company uses relative to equity. High D/E raises WACC, which lowers the DCF fair value. For Saudi non-banks this is sourced from the balance sheet; deposits are excluded.',
   fcf:            'The base Free Cash Flow input for DCF projections — operating cash flow minus capital expenditure. Sourced from the most recent annual report or trailing 12 months. The quality of the entire DCF output depends on this starting figure.',
   pe_relative:    'Compares this stock\'s P/E to its sector peers. Fair value = EPS × sector median P/E. A premium to peers may be justified by higher growth; a discount may signal an overlooked opportunity or a genuine risk.',
@@ -5036,6 +5043,27 @@ async function addCustomTicker(){
   renderCustomTickerList();
 }
 
+// Re-fetch the official name for a manually-added ticker (auto-fetch may have
+// failed at add time, or the placeholder code-as-name was kept).
+async function recheckCustomTicker(ticker){
+  const st = document.getElementById('ct-status');
+  if (st) { st.textContent = 'Re-checking ' + ticker + '…'; st.style.color = 'var(--tx3)'; }
+  try {
+    const q = (await fetchWithProxy(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}`))?.quoteResponse?.result?.[0];
+    const name = (q?.shortName || q?.longName || '').replace(/<[^>]*>/g,'');
+    if (!name) { if (st) { st.textContent = 'No data returned for ' + ticker; st.style.color = 'var(--amb)'; } return; }
+    const list = _customTickers();
+    const e = list.find(x => x.t === ticker);
+    if (e) { e.n = name; _saveCustomTickers(list); }
+    const d = allData.find(x => x.ticker === ticker);
+    if (d) { d.name = name; try { doFilter(); } catch(e2){} }
+    if (st) { st.textContent = '✓ Updated: ' + name; st.style.color = 'var(--green)'; }
+    renderCustomTickerList();
+  } catch(e) {
+    if (st) { st.textContent = 'Lookup failed (proxies unavailable) — try again later'; st.style.color = 'var(--red)'; }
+  }
+}
+
 function removeCustomTicker(ticker){
   _saveCustomTickers(_customTickers().filter(x => x.t !== ticker));
   const idx = allData.findIndex(d => d.ticker === ticker && (d._autoDiscovered || d._fromCustom));
@@ -5053,6 +5081,7 @@ function renderCustomTickerList(){
     (manual.length ? manual.map(x =>
       `<span style="display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:9px;background:var(--bg3);border:1px solid var(--b1);border-radius:4px;padding:3px 6px;margin:2px 4px 2px 0">
         ${escapeHTML(x.t)} ${escapeHTML(x.n)}
+        <span onclick="recheckCustomTicker('${x.t}')" style="cursor:pointer;color:var(--tx3)" title="Re-fetch name from Yahoo Finance">⟳</span>
         <span onclick="removeCustomTicker('${x.t}')" style="cursor:pointer;color:var(--red)" title="Remove">✕</span>
       </span>`).join('') : '') +
     `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">${manual.length} manually added · ${autoN} auto-discovered (persisted)</div>`;
@@ -5672,7 +5701,7 @@ function renderTable(){
       : _ei?.isSoon
       ? `<span title="Q results expected by ${_ei.dueFmt} (${_ei.daysUntilQEnd > 0 ? 'quarter ends ' + _ei.qEndFmt : 'reporting window open'})" style="display:inline-block;font-family:var(--mono);font-size:7px;background:#1c1400;color:#fbbf24;border:1px solid #78350f;border-radius:3px;padding:0 3px;margin-left:3px;vertical-align:middle;cursor:help">📅 ${_ei.dueFmt}</span>`
       : '';
-    return`<tr class="data-row" onclick="openModal(${start+i})" onmouseenter="gdPrefetch(${start+i})">
+    return`<tr class="data-row" onclick="openModal(${start+i})" onmouseenter="gdPrefetch(${start+i})"${d._delisted?` style="opacity:.45" title="Possibly delisted/suspended — no quote from Yahoo Finance for 35+ days"`:''}>
       <td class="rk">${start+i+1}</td>
       <td class="tk" style="white-space:normal;min-width:54px">${escapeHTML(d.ticker.replace(".SR",""))}<span class="mob-sig badge ${sig.cls}" style="display:none">${unscored?'—':sig.label}</span><span class="mob-company" style="display:none">${escapeHTML(getStockName(d))}</span></td>
       <td class="col-co" title="${escapeHTML(d.name)}" style="color:var(--tx)">${escapeHTML(getStockName(d))}${earningsBadge}</td>
@@ -6351,6 +6380,22 @@ function buildOverview(d){
     <div class="mi"><div class="mil" ${T('peg')}>PEG Ratio</div><div class="miv" style="color:${peg!=null?(peg<1?"var(--green)":peg<2?"var(--amb)":"var(--red)"):"var(--tx3)"}">${peg!=null?peg.toFixed(2):"—"}</div></div>
     <div class="mi"><div class="mil" ${T('eps_growth')}>Earnings Growth</div><div class="miv ${d.eg!=null?(d.eg>=0?'pos':'neg'):''}">${d.eg!=null?(d.eg>=0?"+":"")+(d.eg*100).toFixed(1)+"%":"—"}</div></div>
     <div class="mi"><div class="mil" ${T('dy')}>Div. Yield</div><div class="miv">${d.dy!=null?(d.dy*100).toFixed(2)+"%":"—"}</div></div>
+    ${(()=>{ // Dividend safety — payout coverage + consistency. REITs excluded (90%+ payout is mandated by CMA rules, so EPS-payout math mislabels them).
+      if(!(d.dy>0)||!(d.price>0)||d.isReit) return '';
+      const dps=d.dy*d.price;
+      const cons=getDivConsistency(d.ticker);
+      const payoutEPS=(d.eps>0)?dps/d.eps:null;
+      let fcfCover=null;
+      const cf0=d.rawTwelveData?.annual?.cf?.[0];
+      if(cf0&&cf0.free_cash_flow>0&&cf0.dividends_paid!=null&&Math.abs(cf0.dividends_paid)>0) fcfCover=cf0.free_cash_flow/Math.abs(cf0.dividends_paid);
+      if(payoutEPS==null&&fcfCover==null) return '';
+      const risky=(payoutEPS!=null&&payoutEPS>0.9)||(fcfCover!=null&&fcfCover<1);
+      const safe=!risky&&(payoutEPS!=null&&payoutEPS<0.7)&&(fcfCover==null||fcfCover>1.2)&&cons.years>=3;
+      const label=risky?'Risky':safe?'Safe':'Watch';
+      const col=risky?'var(--red)':safe?'var(--green)':'var(--amb)';
+      const det=[payoutEPS!=null?`payout ${(payoutEPS*100).toFixed(0)}%`:null,fcfCover!=null?`FCF cover ${fcfCover.toFixed(1)}x`:null,cons.years?cons.years+'y record':null].filter(Boolean).join(' · ');
+      return `<div class="mi"><div class="mil" ${T('div_safety')}>Div. Safety</div><div class="miv" style="color:${col}">${label} <span style="font-size:8px;color:var(--tx3)">${det}</span></div></div>`;
+    })()}
     <div class="mi"><div class="mil" ${T('roe')}>ROE</div><div class="miv ${d.roe!=null?(d.roe>0.12?"pos":d.roe<0?"neg":""):''}">${d.roe!=null?(d.roe*100).toFixed(1)+"%":"—"}</div></div>
     ${d.dcfPS!=null&&d.price?`<div class="mi"><div class="mil" ${T('intrinsic')}>${d.dcfMethod||'DCF'} Fair Value</div><div class="miv" style="color:${d.dcfUpside>0.10?'var(--green)':d.dcfUpside>-0.10?'var(--amb)':'var(--red)'}"><span style="font-weight:600">${d.dcfPS.toFixed(2)} SAR</span> <span style="font-size:9px;font-family:var(--mono)">${d.dcfUpside>=0?'+':''}${(d.dcfUpside*100).toFixed(1)}%</span></div></div>`:`<div class="mi"><div class="mil" ${T('intrinsic')}>DCF Fair Value</div><div class="miv" style="font-size:9px;color:var(--tx3)">Open Fair Value tab ↗</div></div>`}
     ${(()=>{
@@ -6381,7 +6426,7 @@ function buildOverview(d){
     <div class="mi"><div class="mil" ${T('net_income')}>Net Income</div><div class="miv ${d.ni!=null?(d.ni>=0?'pos':'neg'):''}">${_fB(d.ni)}</div></div>
     <div class="mi"><div class="mil" ${T('total_assets')}>Total Assets</div><div class="miv">${_fB(d.assets)}</div></div>`;})()}
     <div class="mi"><div class="mil" ${T('net_margin')}>Net Margin</div><div class="miv">${d.npm!=null?(d.npm*100).toFixed(1)+"%":"—"}</div></div>
-    <div class="mi"><div class="mil" ${T('de_ratio')}>Debt/Equity</div><div class="miv">${d.de!=null?d.de.toFixed(0)+"%":"N/A"}</div></div>
+    <div class="mi"><div class="mil" ${T('de_ratio')}>Debt/Equity</div><div class="miv">${(d.sector==='Banking'||d.sector==='Insurance')?`<span style="color:var(--tx3);font-size:9px">not scored — ${d.sector==='Banking'?'leverage is the business model; see SAMA capital adequacy':'solvency margin (SAMA) is the relevant metric'}</span>`:d.de!=null?d.de.toFixed(0)+"%":"N/A"}</div></div>
     ${(()=>{const fcfVal=d.rawTwelveData?.annual?.cf?.[0]?.free_cash_flow;const mktCap=d.mktCap||(d.price!=null&&d.sharesOutstanding!=null?d.price*d.sharesOutstanding:null);let fcfDisplay,fcfClass;if(fcfVal!=null){const fcfNum=parseFloat(fcfVal);const _afcf=Math.abs(fcfNum);const fcfFmt=_afcf>=1e9?(_afcf/1e9).toFixed(2)+'B':_afcf>=1e6?(_afcf/1e6).toFixed(1)+'M':(_afcf/1e3).toFixed(0)+'K';const yld=mktCap?((fcfNum/mktCap)*100).toFixed(1)+'% yield':'';fcfDisplay=`${fcfNum>=0?'':'-'}${fcfFmt}${yld?' · '+yld:''}`;fcfClass=fcfNum>=0?'pos':'neg';}else{fcfDisplay=d.fcf===true?'Positive':d.fcf===false?'Negative':'—';fcfClass=d.fcf?'pos':'neg';}return`<div class="mi"><div class="mil" ${T('fcf')}>Free Cashflow</div><div class="miv ${fcfClass}">${fcfDisplay}</div></div>`;})()}
     <div class="mi"><div class="mil">Vision 2030 <span style="color:var(--tx3);font-size:9px" title="Measures how much this company benefits from Saudi Vision 2030 government spending programs. Not a financial metric.">ⓘ</span></div><div class="miv" style="color:${getVision2030(d.ticker)>=70?'var(--green)':getVision2030(d.ticker)>=45?'var(--amb)':'var(--tx3)'}" title="Measures how much this company benefits from Saudi Vision 2030 government spending programs. Not a financial metric.">${getVision2030(d.ticker)}/100</div></div>
   </div>
@@ -7331,9 +7376,19 @@ async function buildDCF(d, _opts={}) {
     'Petrochemicals':0.50,'Chemicals':0.50,'Energy':0.55,
     'Banking':0.30,'Insurance':0.30,
   };
+  // Cyclical sectors: latest-year FCF at a commodity-cycle peak (or trough) badly
+  // skews fair value. Graham-style normalization: average up to 5 years of FCF so
+  // the DCF discounts mid-cycle cash generation, not a single extreme year.
+  const _CYCLICAL = new Set(['Petrochemicals','Chemicals','Materials','Building Materials','Energy']);
   if (annualData?.cf?.length) {
     const fcfRaw = parseFloat(annualData.cf[0].free_cash_flow);
-    if (!isNaN(fcfRaw)) { baseFCF = fcfRaw; fcfSource = 'financial statements'; }
+    if (_CYCLICAL.has(d.sector)) {
+      const hist = annualData.cf.slice(0, 5).map(r => parseFloat(r.free_cash_flow)).filter(v => !isNaN(v));
+      if (hist.length >= 3) {
+        baseFCF = hist.reduce((a, b) => a + b, 0) / hist.length;
+        fcfSource = `${hist.length}-yr avg FCF (cyclical sector — normalized)`;
+      } else if (!isNaN(fcfRaw)) { baseFCF = fcfRaw; fcfSource = 'financial statements'; }
+    } else if (!isNaN(fcfRaw)) { baseFCF = fcfRaw; fcfSource = 'financial statements'; }
     if (annualData.is?.length) { const rv = parseFloat(annualData.is[0].revenue); if (!isNaN(rv)) stmtRevenue = rv; }
   }
   // Negative FCF often means a CapEx-heavy expansion cycle, not a failing business.
@@ -8810,9 +8865,15 @@ async function loadRepoSnapshot() {
     }
     const snap = _snapshotData;
     if (!snap?.quotes || !snap.generated) return 0;
+    window._snapGenerated = snap.generated; // staleness indicator reads this
     if (Date.now() - snap.generated > 7*24*36e5) return 0; // ignore week-old snapshots
     const snapDate = new Date(snap.generated).toISOString().slice(0, 10);
     const idxMap = new Map(allData.map((d, i) => [d.ticker, i]));
+    // Delisting markers from the Action: tickers Yahoo hasn't returned a quote for in 35+ days
+    for (const t of snap.delisted || []) {
+      const i = idxMap.get(t);
+      if (i != null) allData[i]._delisted = true;
+    }
     let applied = 0;
     for (const [tk, q] of Object.entries(snap.quotes)) {
       const i = idxMap.get(tk);
@@ -8888,6 +8949,62 @@ async function loadRepoSnapshot() {
 // when the Yahoo bulk pass fails completely: a single request through a single
 // proxy beats retrying 20 Yahoo batches through dead proxies.
 // ═══════════════════════════════════════════════════════════════════════════
+// ── STATEMENTS SNAPSHOT — data/statements_snapshot.json, written weekly by the
+// statements-data workflow (server-side Yahoo fetch, no CORS proxies). Seeds
+// financial statements for every stock so TTM P/E, ROE, margins, growth and all
+// scores derived from them work even when every proxy is down. Per-stock data
+// fetched fresher in this session (Drive cache, modal open) is never overwritten.
+let _stmtSnapAttempted = false;
+async function loadRepoStatements() {
+  if (_stmtSnapAttempted) return 0;
+  _stmtSnapAttempted = true; // one attempt per session
+  try {
+    const resp = await fetch(`data/statements_snapshot.json?_cb=${Date.now()}`,
+      { cache: 'no-store', signal: AbortSignal.timeout(20000) });
+    if (!resp.ok) return 0; // 404 until the Action's first run — fine
+    const snap = await _bodyJson(resp, 20000);
+    if (!snap?.statements || !snap.generated) return 0;
+    if (Date.now() - snap.generated > 45*24*36e5) return 0; // ignore >45-day-old statements
+    const idxMap = new Map(allData.map((d, i) => [d.ticker, i]));
+    let applied = 0;
+    for (const [tk, st] of Object.entries(snap.statements)) {
+      const i = idxMap.get(tk);
+      if (i == null) continue;
+      const d = allData[i];
+      if (!d.rawTwelveData) d.rawTwelveData = {};
+      let touched = false;
+      if (!d.rawTwelveData.annual && st.annual && (st.annual.is || st.annual.bs || st.annual.cf)) {
+        d.rawTwelveData.annual = st.annual; touched = true;
+      }
+      if (!d.rawTwelveData.quarterly && st.quarterly && (st.quarterly.is || st.quarterly.bs || st.quarterly.cf)) {
+        d.rawTwelveData.quarterly = st.quarterly; touched = true;
+      }
+      if (touched) { try { applyDerivedMetrics(d); applied++; } catch(e){} }
+    }
+    if (applied > 0) {
+      computeSectorMedianPE();
+      doFilter(); updateMetrics(); updateMarketPEStats();
+      console.log(`[Statements] Seeded ${applied} stocks from statements snapshot (${new Date(snap.generated).toISOString().slice(0,10)})`);
+    }
+    return applied;
+  } catch(e) { console.warn('[Statements] snapshot load failed', e); return 0; }
+}
+
+// Proxied quotes travel through third-party CORS proxies that could rewrite bodies.
+// Tadawul's daily price limit is ±10% and the snapshot/cache reference is at most a
+// few days old, so a "live" price 50%+ away from the last known price is almost
+// certainly corrupt — reject it and keep the trusted snapshot value.
+function _plausibleQuote(d, p) {
+  if (!(p > 0)) return false;
+  if (!(d.price > 0) || !d.priceLoaded) return true; // nothing to compare against
+  const r = p / d.price;
+  if (r > 1.5 || r < 0.5) {
+    console.warn(`[Sanity] Rejected implausible price for ${d.ticker}: ${p} (last known ${d.price})`);
+    return false;
+  }
+  return true;
+}
+
 async function _fetchTVQuotes() {
   const body = {
     columns: ['name','close','change','volume','market_cap_basic',
@@ -8920,6 +9037,7 @@ async function _fetchTVQuotes() {
     if (!(close > 0)) continue;
     const d = allData[i];
     if (d._livePrice) continue; // already have a live Yahoo quote this session
+    if (!_plausibleQuote(d, close)) continue;
     d.price = close;
     if (change != null) d.change = change;
     d.priceLoaded = true;
@@ -9064,6 +9182,7 @@ async function refreshAll(forceRefresh=false){
         document.getElementById("pl").textContent = `✓ Cache + ${n} newer prices from GitHub snapshot`;
         checkAlerts();
       }}).catch(()=>{});
+      loadRepoStatements().catch(()=>{});
       return;
       } // end else (loaded>0): a price-less cache falls through to live fetch below
     }
@@ -9185,6 +9304,8 @@ async function refreshAll(forceRefresh=false){
       document.getElementById("lu").textContent = `${allData.filter(d=>d.priceLoaded).length}/${allData.length} loaded — refreshing…`;
       document.getElementById("pf").style.width = '55%';
     }
+    // Statements snapshot in the background — doesn't block the price phases
+    loadRepoStatements().catch(()=>{});
   }
 
   // ── Phase 2: Bulk Yahoo v7/quote — all 238 stocks, 20 per request ───────
@@ -9226,6 +9347,7 @@ async function refreshAll(forceRefresh=false){
         const idx = _p2TickerIdx.get(q.symbol) ?? -1;
         if (idx < 0) continue;
         const price  = q.regularMarketPrice;
+        if (!_plausibleQuote(allData[idx], price)) continue;
         const change = q.regularMarketChangePercent ?? null;
         // Try P/E from v7/quote (may be null for Saudi .SR — Phase 2.5 will fill the gaps)
         let livePE = allData[idx].pe; // hardcoded fallback
@@ -9342,6 +9464,7 @@ async function refreshAll(forceRefresh=false){
           const idx = _p2TickerIdx.get(q.symbol) ?? -1;
           if (idx < 0) continue;
           const price  = q.regularMarketPrice;
+          if (!_plausibleQuote(allData[idx], price)) continue;
           const change = q.regularMarketChangePercent ?? null;
           let livePE = allData[idx].pe, livepeLoaded = false;
           if (q.trailingPE > 0) { livePE = +q.trailingPE.toFixed(2); livepeLoaded = true; }
@@ -9571,8 +9694,13 @@ async function refreshAll(forceRefresh=false){
   // Provenance summary in the header — "239 prices" hid that none of them were live.
   const _liveN = allData.filter(d=>d._livePrice).length;
   const _snapN = allData.filter(d=>d.priceLoaded && !d._livePrice && d.dataSource==='gh-snapshot').length;
-  document.getElementById("lu").textContent =
-    `${loaded}/${allData.length}: ${_liveN} live${_snapN?` · ${_snapN} snapshot`:''}${loaded-_liveN-_snapN?` · ${loaded-_liveN-_snapN} cached`:''} · ${new Date().toLocaleTimeString("en-SA",{hour:"2-digit",minute:"2-digit"})}`;
+  // Surface a stale snapshot: with no live quotes and a snapshot >3 days old (covers the
+  // Fri/Sat Saudi weekend), the GitHub Action has likely been failing — say so in red.
+  const _snapAgeD = window._snapGenerated ? (Date.now()-window._snapGenerated)/864e5 : null;
+  const _staleWarn = (_liveN===0 && _snapAgeD!=null && _snapAgeD>3)
+    ? ` · <span style="color:var(--red)">⚠ snapshot ${Math.floor(_snapAgeD)}d old</span>` : '';
+  document.getElementById("lu").innerHTML =
+    `${loaded}/${allData.length}: ${_liveN} live${_snapN?` · ${_snapN} snapshot`:''}${loaded-_liveN-_snapN?` · ${loaded-_liveN-_snapN} cached`:''} · ${new Date().toLocaleTimeString("en-SA",{hour:"2-digit",minute:"2-digit"})}${_staleWarn}`;
   // ── Change 7: Compute sector-relative P/E medians after all prices loaded ──
   computeSectorMedianPE();
   updateMarketPEStats();
@@ -9640,7 +9768,7 @@ function _deriveSharesMktCap(d) {
 function computeSectorMedianPE() {
   const bySector = {};
   allData.forEach(d => {
-    if(d.pe != null && d.pe > 0 && d.pe < 100 && d.sector) {
+    if(d.pe != null && d.pe > 0 && d.pe < 100 && d.sector && !d._delisted) {
       if(!bySector[d.sector]) bySector[d.sector] = [];
       bySector[d.sector].push(d.pe);
     }
@@ -10224,7 +10352,7 @@ function _mpeCalc() {
   // Exclude REITs (P/E structurally incomparable to equities) and cap per-stock P/E at 60:
   // above that a stock is essentially a near-zero-earnings outlier whose multiple would
   // distort the market mean (was 200, which let a single P/E≈150 name skew the average).
-  const valid = allData.filter(d => d.pe > 0 && d.pe < 60 && d.priceLoaded && !d.isReit && d.sector !== 'REITs');
+  const valid = allData.filter(d => d.pe > 0 && d.pe < 60 && d.priceLoaded && !d.isReit && d.sector !== 'REITs' && !d._delisted);
   if (!valid.length) return null;
   const mean = valid.reduce((s,d)=>s+d.pe,0)/valid.length;
   const sorted = valid.map(d=>d.pe).sort((a,b)=>a-b);
