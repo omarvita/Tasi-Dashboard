@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260613h'; // bump this string on every deploy that matters
+  var V='20260613i'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -439,7 +439,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260613h · statements snapshot · dividend safety · cyclical DCF · sector concentration warning · delisting tracker · staleness indicator · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260613i · Drive sync on connect (no lost data) · statements snapshot · dividend safety · cyclical DCF · sector concentration warning · delisting tracker · staleness indicator · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1887,6 +1887,15 @@ function connectGoogleDrive() {
         showToast('✓ Google Drive connected');
         gdLoadPortfolio(); // pull portfolio from Drive on first connect
         gdLoadWatchlist(); // pull watchlist + alerts from Drive on first connect
+        // Capture anything already fetched this session (gdSetStatement no-opped while
+        // disconnected), then pull + merge the Drive statement cache and persist the union
+        // so connecting mid-session never loses data and never overwrites Drive with less.
+        const _migrated = _backfillStmtCacheFromMemory();
+        gdLoadStatementsBulk().then(() => {
+          try { _applyDriveValuations(); _applyStmtFundamentalsToAllData(); doFilter(); updateMetrics(); } catch(e){}
+          if (_migrated > 0 || Object.keys(_stmtCache).length) gdScheduleStatementsSave();
+        }).catch(()=>{});
+        try { gdSaveBulkPrices(); } catch(e){} // persist any prices fetched before connecting
         if (logEl) logEl.innerHTML = '<span style="color:var(--green)">✓ Connected — all stock data (statements + fundamentals) will be cached in your Drive.</span>';
       }
     }).requestAccessToken();
@@ -2006,6 +2015,29 @@ function gdSetStatement(ticker, patch) {
   if (!GD_TOKEN) return;
   _stmtCache[ticker] = Object.assign(_stmtCache[ticker] || {}, patch);
   gdScheduleStatementsSave();
+}
+
+// Migrate statements fetched THIS session into _stmtCache. gdSetStatement() no-ops
+// while disconnected, so statements fetched before connecting Drive live only in
+// d.rawTwelveData. On connect we copy them into _stmtCache (richer source wins) so
+// gdLoadStatementsBulk()'s session-snapshot picks them up and they get persisted —
+// nothing fetched before connecting is lost. Returns count of tickers migrated.
+function _backfillStmtCacheFromMemory() {
+  let n = 0;
+  for (const d of allData) {
+    const rt = d.rawTwelveData;
+    if (!rt) continue;
+    const cur = _stmtCache[d.ticker] || {};
+    const patch = {};
+    if (rt.annual && (rt.annual.is?.length || 0) > (cur.annual?.is?.length || 0)) {
+      patch.annual = rt.annual; patch.annualUpdated = cur.annualUpdated || Date.now();
+    }
+    if (rt.quarterly && (rt.quarterly.is?.length || 0) > (cur.quarterly?.is?.length || 0)) {
+      patch.quarterly = rt.quarterly; patch.quarterlyUpdated = cur.quarterlyUpdated || Date.now();
+    }
+    if (Object.keys(patch).length) { _stmtCache[d.ticker] = Object.assign(cur, patch); n++; }
+  }
+  return n;
 }
 
 // Coalesce many writes into one Drive upload
