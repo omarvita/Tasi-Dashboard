@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260616c'; // bump this string on every deploy that matters
+  var V='20260616d'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -6477,9 +6477,10 @@ function buildOverview(d){
       const whyText=risky?'One or more risk thresholds breached. High probability of a dividend cut if earnings or cash flow soften.'
         :safe?'All three sustainability checks pass. Dividend is well-supported by earnings, cash flow, and a consistent track record.'
         :'Borderline metrics. Monitor closely — a downturn in earnings or FCF could tip this into Risky territory.';
-      return `<div class="mi" style="cursor:pointer;user-select:none" onclick="(function(el){var b=document.getElementById('${brkId}');if(!b)return;var open=b.style.display!=='none';b.style.display=open?'none':'block';el.querySelector('.dsb-arrow').textContent=open?'▸':'▾'})(this)">
-        <div class="mil" ${T('div_safety')}>Div. Safety <span class="dsb-arrow" style="font-size:9px;color:var(--tx3)">▸</span></div>
+      return `<div class="mi" style="cursor:pointer;user-select:none;position:relative" onclick="(function(el){var b=document.getElementById('${brkId}');if(!b)return;var open=b.style.display!=='none';b.style.display=open?'none':'block';el.querySelector('.dsb-arrow').textContent=open?'▸ details':'▾ hide'})(this)">
+        <div class="mil" ${T('div_safety')}>Div. Safety</div>
         <div class="miv" style="color:${col}">${label} <span style="font-size:8px;color:var(--tx3)">${det}</span></div>
+        <span class="dsb-arrow" style="position:absolute;top:7px;right:8px;font-size:9px;font-family:var(--mono);color:var(--acc);background:var(--adm);padding:1px 5px;border-radius:4px">▸ details</span>
         <div id="${brkId}" style="display:none;margin-top:8px;padding:10px 10px 6px;background:var(--bg3);border-radius:6px;border:1px solid var(--b1);cursor:default" onclick="event.stopPropagation()">
           ${payRow}${fcfRow}${hisRow}
           <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--b1);font-size:9px;color:${col};line-height:1.45">${whyText}</div>
