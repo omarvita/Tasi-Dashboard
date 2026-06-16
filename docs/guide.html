@@ -1,0 +1,1774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TASI Dashboard — User Guide</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600&display=swap');
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg: #0a0c0f;
+      --bg-card: #111418;
+      --bg-card2: #161b22;
+      --border: #21262d;
+      --text: #e8eaed;
+      --text-muted: #8b949e;
+      --accent: #00d4aa;
+      --accent-dim: rgba(0, 212, 170, 0.12);
+      --accent-border: rgba(0, 212, 170, 0.3);
+      --warn: #f0b429;
+      --danger: #e05252;
+      --safe: #3fb950;
+      --mono: 'IBM Plex Mono', 'Courier New', monospace;
+      --sans: 'IBM Plex Sans Arabic', system-ui, sans-serif;
+      --sidebar-width: 260px;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: 80px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.7;
+      min-height: 100vh;
+    }
+
+    /* ── TOP BAR ── */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(10, 12, 15, 0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .back-btn {
+      background: var(--bg-card);
+      color: var(--accent);
+      border: 1px solid var(--accent-border);
+      border-radius: 6px;
+      padding: 6px 14px;
+      font-family: var(--mono);
+      font-size: 13px;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .back-btn:hover {
+      background: var(--accent-dim);
+      border-color: var(--accent);
+    }
+
+    .topbar-title {
+      font-family: var(--mono);
+      font-size: 14px;
+      color: var(--text-muted);
+      letter-spacing: 0.03em;
+    }
+
+    .topbar-title span {
+      color: var(--accent);
+    }
+
+    /* ── LAYOUT ── */
+    .layout {
+      display: flex;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 16px;
+    }
+
+    /* ── SIDEBAR ── */
+    .sidebar {
+      width: var(--sidebar-width);
+      flex-shrink: 0;
+      position: sticky;
+      top: 57px;
+      height: calc(100vh - 57px);
+      overflow-y: auto;
+      padding: 28px 0 40px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    .sidebar::-webkit-scrollbar { width: 4px; }
+    .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .sidebar-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      padding: 0 16px 10px;
+    }
+
+    .toc-list {
+      list-style: none;
+    }
+
+    .toc-list li a {
+      display: block;
+      padding: 5px 16px;
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13px;
+      border-left: 2px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .toc-list li a:hover {
+      color: var(--text);
+      border-left-color: var(--border);
+    }
+
+    .toc-list li a.active {
+      color: var(--accent);
+      border-left-color: var(--accent);
+    }
+
+    .toc-list li.toc-sub a {
+      padding-left: 28px;
+      font-size: 12px;
+    }
+
+    /* ── MAIN CONTENT ── */
+    .content {
+      flex: 1;
+      min-width: 0;
+      padding: 40px 0 40px 40px;
+      max-width: 900px;
+    }
+
+    /* ── HERO ── */
+    .hero {
+      margin-bottom: 48px;
+    }
+
+    .hero h1 {
+      font-family: var(--mono);
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+
+    .hero .subtitle {
+      font-size: 16px;
+      color: var(--text-muted);
+      max-width: 640px;
+    }
+
+    /* ── SECTIONS ── */
+    section {
+      margin-bottom: 64px;
+    }
+
+    section h2 {
+      font-family: var(--mono);
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--accent-border);
+      letter-spacing: -0.01em;
+    }
+
+    section h3 {
+      font-family: var(--mono);
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      margin: 28px 0 12px;
+    }
+
+    section h4 {
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin: 20px 0 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    p {
+      margin-bottom: 14px;
+      color: var(--text);
+    }
+
+    /* ── CALLOUT BOXES ── */
+    .callout {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: 6px;
+      padding: 16px 20px;
+      margin: 20px 0;
+      font-size: 14px;
+    }
+
+    .callout.warn {
+      border-left-color: var(--warn);
+    }
+
+    .callout.warn .callout-title {
+      color: var(--warn);
+    }
+
+    .callout.danger {
+      border-left-color: var(--danger);
+    }
+
+    .callout.danger .callout-title {
+      color: var(--danger);
+    }
+
+    .callout-title {
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    /* ── SCORE TABLE ── */
+    .score-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 14px;
+    }
+
+    .score-table th {
+      background: var(--bg-card2);
+      color: var(--text-muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .score-table td {
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      vertical-align: top;
+    }
+
+    .score-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .score-table tr:hover td {
+      background: rgba(255,255,255,0.02);
+    }
+
+    .score-table .metric {
+      font-family: var(--mono);
+      font-weight: 600;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+
+    .score-table .score-pos {
+      color: var(--safe);
+      font-family: var(--mono);
+      font-weight: 600;
+    }
+
+    .score-table .score-neg {
+      color: var(--danger);
+      font-family: var(--mono);
+      font-weight: 600;
+    }
+
+    .score-table .score-neutral {
+      color: var(--text-muted);
+      font-family: var(--mono);
+    }
+
+    /* ── SIGNAL BADGES ── */
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 4px;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+
+    .badge-buy {
+      background: rgba(63, 185, 80, 0.15);
+      color: var(--safe);
+      border: 1px solid rgba(63, 185, 80, 0.4);
+    }
+
+    .badge-hold {
+      background: rgba(240, 180, 41, 0.15);
+      color: var(--warn);
+      border: 1px solid rgba(240, 180, 41, 0.4);
+    }
+
+    .badge-sell {
+      background: rgba(224, 82, 82, 0.15);
+      color: var(--danger);
+      border: 1px solid rgba(224, 82, 82, 0.4);
+    }
+
+    .badge-safe {
+      background: rgba(63, 185, 80, 0.15);
+      color: var(--safe);
+      border: 1px solid rgba(63, 185, 80, 0.4);
+    }
+
+    .badge-watch {
+      background: rgba(240, 180, 41, 0.15);
+      color: var(--warn);
+      border: 1px solid rgba(240, 180, 41, 0.4);
+    }
+
+    .badge-risky {
+      background: rgba(224, 82, 82, 0.15);
+      color: var(--danger);
+      border: 1px solid rgba(224, 82, 82, 0.4);
+    }
+
+    /* ── WEIGHT GRID ── */
+    .weight-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 12px;
+      margin: 16px 0;
+    }
+
+    .weight-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      text-align: center;
+    }
+
+    .weight-card .wc-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    .weight-card .wc-pct {
+      font-family: var(--mono);
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .weight-card .wc-name {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* ── DATA FLOW DIAGRAM ── */
+    .flow-diagram {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 20px 0;
+      padding: 20px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    .flow-node {
+      background: var(--bg-card2);
+      border: 1px solid var(--accent-border);
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--accent);
+      text-align: center;
+      min-width: 120px;
+    }
+
+    .flow-arrow {
+      color: var(--text-muted);
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    /* ── GLOSSARY ── */
+    .glossary-grid {
+      display: grid;
+      gap: 0;
+    }
+
+    .glossary-item {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: 0 20px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .glossary-item:last-child {
+      border-bottom: none;
+    }
+
+    .glossary-term {
+      font-family: var(--mono);
+      font-weight: 700;
+      color: var(--accent);
+      font-size: 13px;
+      padding-top: 2px;
+      word-break: break-word;
+    }
+
+    .glossary-def {
+      font-size: 14px;
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    /* ── INLINE CODE ── */
+    code {
+      font-family: var(--mono);
+      font-size: 13px;
+      background: var(--bg-card2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 6px;
+      color: var(--accent);
+    }
+
+    /* ── LISTS ── */
+    ul, ol {
+      margin: 12px 0 12px 20px;
+    }
+
+    li {
+      margin-bottom: 6px;
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    li strong {
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 13px;
+    }
+
+    /* ── SECTION DIVIDER ── */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 32px 0;
+    }
+
+    /* ── FORMULA BOX ── */
+    .formula {
+      background: var(--bg-card2);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: 6px;
+      padding: 14px 18px;
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--accent);
+      margin: 16px 0;
+      overflow-x: auto;
+    }
+
+    /* ── FOOTER ── */
+    .footer {
+      margin-top: 80px;
+      padding: 24px 0;
+      border-top: 1px solid var(--border);
+      text-align: center;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .footer span {
+      color: var(--accent);
+    }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 900px) {
+      .layout {
+        flex-direction: column;
+      }
+
+      .sidebar {
+        display: none;
+      }
+
+      .content {
+        padding: 24px 0;
+      }
+
+      .glossary-item {
+        grid-template-columns: 1fr;
+        gap: 4px;
+      }
+
+      .weight-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .flow-diagram {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .flow-arrow {
+        transform: rotate(90deg);
+      }
+    }
+
+    @media (max-width: 480px) {
+      .hero h1 {
+        font-size: 22px;
+      }
+
+      .weight-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .score-table {
+        font-size: 12px;
+      }
+
+      .score-table th,
+      .score-table td {
+        padding: 7px 10px;
+      }
+    }
+
+    /* ── SCROLL INDICATOR ── */
+    .progress-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 2px;
+      background: var(--accent);
+      z-index: 200;
+      transition: width 0.1s;
+      width: 0%;
+    }
+  </style>
+</head>
+<body>
+
+<div class="progress-bar" id="progressBar"></div>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <a class="back-btn" href="#" onclick="window.history.back(); return false;">&#8592; Back</a>
+  <span class="topbar-title">TASI Dashboard &mdash; <span>User Guide</span></span>
+</div>
+
+<!-- LAYOUT -->
+<div class="layout">
+
+  <!-- SIDEBAR TOC -->
+  <nav class="sidebar" aria-label="Table of contents">
+    <div class="sidebar-label">Contents</div>
+    <ul class="toc-list" id="toc">
+      <li><a href="#overview">1. Overview</a></li>
+      <li><a href="#combined-score">2. Combined Score</a></li>
+      <li><a href="#technical-score">3. Technical Score</a></li>
+      <li><a href="#fundamental-score">4. Fundamental Score</a></li>
+      <li><a href="#buffett-score">5. Buffett Score</a></li>
+      <li><a href="#peg-score">6. PEG Score</a></li>
+      <li><a href="#dcf">7. DCF Fair Value</a></li>
+      <li><a href="#fair-value-methods">8. Fair Value Methods</a></li>
+      <li><a href="#ttm">9. TTM Methodology</a></li>
+      <li><a href="#data-panel">10. Data Panel</a></li>
+      <li><a href="#watchlist">11. Watchlist &amp; Alerts</a></li>
+      <li><a href="#portfolio">12. Portfolio</a></li>
+      <li><a href="#dividend-safety">13. Dividend Safety</a></li>
+      <li><a href="#saudi-context">14. Saudi Context</a></li>
+      <li><a href="#settings">15. Settings</a></li>
+      <li><a href="#glossary">16. Glossary</a></li>
+    </ul>
+  </nav>
+
+  <!-- MAIN CONTENT -->
+  <main class="content">
+
+    <div class="hero">
+      <h1>TASI Dashboard</h1>
+      <p class="subtitle">A comprehensive user guide for the Saudi stock market screener — covering scores, data methodology, Saudi-specific context, and every term in the glossary.</p>
+    </div>
+
+    <div class="callout warn">
+      <div class="callout-title">&#9888; Not Financial Advice</div>
+      TASI Dashboard is an educational and research tool. Nothing in this dashboard or guide constitutes investment advice, a recommendation to buy or sell any security, or a guarantee of future returns. Always do your own due diligence and consult a licensed financial adviser before making investment decisions.
+    </div>
+
+    <!-- ════════════════════════════════════════════ -->
+    <section id="overview">
+      <h2>1. Overview</h2>
+
+      <p>TASI Dashboard is a <strong>free, open-source Saudi stock screener</strong> covering 240+ companies listed on the Tadawul Main Market (TASI). It aggregates financial statements, live price data, analyst estimates, and computed scores into a single interface — so you can compare, filter, and research Saudi stocks without subscribing to expensive data terminals.</p>
+
+      <h3>What it screens</h3>
+      <p>The screener covers every major sector of the Saudi equity market: Banking, Petrochemicals, Real Estate, Insurance, Retail, Telecommunications, Healthcare, Technology, Food &amp; Beverages, Utilities, Capital Markets, Building Materials, Tourism, and more. New listings (IPOs) can be added manually through Settings.</p>
+
+      <h3>How data flows</h3>
+      <p>The dashboard operates without a backend server. All data is fetched client-side using a layered approach:</p>
+
+      <div class="flow-diagram">
+        <div class="flow-node">GitHub Action<br/><small>3×/day prices<br/>weekly statements</small></div>
+        <div class="flow-arrow">&#8594;</div>
+        <div class="flow-node">JSON Snapshots<br/><small>same-origin, no CORS</small></div>
+        <div class="flow-arrow">&#8594;</div>
+        <div class="flow-node">Google Drive Cache<br/><small>30-day persistence<br/>across devices</small></div>
+        <div class="flow-arrow">&#8594;</div>
+        <div class="flow-node">Yahoo Finance<br/><small>live quotes fill gaps<br/>between snapshots</small></div>
+      </div>
+
+      <ul>
+        <li><strong>GitHub Action snapshots:</strong> A scheduled GitHub Action runs three times daily to capture prices and runs weekly to pull annual + quarterly financial statements (Income Statement, Balance Sheet, Cash Flow). These snapshots are stored as JSON files in the same repository, so they are loaded without cross-origin (CORS) complications.</li>
+        <li><strong>Google Drive cache:</strong> If you connect your Google Drive in Settings, all fundamentals, statements, and price data are stored in your personal Drive for up to 30 days. This means the dashboard loads quickly on repeat visits and works across devices without re-fetching everything.</li>
+        <li><strong>Yahoo Finance live quotes:</strong> Between GitHub Action runs, current prices (last traded price, day change, volume) are fetched live from Yahoo Finance to ensure the screener reflects the latest market close. Note that Yahoo Finance data is subject to their terms of service and occasional delays.</li>
+      </ul>
+
+      <h3>Open source</h3>
+      <p>The full source code is available on GitHub. Contributions, bug reports, and new-ticker requests are welcome. Because the project has no server infrastructure costs, it remains free to use indefinitely.</p>
+    </section>
+
+    <!-- ════════════════════════════════════════════ -->
+    <section id="combined-score">
+      <h2>2. The Combined Score (0–100)</h2>
+
+      <p>Every stock in the screener receives a <strong>Combined Score</strong> — a single number from 0 to 100 that represents a weighted composite of up to five independent sub-scores. The goal is to give you a quick, at-a-glance signal while still letting you drill into each component separately.</p>
+
+      <h3>Default weights</h3>
+
+      <div class="weight-grid">
+        <div class="weight-card">
+          <div class="wc-label">Default weight</div>
+          <div class="wc-pct">35%</div>
+          <div class="wc-name">Buffett Score</div>
+        </div>
+        <div class="weight-card">
+          <div class="wc-label">Default weight</div>
+          <div class="wc-pct">30%</div>
+          <div class="wc-name">Fundamental</div>
+        </div>
+        <div class="weight-card">
+          <div class="wc-label">Default weight</div>
+          <div class="wc-pct">20%</div>
+          <div class="wc-name">Technical</div>
+        </div>
+        <div class="weight-card">
+          <div class="wc-label">Default weight</div>
+          <div class="wc-pct">15%</div>
+          <div class="wc-name">PEG Score</div>
+        </div>
+        <div class="weight-card">
+          <div class="wc-label">Default weight</div>
+          <div class="wc-pct">0%</div>
+          <div class="wc-name">DCF Fair Value</div>
+        </div>
+      </div>
+
+      <p>The Buffett Score carries the highest default weight because it emphasises durable competitive advantages and quality businesses — a lens that has proven particularly relevant for the Saudi market, where a small number of dominant franchises (banks, Aramco, STC, SABIC-era companies) tend to have structural moats.</p>
+
+      <div class="callout">
+        <div class="callout-title">DCF is opt-in</div>
+        The DCF Fair Value component defaults to 0% because DCF valuation is highly sensitive to assumptions (growth rate, WACC, terminal value). Enabling it can significantly shift scores for high-growth or high-debt companies. You can enable it in <a href="#settings" style="color: var(--accent);">Settings → Score Weights</a>.
+      </div>
+
+      <h3>Signal thresholds</h3>
+
+      <table class="score-table">
+        <thead>
+          <tr>
+            <th>Score Range</th>
+            <th>Signal</th>
+            <th>Interpretation</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="metric">≥ 65</td>
+            <td><span class="badge badge-buy">BUY</span></td>
+            <td>Multiple strong signals across sub-scores. Worth deeper research.</td>
+          </tr>
+          <tr>
+            <td class="metric">45 – 64</td>
+            <td><span class="badge badge-hold">HOLD</span></td>
+            <td>Mixed signals. Company may be fairly valued or in a transition period.</td>
+          </tr>
+          <tr>
+            <td class="metric">&lt; 45</td>
+            <td><span class="badge badge-sell">SELL / AVOID</span></td>
+            <td>Weak fundamentals, expensive valuation, or deteriorating momentum.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>These thresholds are starting points, not absolute rules. A score of 64 is functionally the same as 66 — do not treat the boundaries as hard triggers. Context matters: a "Sell" score for a cyclical company at a sector trough is very different from one for a consistently poor-quality business.</p>
+
+      <h3>Adjusting weights</h3>
+      <p>You can change all five weights in Settings → Score Weights. The dashboard enforces that all active weights sum to 100%. If you set DCF to 20%, the other four weights are automatically re-proportioned. Weights are saved to your browser's local storage and, if Google Drive is connected, synced to your Drive.</p>
+    </section>
+
+    <!-- ════════════════════════════════════════════ -->
+    <section id="technical-score">
+      <h2>3. Technical Score</h2>
+
+      <p>The Technical Score evaluates a stock's <strong>price behaviour</strong> over recent weeks and months. It does not predict future prices — instead it summarises current momentum, trend, and relative strength to help you understand whether a stock is in a favourable or unfavourable price regime at the time of screening.</p>
+
+      <p>The score is built from four primary components: RSI (momentum oscillator), Simple Moving Average crossover (trend), 1-month price momentum (absolute return), and current price position relative to its moving averages.</p>
+
+      <h3>RSI (Relative Strength Index)</h3>
+      <p>RSI measures how fast and how strongly a stock has moved up or down over the past 14 trading sessions. It ranges from 0 to 100. Readings above 70 suggest the stock may be <em>overbought</em> (buyers have pushed it up quickly, a pullback is possible). Readings below 30 suggest it may be <em>oversold</em> (sellers have pushed it down, a bounce is possible).</p>
+
+      <table class="score-table">
+        <thead>
+          <tr><th>RSI Level</th><th>Interpretation</th><th>Score Adjustment</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="metric">&gt; 70</td><td>Overbought — momentum stretched</td><td class="score-neg">−10</td></tr>
+          <tr><td class="metric">30 – 70</td><td>Neutral — healthy range</td><td class="score-neutral">0</td></tr>
+          <tr><td class="metric">&lt; 30</td><td>Oversold — potential mean reversion</td><td class="score-pos">+10</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout">
+        <div class="callout-title">Note on RSI in trends</div>
+        In a strong uptrend, RSI can stay above 70 for extended periods — this is a sign of strength, not necessarily a sell signal. Conversely, in a bear trend, stocks can remain oversold for months. Use RSI in conjunction with the trend component, not in isolation.
+      </div>
+
+      <h3>Moving Average Crossover (Golden / Death Cross)</h3>
+      <p>The dashboard tracks the 20-day Simple Moving Average (SMA-20) against the 50-day Simple Moving Average (SMA-50).</p>
+
+      <ul>
+        <li><strong>Golden Cross</strong> — SMA-20 crosses <em>above</em> SMA-50: shorter-term momentum is stronger than medium-term trend. Historically associated with the beginning of bullish phases. <span class="badge badge-buy">+10 points</span></li>
+        <li><strong>Death Cross</strong> — SMA-20 crosses <em>below</em> SMA-50: shorter-term momentum has weakened relative to the medium-term average. Often precedes continued weakness. <span class="badge badge-sell">−6 points</span></li>
+      </ul>
+
+      <p>Note that the Golden Cross is rewarded more asymmetrically than the Death Cross is punished. This reflects the fact that the Saudi market has a structural upward bias over long periods (Vision 2030 infrastructure, oil revenues, expanding institutional participation), so a crossover to the upside carries more statistical weight than one to the downside.</p>
+
+      <h3>1-Month Price Momentum</h3>
+      <p>This measures the stock's total return over the past 21 trading days (approximately one calendar month). Strong positive momentum is associated with continued outperformance in the near term (momentum factor). Negative momentum is associated with continued underperformance.</p>
+
+      <table class="score-table">
+        <thead>
+          <tr><th>1-Month Return</th><th>Score Adjustment</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="metric">&gt; +10%</td><td class="score-pos">+14</td></tr>
+          <tr><td class="metric">+5% to +10%</td><td class="score-pos">+8</td></tr>
+          <tr><td class="metric">0% to +5%</td><td class="score-pos">+3</td></tr>
+          <tr><td class="metric">−5% to 0%</td><td class="score-neg">−3</td></tr>
+          <tr><td class="metric">−10% to −5%</td><td class="score-neg">−8</td></tr>
+          <tr><td class="metric">&lt; −10%</td><td class="score-neg">−14</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Price vs Moving Averages (Trend Context)</h3>
+      <p>Beyond the crossover itself, the score also considers where the current price sits relative to the two moving averages. Trading above both SMAs in an upward-sloping configuration confirms trend strength. Trading below both SMAs adds a further negative weighting to the overall technical picture.</p>
+    </section>
+
+    <!-- ════════════════════════════════════════════ -->
+    <section id="fundamental-score">
+      <h2>4. Fundamental Score</h2>
+
+      <p>The Fundamental Score evaluates a company's <strong>financial quality and valuation</strong> across eight dimensions. Unlike the Technical Score, which changes daily with price, the Fundamental Score changes only when new financial statements are filed — typically quarterly or semi-annually on Tadawul.</p>
+
+      <p>A key design principle: wherever possible, metrics are evaluated <em>relative to sector peers</em> rather than using fixed absolute thresholds. A P/E of 12× is "cheap" for a bank but "expensive" for a utility trading at 8×. Sector-relative scoring captures this nuance automatically.</p>
+
+      <h3>1. Sector-Relative P/E</h3>
+      <p>The dashboard computes the <strong>median P/E ratio</strong> of every stock in the same TASI sector, using TTM earnings. Each stock's P/E is then expressed as a percentage of that sector median.</p>
+
+      <table class="score-table">
+        <thead>
+          <tr><th>P/E vs Sector Median</th><th>Classification</th><th>Score</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="metric">&lt; 70% of median</td><td>Very cheap</td><td class="score-pos">+20</td></tr>
+          <tr><td class="metric">70% – 90%</td><td>Attractive</td><td class="score-pos">+10</td></tr>
+          <tr><td class="metric">90% – 110%</td><td>In-line / fair</td><td class="score-neutral">0</td></tr>
+          <tr><td class="metric">110% – 140%</td><td>Premium</td><td class="score-neg">−8</td></tr>
+          <tr><td class="metric">&gt; 140%</td><td>Expensive premium</td><td class="score-neg">−15</td></tr>
+        </tbody>
+      </table>
+
+      <h3>2. Net Profit Margin</h3>
+      <p>Net Profit Margin = Net Income ÷ Revenue. It measures how much of every riyal of revenue becomes profit after all costs, interest, and taxes (including Zakat).</p>
+
+      <table class="score-table">
+        <thead>
+          <tr><th>Net Margin</th><th>Score</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="metric">&gt; 25%</td><td class="score-pos">+14</td></tr>
+          <tr><td class="metric">15% – 25%</td><td class="score-pos">+10</td></tr>
+          <tr><td class="metric">8% – 15%</td><td class="score-pos">+5</td></tr>
+          <tr><td class="metric">0% – 8%</td><td class="score-neutral">0</td></tr>
+          <tr><td class="metric">&lt; 0% (loss-making)</td><td class="score-neg">−14</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3. Return on Equity (ROE)</h3>
+      <p>ROE = Net Income ÷ Shareholders' Equity. It measures how effectively management uses shareholder capital to generate profit. High ROE sustained over multiple years is one of the strongest indicators of a quality business.</p>
+
+      <table class="score-table">
+        <thead>
+          <tr><th>ROE</th><th>Score</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="metric">&gt; 20%</td><td class="score-pos">+12</td></tr>
+          <tr><td class="metric">15% – 20%</td><td class="score-pos">+8</td></tr>
+          <tr><td class="metric">10% – 15%</td><td class="score-pos">+4</td></tr>
+          <tr><td class="metric">0% – 10%</td><td class="score-neutral">0</td></tr>
+          <tr><td class="metric">Negative</td><td class="score-neg">−12</td></tr>
+        </tbody>
+      </table>
+
+      <h3>4. Debt-to-Equity (D/E)</h3>
+      <p>D/E = Total Debt ÷ Shareholders' Equity. It measures financial leverage. Lower is generally safer, as high debt amplifies both gains and losses and increases risk during economic downturns.</p>
+
+      <table class="score-table">
+        <thead>
+          <tr><th>D/E Ratio</th><th>Score</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="metric">&lt; 0.20 (20%)</td><td class="score-pos">+10</td></tr>
+          <tr><td class="metric">0.20 – 0.50</td><td class="score-pos">+5</td></tr>
+          <tr><td class="metric">0.50 – 1.00</td><td class="score-pos">+2</td></tr>
+          <tr><td class="metric">&gt; 1.00</td><td class="score-neg">−8</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout">
+        <div class="callout-title">Banking &amp; Insurance Exemption</div>
+        Banks and insurance companies are <strong>exempt from the D/E scoring penalty</strong>. For these sectors, leverage is the business model — banks borrow (deposits) to lend (loans), and insurers hold float against future claims. Their solvency and safety are regulated by SAMA (capital adequacy ratios under Basel III for banks; solvency margin requirements for insurers), which provides a more appropriate framework than a generic D/E screen.
+      </div>
+
+      <h3>5. Free Cash Flow (FCF)</h3>
+      <p>FCF = Operating Cash Flow − Capital Expenditures. It represents the cash a company actually generates after maintaining and growing its asset base — cash available for dividends, buybacks, debt repayment, or reinvestment.</p>
+
+      <table class="score-table">
+        <thead>
+          <tr><th>FCF</th><th>Score</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="metric">Positive FCF</td><td class="score-pos">+8</td></tr>
+          <tr><td class="metric">Negative FCF</td><td class="score-neg">−6</td></tr>
+        </tbody>
+      </table>
+
+      <h3>6. Revenue Growth</h3>
+      <p>Measures year-over-year revenue growth using TTM revenue versus the prior year's TTM. Consistent revenue growth is a prerequisite for long-term earnings growth.</p>
+
+      <table class="score-table">
+        <thead>
+          <tr><th>Revenue Growth (YoY)</th><th>Score</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="metric">&gt; 15%</td><td class="score-pos">+10</td></tr>
+          <tr><td class="metric">8% – 15%</td><td class="score-pos">+6</td></tr>
+          <tr><td class="metric">3% – 8%</td><td class="score-pos">+3</td></tr>
+          <tr><td class="metric">0% – 3% (flat)</td><td class="score-neutral">0</td></tr>
+          <tr><td class="metric">−5% to 0% (slight decline)</td><td class="score-neg">−5</td></tr>
+          <tr><td class="metric">&lt; −5% (material decline)</td><td class="score-neg">−12</td></tr>
+        </tbody>
+      </table>
+
+      <h3>7. Dividend Yield</h3>
+      <p>Dividend Yield = Annual Dividend Per Share ÷ Current Price. The score rewards attractive yields, but cross-checks them against <strong>payout ratio</strong> (is the dividend affordable from earnings?) and <strong>FCF cover</strong> (is the dividend actually funded by cash?). A high yield from a company burning cash is a red flag, not a reward.</p>
+
+      <h3>8. Earnings Growth (YoY)</h3>
+      <p>Year-over-year earnings per share growth, taken from annual financial statements. Sustained EPS growth compounds shareholder value over time and is one of the most reliable long-term predictors of stock price appreciation.</p>
+    </section>
+
+    <!-- ════════════════════════════════════════════ -->
+    <section id="buffett-score">
+      <h2>5. Buffett Score</h2>
+
+      <p>The Buffett Score is inspired by the analytical framework described in <em>Warren Buffett and the Interpretation of Financial Statements</em> by Mary Buffett and David Clark. It asks a single overarching question: <strong>does this company have a durable competitive advantage?</strong></p>
+
+      <p>Rather than a checklist of ratios, the Buffett methodology looks for consistent, multi-year patterns — businesses that reliably produce high returns on equity without needing to take on excessive debt, whose earnings grow predictably, and whose management does not waste capital. These characteristics typically indicate what Buffett calls a "moat" — a structural protection against competition.</p>
+
+      <p>The score starts at a <strong>base of 50 points</strong> and criteria add or subtract from that base. A score above 65 indicates the company passes most of the Buffett criteria strongly; below 35 suggests material weaknesses in the quality framework.</p>
+
+      <h3>Key criteria evaluated</h3>
+
+      <table class="score-table">
+        <thead>
+          <tr><th>Criterion</th><th>What it checks</th><th>Impact</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="metric">Sustained ROE &gt; 15%</td>
+            <td>The single most important criterion. Checked over 3–5 years of annual data, not just the most recent year.</td>
+            <td class="score-pos">High positive</td>
+          </tr>
+          <tr>
+            <td class="metric">EPS Trend</td>
+            <td>Is EPS growing, stable, or erratic? Consistent upward trend = strong business. Volatile or declining = commodity business or weak moat.</td>
+            <td class="score-pos">Moderate positive/negative</td>
+          </tr>
+          <tr>
+            <td class="metric">Low D/E</td>
+            <td>Companies with strong competitive advantages rarely need to borrow heavily. Low or declining debt over time is a positive signal.</td>
+            <td class="score-pos">Moderate positive</td>
+          </tr>
+          <tr>
+            <td class="metric">Stable/Growing Net Margins</td>
+            <td>Consistent net margins suggest pricing power — the ability to pass on cost increases to customers. Declining margins suggest intensifying competition.</td>
+            <td class="score-pos">Moderate positive/negative</td>
+          </tr>
+          <tr>
+            <td class="metric">Positive &amp; Growing FCF</td>
+            <td>Earnings are an accounting figure; cash flow is real. Growing FCF confirms the business genuinely converts revenue into cash.</td>
+            <td class="score-pos">Significant positive</td>
+          </tr>
+          <tr>
+            <td class="metric">Reasonable P/E</td>
+            <td>Even great businesses can be bad investments if purchased at too high a price. The Buffett framework penalises excessive P/E ratios relative to earnings quality.</td>
+            <td class="score-neg">Negative if excessive</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout">
+        <div class="callout-title">Saudi application</div>
+        In the Saudi market, Buffett-style moat companies include: large commercial banks (Al Rajhi, NCB/SNB) with dominant franchise positions, Telecommunications (STC's network infrastructure), and select consumer staples. Petrochemical companies present a mixed picture — they can generate excellent returns at peak cycle but lack the pricing power of true moat businesses. The Buffett Score reflects this distinction.
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════ -->
+    <section id="peg-score">
+      <h2>6. PEG Score</h2>
+
+      <p>The PEG Ratio (Price/Earnings-to-Growth) adjusts the P/E ratio for the company's earnings growth rate. A stock trading at 20× earnings looks expensive in isolation, but if it is growing EPS at 25% per year, it may actually be cheap relative to its growth. Conversely, a stock at 10× earnings looks cheap — but if earnings are declining, the P/E will rise unless the stock falls further.</p>
+
+      <div class="formula">
+        PEG = P/E Ratio ÷ (Earnings Growth Rate × 100)
+      </div>
+
+      <p>A PEG below 1.0 is traditionally considered undervalued — you are paying less than 1× for each percentage point of growth. Above 2.0 suggests the market is pricing in significant optimism.</p>
+
+      <h3>Growth rate methodology</h3>
+
+      <ul>
+        <li><strong>Primary method (preferred):</strong> 2-year EPS CAGR from annual statements, when at least 3 years of annual EPS data are available. This smooths out single-year anomalies.
+          <div class="formula">2-year CAGR = (EPS₀ / EPS₋₂)^(1/2) − 1</div>
+        </li>
+        <li><strong>Fallback:</strong> Single-year YoY EPS growth when fewer than 3 annual rows are available (e.g., recent IPOs).</li>
+        <li><strong>Growth cap:</strong> Growth is capped at 25% before dividing into the P/E. Without this cap, a company with 80% EPS growth (often a one-time recovery) would produce a PEG of 0.12 at a P/E of 10 — misleadingly low. The cap prevents one-off spikes from distorting the score.</li>
+      </ul>
+
+      <h3>Cyclical sector handling</h3>
+
+      <p>For <strong>Petrochemicals, Chemicals, Materials, Building Materials, and Energy</strong> sectors, the PEG score requires the multi-year CAGR. Single-year recovery bounces — where a company went from a trough loss to a peak profit in one year — are specifically excluded. This prevents a Petrochemical company in a cyclical upturn from appearing unjustifiably cheap on PEG.</p>
+
+      <h3>Saudi market PEG bands</h3>
+
+      <p>Standard PEG benchmarks are calibrated to US market norms. The Saudi market typically trades at a slight premium due to oil-revenue wealth effects and lower risk-free rates historically. The bands below reflect TASI-adjusted expectations:</p>
+
+      <table class="score-table">
+        <thead>
+          <tr><th>PEG Ratio</th><th>Interpretation</th><th>Score Adjustment</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="metric">&lt; 0.5</td><td>Exceptional value — growth significantly underpriced</td><td class="score-pos">+25</td></tr>
+          <tr><td class="metric">0.5 – 1.0</td><td>Undervalued — paying a discount to growth</td><td class="score-pos">+18</td></tr>
+          <tr><td class="metric">1.0 – 2.0</td><td>Fair value — growth fairly priced</td><td class="score-pos">+8</td></tr>
+          <tr><td class="metric">2.0 – 3.0</td><td>Slightly expensive — premium to growth</td><td class="score-neg">−8</td></tr>
+          <tr><td class="metric">3.0 – 4.0</td><td>Expensive — significant premium</td><td class="score-neg">−18</td></tr>
+          <tr><td class="metric">&gt; 4.0</td><td>Very expensive — growth priced to perfection</td><td class="score-neg">−25</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn">
+        <div class="callout-title">PEG limitations</div>
+        PEG is less meaningful for: (1) companies with negative earnings (P/E undefined); (2) very low P/E stocks where small growth changes create large PEG swings; (3) capital-intensive businesses where EPS understates economic returns (use FCF yield instead). When PEG cannot be computed, that component is excluded and the Combined Score weights are re-proportioned among the remaining components.
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════ -->
+    <section id="dcf">
+      <h2>7. DCF Fair Value</h2>
+
+      <p>Discounted Cash Flow (DCF) valuation estimates what a company is <em>worth today</em> based on its expected future cash flows, discounted back to present value using the cost of capital. It is the most theoretically grounded valuation method, but also the most sensitive to input assumptions.</p>
+
+      <div class="callout warn">
+        <div class="callout-title">Disabled by default</div>
+        DCF is set to 0% weight in the Combined Score by default. Enable it in Settings → Score Weights if you want it to influence scores. When enabled, understand that the fair value estimates carry significant model uncertainty — treat them as directional, not precise.
+      </div>
+
+      <h3>WACC (Weighted Average Cost of Capital)</h3>
+
+      <p>WACC is the discount rate applied to future cash flows. It represents the blended cost of funding the business from both equity (shareholders) and debt (lenders).</p>
+
+      <div class="formula">
+        WACC = (E/V × ke) + (D/V × kd × (1 − tax rate))
+      </div>
+
+      <p>For Saudi companies, the tax treatment differs from most markets. Zakat (a wealth levy of ~2.5% of net assets) is not deductible from taxable income the way interest payments are in most jurisdictions — this removes the "interest tax shield" that typically reduces the effective cost of debt in Western DCF models.</p>
+
+      <h4>Cost of Equity (ke)</h4>
+      <div class="formula">
+        ke = Risk-Free Rate + Beta × Equity Risk Premium (ERP)
+      </div>
+
+      <ul>
+        <li><strong>Risk-Free Rate:</strong> Defaults to the yield on Saudi government Sukuk (typically 4–5.5% in 2024–2025). Adjustable in Settings.</li>
+        <li><strong>Equity Risk Premium:</strong> Defaults to Damodaran's 2025 MENA estimate (~6.5–7.5%). Adjustable in Settings.</li>
+        <li><strong>Beta:</strong> Yahoo Finance reports beta versus the S&amp;P 500 (US market). Saudi stocks have low correlation with the S&amp;P 500, which understates true TASI volatility. The dashboard blends Yahoo's beta 50/50 with a sector-default beta (calibrated to Damodaran 2025 MENA data) and floors the result at 0.65. This prevents implausibly low discount rates for low-correlation TASI stocks.</li>
+      </ul>
+
+      <h4>Terminal Growth Rate</h4>
+      <p>The terminal growth rate represents the perpetual growth rate beyond the 5-year explicit forecast period. It is set by sector, reflecting long-term economic potential:</p>
+
+      <table class="score-table">
+        <thead>
+          <tr><th>Sector</th><th>Terminal Growth</th><th>Rationale</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="metric">Technology / Healthcare</td><td>3.0% – 3.5%</td><td>Vision 2030 priority sectors with structural growth runway</td></tr>
+          <tr><td class="metric">Real Estate / REITs</td><td>2.5% – 3.0%</td><td>Population growth, urbanisation, Vision 2030 housing targets</td></tr>
+          <tr><td class="metric">Banks / Telecom</td><td>2.5%</td><td>Mature, large sectors — growth tracks nominal GDP</td></tr>
+          <tr><td class="metric">Consumer / Retail</td><td>2.5%</td><td>Demographics-driven growth, limited competitive moat</td></tr>
+          <tr><td class="metric">Energy / Petrochemicals</td><td>2.0%</td><td>Long-term transition risk; cyclicality requires conservative terminal</td></tr>
+        </tbody>
+      </table>
+
+      <h3>FCF source priority</h3>
+      <p>The dashboard attempts to compute FCF using the best available data, working through this priority list:</p>
+      <ol>
+        <li><strong>Quarterly TTM FCF</strong> — sum of the 4 most recent quarterly cash flow statements (Operating CF − CapEx)</li>
+        <li><strong>Trailing annual FCF</strong> — from the most recent annual cash flow statement</li>
+        <li><strong>Operating cash flow proxy</strong> — Operating CF when CapEx data is unavailable</li>
+        <li><strong>Net Income estimate</strong> — NI × assumed FCF conversion ratio (sector-specific) when cash flow data is absent</li>
+      </ol>
+
+      <h3>Cyclical normalization</h3>
+      <p>For <strong>Petrochemicals, Chemicals, Materials, Building Materials, and Energy</strong>, using the most recent year's FCF as the DCF base can produce wildly unstable valuations — boom years suggest massive upside; bust years suggest the company is worthless. Instead, the dashboard uses the <strong>5-year average FCF</strong> as the base for the explicit forecast period. This "normalised" FCF represents a mid-cycle estimate of the company's true cash-generating capacity.</p>
+
+      <h3>Small-cap illiquidity premium</h3>
+      <p>Smaller, less liquid stocks on Tadawul have higher transaction costs, wider bid-ask spreads, and greater difficulty for institutional investors to enter or exit positions. An <strong>illiquidity premium of +0.5% to +2.0%</strong> is added to WACC for small-cap stocks, increasing the discount rate and reducing the computed fair value. This is consistent with academic evidence that illiquid assets should trade at a discount to liquid equivalents.</p>
+    </section>
+
+    <!-- ════════════════════════════════════════════ -->
+    <section id="fair-value-methods">
+      <h2>8. Composite Fair Value Methods</h2>
+
+      <p>The Fair Value estimate shown in the Data Panel is not a single-method DCF — it is a <strong>weighted composite of multiple valuation approaches</strong>, with the blend varying by sector type. This multi-method approach reduces the sensitivity to any single methodology's assumptions.</p>
+
+      <h3>Method 1: DCF (Discounted Cash Flow)</h3>
+      <p>5-year explicit FCF forecast plus a terminal value, discounted at WACC. See Section 7 for full methodology. Most appropriate for companies with visible, predictable cash flows — consumer staples, technology, healthcare.</p>
+
+      <h3>Method 2: Sector P/E</h3>
+      <div class="formula">
+        Sector P/E Value = TTM EPS × Sector Median P/E
+      </div>
+      <p>Uses the sector's current median P/E (computed live from all TASI peers in that sector) as the target multiple. This is a relative valuation — it tells you what the stock is worth if it traded at the same multiple as its peers, not whether the entire sector is cheap or expensive.</p>
+
+      <h3>Method 3: EV/EBITDA</h3>
+      <div class="formula">
+        Equity Value = (Target EV/EBITDA Multiple × EBITDA) − Net Debt
+      </div>
+      <p>Enterprise Value to EBITDA is capital-structure neutral — it values the whole business (equity + debt) before interest, taxes, depreciation, and amortisation. Particularly useful for capital-intensive industries like Petrochemicals and Utilities where depreciation charges are large. The target multiple is set by sector based on current TASI norms and Damodaran emerging-market multiples.</p>
+
+      <h3>Method 4: Price-to-Book (P/B)</h3>
+      <div class="formula">
+        P/B Value = Sector Median P/B × Book Value Per Share
+      </div>
+      <p>Most relevant for <strong>Banks</strong> (where assets = loans and their fair value is well-defined) and <strong>Real Estate</strong> (where NAV is a primary valuation anchor). For industrial companies, book value is less meaningful because it reflects historical costs rather than economic value.</p>
+
+      <h3>Method 5: Dividend Discount Model (DDM)</h3>
+      <div class="formula">
+        Gordon Growth DDM: Value = DPS₁ ÷ (ke − g)
+      </div>
+      <p>For dividend-paying stocks, the DDM estimates intrinsic value as the present value of an infinite stream of dividends growing at rate <em>g</em>. The dashboard uses a modified DDM for banks (two-stage model accounting for regulatory capital constraints and payout ratio limits under SAMA guidelines). For dividend-paying non-financials, the Gordon Growth Model is applied with the company's historical 3-year average dividend growth rate.</p>
+
+      <h3>Method blending by sector</h3>
+
+      <table class="score-table">
+        <thead>
+          <tr><th>Sector Type</th><th>Primary Methods</th><th>Weighting Approach</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="metric">Growth stocks<br/><small>(Tech, Healthcare)</small></td>
+            <td>DCF, Sector P/E</td>
+            <td>DCF-heavy (60–70% DCF)</td>
+          </tr>
+          <tr>
+            <td class="metric">Cyclicals<br/><small>(Petrochem, Energy)</small></td>
+            <td>EV/EBITDA, DCF (normalized)</td>
+            <td>EV/EBITDA-heavy; DCF uses 5yr avg FCF</td>
+          </tr>
+          <tr>
+            <td class="metric">Banks</td>
+            <td>P/B, DDM (two-stage)</td>
+            <td>Equal blend; P/B anchors range</td>
+          </tr>
+          <tr>
+            <td class="metric">Real Estate / REITs</td>
+            <td>P/B (NAV), DDM</td>
+            <td>NAV-focused; DDM for distribution yield</td>
+          </tr>
+          <tr>
+            <td class="metric">Mature / Dividend<br/><small>(Telecom, Utilities)</small></td>
+            <td>DCF, DDM, Sector P/E</td>
+            <td>Three-way blend, equal weights</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ════════════════════════════════════════════ -->
+    <section id="ttm">
+      <h2>9. TTM (Trailing Twelve Months) Methodology</h2>
+
+      <p>TTM (Trailing Twelve Months) is a standard financial reporting convention: instead of using a single fiscal year, you aggregate the most recent 12 months of data regardless of the company's fiscal year boundaries. This gives a more current picture of financial performance than waiting for the next annual report.</p>
+
+      <h3>Standard quarterly TTM</h3>
+      <p>For most companies that report quarterly:</p>
+      <div class="formula">
+        TTM Revenue = Q_most_recent + Q_{-1} + Q_{-2} + Q_{-3}
+      </div>
+      <p>The dashboard sums the 4 most recent quarterly Income Statement rows for Revenue, Net Income, Operating Income, and EBITDA. The same logic applies to Cash Flow (Operating CF, CapEx, FCF).</p>
+
+      <h3>Semi-annual reporting (common Saudi practice)</h3>
+      <p>Many Saudi companies — particularly mid-caps in Real Estate, Food, and Consumer sectors — report on a <strong>semi-annual basis</strong> rather than quarterly. Additionally, some companies report cumulative figures (H1 = Jan–Jun, and the annual report includes the full year), while others report period-specific figures (H1 = Jan–Jun, H2 = Jul–Dec separately).</p>
+
+      <p>The dashboard automatically detects which style a company uses by examining revenue ratios between consecutive periods:</p>
+
+      <ul>
+        <li>If the H2 figure is roughly half the annual figure, the company uses <strong>period-style</strong> reporting — sum H1 + H2 for the annual total.</li>
+        <li>If the annual figure equals the H2 figure (cumulative), the company uses <strong>cumulative-style</strong> reporting — use the annual figure directly, or decompose H2 = Annual − H1.</li>
+      </ul>
+
+      <h3>Annual fallback</h3>
+      <p>When quarterly or semi-annual data is unavailable — for newly listed companies, very small companies, or where data feeds are temporarily missing — the dashboard falls back to the most recent annual statement. This is flagged visually so you know the TTM data is less current than usual.</p>
+
+      <h3>TTM EPS methodology</h3>
+      <p>TTM EPS should ideally be the sum of 4 quarterly EPS figures from the income statement. However, many Saudi companies do not report per-share EPS in their quarterly disclosures. When the EPS field is missing:</p>
+
+      <div class="formula">
+        EPS (derived) = Quarterly Net Income ÷ Implied Shares Outstanding
+      </div>
+
+      <p>Implied shares are derived from any period where both EPS and Net Income are available simultaneously: <code>Shares = Net Income ÷ EPS</code>. This derived share count is then used to compute EPS for periods where only Net Income is reported. The method is flagged in the Data Panel when a derived EPS is used.</p>
+    </section>
+
+    <!-- ════════════════════════════════════════════ -->
+    <section id="data-panel">
+      <h2>10. Data Panel</h2>
+
+      <p>Clicking any stock row in the screener opens the <strong>Data Panel</strong> — a detailed view of that company's metrics, financial statements, charts, and analytical tools. The panel is organized into tabs.</p>
+
+      <h3>Overview Tab</h3>
+      <p>The Overview tab presents the core fundamental metrics at a glance:</p>
+
+      <table class="score-table">
+        <thead>
+          <tr><th>Metric</th><th>What it shows</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="metric">P/E</td><td>Price-to-Earnings (TTM). How much you pay per riyal of trailing earnings.</td></tr>
+          <tr><td class="metric">P/B</td><td>Price-to-Book. Market price vs accounting book value per share.</td></tr>
+          <tr><td class="metric">EPS</td><td>Earnings Per Share (TTM, in SAR). Derived from the TTM methodology in Section 9.</td></tr>
+          <tr><td class="metric">ROE</td><td>Return on Equity (TTM annualised). Profitability relative to shareholder capital.</td></tr>
+          <tr><td class="metric">Div. Yield</td><td>Annual dividend per share ÷ current price, expressed as a percentage.</td></tr>
+          <tr><td class="metric">Div. Safety</td><td>Badge: <span class="badge badge-safe">SAFE</span> / <span class="badge badge-watch">WATCH</span> / <span class="badge badge-risky">RISKY</span>. See Section 13.</td></tr>
+          <tr><td class="metric">Net Margin</td><td>Net Income ÷ Revenue (TTM). Profitability after all costs.</td></tr>
+          <tr><td class="metric">D/E</td><td>Debt-to-Equity ratio. Financial leverage indicator.</td></tr>
+          <tr><td class="metric">FCF</td><td>Free Cash Flow (TTM, in SAR millions). Operating CF minus CapEx.</td></tr>
+          <tr><td class="metric">Assets</td><td>Total Assets from the most recent Balance Sheet (in SAR millions).</td></tr>
+          <tr><td class="metric">Revenue Growth</td><td>YoY revenue growth (TTM vs prior year TTM).</td></tr>
+          <tr><td class="metric">Earnings Growth</td><td>YoY EPS growth (TTM vs prior year TTM).</td></tr>
+          <tr><td class="metric">Market Cap</td><td>Current price × shares outstanding (in SAR millions).</td></tr>
+          <tr><td class="metric">Beta</td><td>Blended beta (Yahoo vs S&amp;P 500 + sector default). See Section 7.</td></tr>
+          <tr><td class="metric">Fair Value</td><td>Composite fair value estimate from the methods in Section 8. Shown with a ±range.</td></tr>
+          <tr><td class="metric">Analyst Consensus</td><td>Aggregated analyst recommendation (Buy/Hold/Sell) and target price from Yahoo Finance.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Financial Statements Tab</h3>
+      <p>Three sub-tabs present the full financial history:</p>
+
+      <ul>
+        <li><strong>Income Statement:</strong> 5 years of annual data + 8 quarters of quarterly data. Shows Revenue, Gross Profit, Operating Income, EBITDA, Net Income, EPS, and key margin ratios. Trend arrows indicate direction vs the prior period.</li>
+        <li><strong>Balance Sheet:</strong> Assets, Liabilities, and Equity breakdown. Highlights changes in debt, cash position, and working capital over time.</li>
+        <li><strong>Cash Flow:</strong> Operating Cash Flow, CapEx, FCF, Financing activities (dividends paid, debt raised/repaid, share issuance).</li>
+      </ul>
+
+      <h3>Earnings Trend Tab</h3>
+      <p>Forward analyst earnings estimates — EPS and Revenue — for the next 2 fiscal years, sourced from Yahoo Finance. Includes the number of analysts contributing and the range (high/low estimates). Use this to understand market expectations baked into the current price.</p>
+
+      <h3>Chart Tab</h3>
+      <p>Interactive OHLCV candlestick chart (Open, High, Low, Close, Volume) with three technical sub-charts:</p>
+      <ul>
+        <li><strong>RSI:</strong> 14-period Relative Strength Index with overbought (70) and oversold (30) bands.</li>
+        <li><strong>MACD:</strong> Moving Average Convergence Divergence — the difference between the 12-day and 26-day EMAs, with a 9-day signal line. A useful trend-following indicator.</li>
+        <li><strong>Stochastic:</strong> %K and %D lines measuring where the close price sits within the recent high-low range. Like RSI, it identifies overbought (>80) and oversold (<20) conditions.</li>
+      </ul>
+
+      <h3>Fund Manager View Tab</h3>
+      <p>An automated narrative summary that characterises the company using a growth/value/distress framework. The narrative synthesises score components, margin trends, and capital allocation into plain-language paragraphs — mimicking how a professional fund manager might describe the investment case in a few sentences. This is a starting point for forming your own view, not a substitute for it.</p>
+
+      <h3>Compare Tab</h3>
+      <p>Select a second stock from the dropdown to run a side-by-side comparison across all key metrics: P/E, P/B, ROE, Net Margin, Revenue Growth, D/E, FCF, and all five sub-scores. Useful for deciding between two similar companies in the same sector.</p>
+    </section>
+
+    <!-- ════════════════════════════════════════════ -->
+    <section id="watchlist">
+      <h2>11. Watchlist &amp; Alerts</h2>
+
+      <h3>Adding to Watchlist</h3>
+      <p>Click the star icon (&#9734;) next to any stock ticker in the screener to add it to your Watchlist. The icon turns filled (&#9733;) when the stock is watched. Click again to remove it. Your Watchlist appears as a filtered view in the screener, showing only your starred stocks.</p>
+
+      <p>Watchlist data is saved to your browser's local storage by default. If you connect Google Drive in Settings, it syncs automatically so your watchlist persists across devices and browser sessions.</p>
+
+      <h3>Price Alerts</h3>
+      <p>For any stock in your Watchlist, you can set a <strong>price alert</strong>:</p>
+      <ol>
+        <li>Open the stock's Data Panel.</li>
+        <li>Click "Set Alert" in the Overview tab.</li>
+        <li>Enter a target price (SAR).</li>
+        <li>Choose alert direction: "Above" (notify when price crosses above the target) or "Below" (notify when price drops below the target).</li>
+      </ol>
+
+      <p>Alerts are checked each time the dashboard refreshes price data (up to 3× per day from GitHub snapshots, plus live Yahoo Finance quotes). Notifications appear as in-app banners. Browser push notifications are not currently supported — you must have the dashboard open for alerts to fire.</p>
+
+      <div class="callout">
+        <div class="callout-title">Tip: using alerts effectively</div>
+        Set alerts at technically significant levels — support/resistance, moving averages, or round numbers that coincide with your entry or exit thesis. A price alert without a thesis is just noise. Combine it with a note about <em>why</em> that price matters before you set it.
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════ -->
+    <section id="portfolio">
+      <h2>12. Portfolio</h2>
+
+      <p>The Portfolio feature lets you track positions you hold (or hypothetical positions you want to model) directly in the dashboard — without connecting to a brokerage account.</p>
+
+      <h3>Adding positions</h3>
+      <p>Navigate to the Portfolio tab and click "Add Position." Enter:</p>
+      <ul>
+        <li><strong>Ticker:</strong> The Tadawul ticker symbol (e.g., 2222 for Aramco, 1120 for Al Rajhi).</li>
+        <li><strong>Buy Price:</strong> The average price you paid per share, in SAR.</li>
+        <li><strong>Shares:</strong> Number of shares held.</li>
+        <li><strong>Buy Date:</strong> When you purchased. Used for holding period calculations and annualised return.</li>
+      </ul>
+
+      <h3>Portfolio view</h3>
+      <p>Once positions are entered, the Portfolio tab shows:</p>
+
+      <ul>
+        <li><strong>Total portfolio value:</strong> Sum of (current price × shares) across all positions.</li>
+        <li><strong>Gain / Loss:</strong> In SAR and percentage, since your buy price. Unrealised gains only.</li>
+        <li><strong>Sector breakdown:</strong> Pie chart showing your exposure by TASI sector. Helps identify concentration.</li>
+        <li><strong>Concentration warning:</strong> If more than 50% of your portfolio value sits in a single sector, a warning banner appears. Over-concentration in one sector (e.g., all Banks or all Petrochemicals) amplifies sector-specific risks.</li>
+        <li><strong>Dividend income projection:</strong> Estimates your annual dividend income based on current dividend yields for each position. This is a projection, not a guarantee — dividends can be cut or suspended.</li>
+      </ul>
+
+      <h3>Sync &amp; persistence</h3>
+      <p>Portfolio data is saved to local storage by default and synced to Google Drive when connected. Drive sync ensures your portfolio is accessible from any device where you log in.</p>
+
+      <div class="callout warn">
+        <div class="callout-title">No brokerage integration</div>
+        The Portfolio feature does not connect to Aljazira, Riyad Capital, SNB Capital, or any other Saudi brokerage. Positions are tracked manually. The dashboard cannot execute trades or access your actual account balances.
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════ -->
+    <section id="dividend-safety">
+      <h2>13. Dividend Safety Badge</h2>
+
+      <p>The Dividend Safety badge (<span class="badge badge-safe">SAFE</span> / <span class="badge badge-watch">WATCH</span> / <span class="badge badge-risky">RISKY</span>) appears in the Overview tab for dividend-paying stocks. It evaluates whether the current dividend is sustainable — combining earnings cover, cash flow cover, and payment history.</p>
+
+      <h3>SAFE criteria (all must be met)</h3>
+      <ul>
+        <li>Payout ratio (Dividend ÷ EPS) is <strong>below 70%</strong> — the company retains meaningful earnings after paying dividends.</li>
+        <li>FCF cover is <strong>above 1.2×</strong> — Free Cash Flow exceeds the total dividend payment by at least 20%. The company is genuinely generating the cash to fund the dividend.</li>
+        <li>At least <strong>3 consecutive years</strong> of dividend payments — demonstrates a policy of consistent distribution, not a one-off.</li>
+      </ul>
+
+      <h3>WATCH criteria (any one applies)</h3>
+      <ul>
+        <li>Payout ratio between 70–90% OR FCF cover between 1.0–1.2× — borderline sustainable but with limited buffer.</li>
+        <li>Dividend history available for fewer than 3 years (recent IPO or recent initiator).</li>
+        <li>Dividend data is partially missing, creating uncertainty in the calculation.</li>
+      </ul>
+
+      <h3>RISKY criteria (any one applies)</h3>
+      <ul>
+        <li>EPS payout ratio <strong>above 90%</strong> — nearly all earnings are being paid out, leaving no cushion for earnings shortfalls.</li>
+        <li>FCF cover <strong>below 1.0×</strong> — the company is paying more in dividends than it generates in free cash flow, effectively funding dividends from debt or cash reserves. This is unsustainable.</li>
+      </ul>
+
+      <div class="callout">
+        <div class="callout-title">REITs are excluded from D/E penalties</div>
+        Real Estate Investment Trusts (REITs) listed on Tadawul are regulated by the CMA, which requires them to distribute a minimum of 90% of net income as dividends. A REIT with a 90%+ payout ratio is simply complying with regulation — it is not a sign of dividend stress. REITs are therefore excluded from the RISKY classification based on payout ratio alone; FCF cover still applies.
+      </div>
+
+      <h3>Why this matters in Saudi Arabia</h3>
+      <p>Saudi investors traditionally place high value on dividend income, and dividend yield is frequently cited as a primary investment criterion in retail investor surveys. However, some Saudi companies have historically paid dividends funded by debt or asset sales during poor earnings periods — temporarily maintaining the yield at the expense of balance sheet health. The Dividend Safety badge helps identify this pattern before you anchor on the yield number alone.</p>
+    </section>
+
+    <!-- ════════════════════════════════════════════ -->
+    <section id="saudi-context">
+      <h2>14. Saudi-Specific Context</h2>
+
+      <p>Analyzing Saudi stocks requires understanding several regulatory, taxation, and structural factors that differ significantly from Western markets. This section explains the key concepts the dashboard is designed around.</p>
+
+      <h3>Zakat</h3>
+      <p>Zakat is an Islamic wealth levy — approximately 2.5% of net Zakat-able assets per year — charged to Saudi-owned companies. Unlike corporate income tax in other jurisdictions, Zakat is levied on assets (a wealth tax), not on income. Two important consequences:</p>
+      <ul>
+        <li><strong>No interest tax shield:</strong> In most markets, interest expense is deducted from taxable income, reducing the effective cost of debt and thereby reducing WACC. Under Zakat, there is no such deduction — borrowing is more expensive in effective terms.</li>
+        <li><strong>Zakat vs CIT:</strong> Most Saudi companies pay Zakat. Companies with foreign shareholders or specific activities pay Corporate Income Tax (CIT) at 20% instead of, or in addition to, Zakat.</li>
+      </ul>
+
+      <h3>CIT (Corporate Income Tax)</h3>
+      <p>CIT at 20% applies to companies with foreign shareholders proportional to foreign ownership, and to specific categories including: Aramco, SABIC subsidiaries, and some insurance entities. Banks effectively pay around 7% in CIT due to their particular regulatory treatment. The dashboard applies the correct tax rate in DCF calculations based on company type.</p>
+
+      <h3>SAMA (Saudi Arabian Monetary Authority)</h3>
+      <p>SAMA is Saudi Arabia's central bank and financial regulator. It oversees:</p>
+      <ul>
+        <li><strong>Banks:</strong> Capital adequacy requirements under Basel III (Tier 1, Tier 2, Total Capital Ratio). SAMA requires Saudi banks to maintain higher capital ratios than the Basel III minimums.</li>
+        <li><strong>Insurance companies:</strong> Solvency margin requirements — insurers must hold sufficient assets to cover their liabilities under stress scenarios.</li>
+      </ul>
+      <p>SAMA regulation is why D/E ratios for banks and insurers are meaningless as general leverage measures — the regulator ensures they cannot take on imprudent levels of risk.</p>
+
+      <h3>REITs (Real Estate Investment Trusts)</h3>
+      <p>Saudi REITs were introduced in 2016 under CMA regulations. They must distribute at least 90% of net income as dividends. Unlike US REITs, Saudi REITs can invest in international real estate. They trade on Tadawul and are subject to CMA oversight — not SAMA. Saudi REITs tend to offer higher dividend yields than most other sectors, making them attractive to income investors, though their capital appreciation potential is more limited.</p>
+
+      <h3>Vision 2030</h3>
+      <p>Vision 2030 is Saudi Arabia's national transformation programme, targeting economic diversification away from oil. Sectors identified as priorities for government spending and structural investment include:</p>
+      <ul>
+        <li><strong>Tourism:</strong> NEOM, Red Sea Project, Diriyah Gate, AlUla — new giga-projects with significant listed contractor and hospitality beneficiaries.</li>
+        <li><strong>Healthcare:</strong> Expanding hospital capacity; privatisation of healthcare entities creates new listed companies.</li>
+        <li><strong>Technology:</strong> SDAIA (data and AI), STC subsidiaries (stc pay, Bahri AI), expanding tech ecosystem.</li>
+        <li><strong>Defence:</strong> SAMI (Saudi Arabian Military Industries); local content requirements creating domestic supply chains.</li>
+        <li><strong>Entertainment:</strong> General Entertainment Authority; cinema, events, and sports (PIF investments in golf, football, boxing).</li>
+        <li><strong>Renewable Energy:</strong> ACWA Power is the primary listed beneficiary — a global renewable energy developer majority-owned by PIF.</li>
+      </ul>
+
+      <h3>Tadawul vs NOMU</h3>
+      <ul>
+        <li><strong>Tadawul (Main Market / TASI):</strong> The primary Saudi stock exchange. All 240+ stocks in this dashboard are listed here. Subject to full CMA listing requirements — audited financials, corporate governance standards, free-float minimums.</li>
+        <li><strong>NOMU (Parallel Market):</strong> A lighter-regulatory platform for smaller and emerging companies. Lower free-float requirements, fewer listing prerequisites. Stocks tend to have lower liquidity, wider spreads, and higher volatility. NOMU stocks are not currently included in this dashboard's screener.</li>
+      </ul>
+
+      <h3>Saudi market trading mechanics</h3>
+      <ul>
+        <li><strong>Trading hours:</strong> Sunday–Thursday. The Saudi market is closed Friday–Saturday (Islamic weekend), unlike Western markets which close Saturday–Sunday.</li>
+        <li><strong>Tadawul price unit:</strong> Halala (1/100 of a Saudi Riyal). Prices move in Halala increments, but are typically displayed in SAR.</li>
+        <li><strong>Daily price limit:</strong> Most stocks have a ±10% daily price limit (circuit breaker). Newly listed IPOs may have wider or no limits in the first few sessions.</li>
+        <li><strong>Sukuk:</strong> Islamic bonds — compliant fixed-income instruments. Some companies issue Sukuk in addition to or instead of conventional bonds. Sukuk holders receive a share of asset returns rather than interest (Riba), making them Sharia-compliant. The dashboard's debt figures may include Sukuk obligations.</li>
+      </ul>
+    </section>
+
+    <!-- ════════════════════════════════════════════ -->
+    <section id="settings">
+      <h2>15. Settings</h2>
+
+      <h3>Google Drive Integration</h3>
+      <p>Connect your Google account to store financial data in your personal Google Drive. Once connected:</p>
+      <ul>
+        <li>Financial statements, fundamental data, and price snapshots are cached in a dedicated folder in your Drive for up to 30 days.</li>
+        <li>Subsequent dashboard loads read from Drive first — dramatically faster than re-fetching all data.</li>
+        <li>Watchlist, Portfolio, and Score Weight settings sync across all your devices.</li>
+        <li>You retain full control — you can disconnect at any time, and the dashboard will revert to local-storage-only mode.</li>
+      </ul>
+      <p>The app requests only the minimum Drive permission scope: access to files it creates (not access to your entire Drive).</p>
+
+      <h3>Score Weights</h3>
+      <p>Adjust the five sub-score weights to reflect your investment philosophy:</p>
+      <ul>
+        <li>If you are a <strong>value investor</strong>: increase Fundamental and Buffett weights; reduce Technical.</li>
+        <li>If you are a <strong>growth investor</strong>: increase PEG weight to emphasise growth relative to valuation; consider enabling DCF at 15–20%.</li>
+        <li>If you use <strong>technical analysis</strong>: increase Technical weight significantly. Be aware this makes the score more sensitive to short-term price changes.</li>
+        <li>If you want a <strong>DCF-anchored view</strong>: enable DCF Fair Value at 20–30% and accept that valuations will shift with WACC assumptions.</li>
+      </ul>
+      <p>The dashboard enforces that all active weights sum exactly to 100%. Adjusting one weight triggers automatic proportional re-scaling of the others, unless you lock individual weights.</p>
+
+      <h3>DCF / WACC Assumptions</h3>
+      <p>Customize the global inputs to the DCF model:</p>
+      <ul>
+        <li><strong>Risk-Free Rate:</strong> Default is current Saudi government Sukuk yield (~4.5–5.5%). Update this when the rate environment changes significantly.</li>
+        <li><strong>Equity Risk Premium (ERP):</strong> Default is Damodaran's 2025 MENA estimate (~6.5–7.5%). A higher ERP means a higher discount rate, producing lower fair value estimates — appropriate if you believe Saudi market risk is higher than the default assumes.</li>
+      </ul>
+
+      <h3>Auto-Refresh</h3>
+      <p>Enable scheduled automatic refresh to pull the latest GitHub snapshot data and Yahoo Finance quotes at a set time each day. The refresh runs in the background when the dashboard tab is open. Useful if you check the dashboard every morning and want data to already be current.</p>
+
+      <h3>Stock Universe</h3>
+      <p>The default screener covers 240+ Tadawul-listed stocks from the last GitHub snapshot. If a company has recently listed (IPO) and is not yet in the snapshot, you can manually add its ticker symbol here. The dashboard will attempt to load its data from Yahoo Finance. Note that financial statements for very new IPOs may be sparse until the first quarterly disclosure after listing.</p>
+    </section>
+
+    <!-- ════════════════════════════════════════════ -->
+    <section id="glossary">
+      <h2>16. Glossary</h2>
+
+      <p>Key financial terms used throughout the dashboard, explained in the context of the Saudi / TASI market.</p>
+
+      <div class="glossary-grid">
+
+        <div class="glossary-item">
+          <div class="glossary-term">P/E Ratio</div>
+          <div class="glossary-def">Price-to-Earnings ratio — the current share price divided by earnings per share (EPS) over the trailing twelve months. A P/E of 15 means investors are paying SAR 15 for every SAR 1 of annual earnings. On TASI, sector median P/Es vary widely — Banks typically trade at 10–15×, Technology at 30–50×, and Utilities at 15–20×. Higher P/E implies higher growth expectations or lower perceived risk.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">P/B Ratio</div>
+          <div class="glossary-def">Price-to-Book ratio — share price divided by book value per share (shareholders' equity ÷ shares outstanding). Book value represents the accounting value of the company's net assets. P/B is most meaningful for Banks and Real Estate, where assets (loans, property) have relatively reliable book values. A P/B below 1.0 means the market values the company at less than its accounting net asset value — rare for profitable companies, but can indicate deep value or structural problems.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">EPS</div>
+          <div class="glossary-def">Earnings Per Share — net income divided by the weighted average number of shares outstanding. EPS in SAR is the fundamental building block of P/E ratios, PEG ratios, and dividend payout analysis. The dashboard reports TTM EPS (trailing twelve months) unless specified. Diluted EPS accounts for convertible instruments and stock options; basic EPS uses only current shares outstanding. Saudi companies typically report basic EPS.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">TTM</div>
+          <div class="glossary-def">Trailing Twelve Months — the aggregate of a financial metric over the most recent 12-month period, regardless of fiscal year boundaries. Provides a more current picture than using the last full fiscal year. TTM figures are computed by summing the 4 most recent quarterly reports. See Section 9 for the full methodology, including handling of semi-annual reporters (common in Saudi Arabia).</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">ROE</div>
+          <div class="glossary-def">Return on Equity — net income divided by average shareholders' equity. It measures how efficiently management uses the capital shareholders have invested to generate profit. An ROE of 20% means the company earns SAR 20 for every SAR 100 of equity. Sustained high ROE (15%+ over 5 years) is the primary Buffett quality indicator. In Saudi banking, ROE is structurally constrained by SAMA capital requirements — Al Rajhi and SNB consistently achieve 15–22%.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">ROA</div>
+          <div class="glossary-def">Return on Assets — net income divided by average total assets. Unlike ROE, ROA is not affected by financial leverage (debt). It measures how profitably a company uses all its assets — equity plus debt. ROA is particularly useful for comparing banks (where high leverage is normal) — SAMA-supervised Saudi banks typically target ROA of 1.5–2.5%. For industrial companies, ROA above 10% indicates strong asset efficiency.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">ROIC</div>
+          <div class="glossary-def">Return on Invested Capital — NOPAT (Net Operating Profit After Tax) divided by invested capital (debt + equity − excess cash). ROIC measures how efficiently capital is allocated regardless of its source. When ROIC exceeds WACC, the company is creating economic value; when ROIC falls below WACC, value is being destroyed even if the company is reporting accounting profits. ROIC is the theoretically cleanest measure of business quality but requires adjustments for Zakat vs CIT treatment in Saudi calculations.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">EBITDA</div>
+          <div class="glossary-def">Earnings Before Interest, Taxes, Depreciation, and Amortisation. A proxy for operating cash flow — it strips out financing costs (interest), accounting policy differences (depreciation/amortisation), and tax jurisdictions. EBITDA is widely used in EV/EBITDA valuation multiples. For Saudi Petrochemical companies with large fixed assets and high depreciation charges (Sabic-era plants), EBITDA more accurately reflects operating performance than net income. Note: EBITDA is not a GAAP/IFRS measure and can be used selectively by management.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">EBIT</div>
+          <div class="glossary-def">Earnings Before Interest and Taxes — operating profit before financing costs and taxes. Unlike EBITDA, EBIT includes depreciation, making it more conservative for capital-intensive businesses. EBIT margin (EBIT ÷ Revenue) is a useful operational profitability measure. The EV/EBIT multiple is sometimes preferred over EV/EBITDA for companies where depreciation reflects genuine capital consumption (factories wearing out) rather than merely an accounting charge.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Net Margin</div>
+          <div class="glossary-def">Net profit margin — net income divided by revenue, expressed as a percentage. The percentage of each riyal of sales that becomes profit after paying all costs including Zakat/CIT. Industry benchmarks vary widely: Saudi Banks typically earn 30–45% net margins (spread income on a large asset base); Petrochemicals 10–25% at mid-cycle; Retail 2–8%. A consistently high net margin over years signals pricing power and cost discipline — hallmarks of a quality business.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Gross Margin</div>
+          <div class="glossary-def">Gross profit (Revenue − Cost of Goods Sold) divided by Revenue. Gross margin reveals the inherent profitability of a product or service before overhead costs. High, stable gross margins are associated with brand strength and switching costs. Saudi consumer brands like Almarai (dairy/food) maintain gross margins above 35%, while commodity-like businesses (food distributors, trading companies) often show 10–20% gross margins.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Operating Margin</div>
+          <div class="glossary-def">Operating income (EBIT) divided by Revenue. Operating margin sits between gross margin and net margin — it includes selling, general, and administrative expenses (SG&amp;A) but excludes interest and taxes. It measures how well the company manages its operating cost structure. Expanding operating margins over time indicate improving efficiency or growing economies of scale.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">D/E Ratio</div>
+          <div class="glossary-def">Debt-to-Equity ratio — total financial debt (short-term + long-term borrowings, including Sukuk) divided by shareholders' equity. A D/E of 0.5 means SAR 0.50 of debt for every SAR 1.00 of equity. High D/E amplifies both profits and losses — beneficial in rising earnings environments, dangerous in downturns. Saudi real estate developers and utilities often carry D/E above 1.0 due to capital-intensive operations. Banks and insurers are exempt from D/E screening in this dashboard (Section 14).</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">FCF</div>
+          <div class="glossary-def">Free Cash Flow — operating cash flow minus capital expenditures (CapEx). FCF is the cash actually available to shareholders, creditors, and the business after maintaining and growing assets. Unlike net income (an accounting figure), FCF cannot be easily manipulated through depreciation policy or revenue recognition choices. Positive FCF is essential for sustainable dividends, debt reduction, and share buybacks. Negative FCF over multiple years (common for growth companies) must be funded by debt or equity issuance — not inherently bad if capital is being deployed at high returns.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Operating Cash Flow</div>
+          <div class="glossary-def">Cash generated from the core business operations — before capital expenditures. Found in the Cash Flow Statement. Operating cash flow adds back non-cash charges (depreciation, amortisation) to net income and adjusts for changes in working capital (receivables, payables, inventory). For Saudi companies following IFRS (mandatory for Tadawul-listed companies), operating cash flow is presented under the direct or indirect method. A company with strong operating cash flow relative to net income is converting earnings into real cash efficiently.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">CapEx</div>
+          <div class="glossary-def">Capital Expenditures — cash spent on acquiring, maintaining, or upgrading physical assets (property, plant, equipment) and intangibles. High CapEx industries in Saudi Arabia include: Petrochemicals (SAR-billion plant investments), Utilities (grid and desalination infrastructure), Telecommunications (5G network rollout), and Real Estate developers. Maintenance CapEx (required to maintain existing capacity) is less value-creative than growth CapEx (building new capacity). The dashboard does not separate these; use the company's own disclosures for this breakdown.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Revenue Growth</div>
+          <div class="glossary-def">Year-over-year percentage change in total revenues. Revenue growth is the top-line driver of earnings growth over the long term — it's difficult to grow profits faster than revenues indefinitely. The dashboard computes revenue growth using TTM-vs-prior-TTM for currency, avoiding the distortion of different fiscal year lengths. Sustained revenue growth above 10% per year on a large-cap Saudi company (e.g., STC, Saudi Aramco) is exceptional; 5–10% is solid; below GDP growth (~3–4% nominal) suggests the company is ceding market share.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Earnings Growth</div>
+          <div class="glossary-def">Year-over-year percentage change in earnings per share (EPS). Compounding EPS growth is the primary driver of long-term stock price appreciation. The dashboard uses two-year CAGR from annual statements when available for PEG calculations, and single-year YoY for the Fundamental Score. Note that earnings growth can be boosted temporarily by one-off items (asset sales, reversal of provisions) or depressed by extraordinary charges — always check the income statement footnotes for unusually large items.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Dividend Yield</div>
+          <div class="glossary-def">Annual dividends per share divided by the current stock price, expressed as a percentage. A 5% yield means you receive SAR 5 per year for every SAR 100 invested at the current price. Saudi dividend yields are relatively attractive by global standards — the TASI median yield is typically 3–5%. High yields can signal value (stock has fallen, making the yield attractive) or distress (market doubts the dividend will be sustained). Always assess Dividend Safety (Section 13) alongside yield.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Payout Ratio</div>
+          <div class="glossary-def">Dividends per share divided by earnings per share — the fraction of earnings returned to shareholders as dividends. A payout ratio of 60% means 60 halalas of every SAR 1 of EPS is paid as a dividend; 40 halalas is retained. Very high payout ratios (above 80%) leave little buffer for earnings shortfalls; very low payout ratios (below 30%) may indicate management is reinvesting aggressively (good for growth) or hoarding cash (potentially poor capital allocation). Saudi REITs by CMA regulation must maintain a payout ratio of at least 90%.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Beta</div>
+          <div class="glossary-def">A measure of a stock's volatility relative to a benchmark index. A beta of 1.0 means the stock moves roughly in line with the index; above 1.0 means it amplifies index moves; below 1.0 means it is less volatile. Yahoo Finance reports beta versus the S&amp;P 500. Saudi stocks have low correlation with the S&amp;P 500, so Yahoo betas are understated — the dashboard blends Yahoo beta 50/50 with sector default betas and floors at 0.65. True TASI-relative beta would typically be 0.7–1.4 for most stocks.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Market Cap</div>
+          <div class="glossary-def">Market Capitalisation — current share price multiplied by total shares outstanding. It represents the total market value of the company's equity. Market cap is used to classify stocks: mega-cap (&gt;SAR 100bn, e.g., Aramco, Al Rajhi), large-cap (SAR 10–100bn), mid-cap (SAR 1–10bn), small-cap (&lt;SAR 1bn). Small-cap stocks on TASI typically have lower liquidity, wider bid-ask spreads, and less analyst coverage — hence the illiquidity premium in DCF calculations.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Enterprise Value</div>
+          <div class="glossary-def">Enterprise Value (EV) = Market Cap + Net Debt (total debt minus cash and equivalents). EV represents the theoretical total cost to acquire a company — you'd pay the market cap for the equity and inherit the debt (minus the cash). EV is used in capital-structure-neutral valuation multiples like EV/EBITDA and EV/Sales. For Saudi companies with Sukuk, the face value of outstanding Sukuk certificates is included in total debt for EV calculation.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">WACC</div>
+          <div class="glossary-def">Weighted Average Cost of Capital — the blended cost of funding a business from both equity and debt, weighted by their proportions in the capital structure. WACC is the discount rate in DCF valuation. A higher WACC produces a lower present value (future cash flows are worth less today). Saudi WACC inputs differ from Western markets primarily because of Zakat (no interest tax shield on debt) and the specific equity risk premium for the MENA region. Section 7 explains the full WACC calculation methodology.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Cost of Equity</div>
+          <div class="glossary-def">The return required by equity investors to compensate for the risk of holding the stock, calculated using the Capital Asset Pricing Model (CAPM): Cost of Equity = Risk-Free Rate + Beta × Equity Risk Premium. For a Saudi company with a risk-free rate of 5%, blended beta of 1.0, and ERP of 7%, the cost of equity would be 12%. This represents the minimum return equity investors require; below this hurdle, the stock is destroying value.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Cost of Debt</div>
+          <div class="glossary-def">The effective interest rate a company pays on its borrowings (bank loans, bonds, Sukuk). The after-tax cost of debt is lower in markets where interest is tax-deductible. In Saudi Arabia, Zakat companies do not deduct interest from taxable income, so the after-tax cost of debt equals the pre-tax cost — making debt financing more expensive in effective terms than in, say, the US or UK. CIT companies (20% rate) do receive the interest deduction, giving them a lower effective cost of debt.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Equity Risk Premium</div>
+          <div class="glossary-def">The excess return investors require over the risk-free rate to invest in equities rather than government bonds. It represents compensation for the higher risk and volatility of equities. Damodaran's 2025 MENA estimate (used as the dashboard default) reflects Saudi Arabia's oil-revenue dependence, geopolitical risk, and emerging-market liquidity characteristics. A higher ERP produces a higher WACC and lower DCF fair values. You can adjust the ERP in Settings.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Risk-Free Rate</div>
+          <div class="glossary-def">The theoretical return on a risk-free investment — in practice, the yield on a government bond in the relevant currency. For SAR-denominated valuations, the relevant risk-free rate is the Saudi government Sukuk yield (since the government is the safest SAR-denominated borrower). The dashboard defaults to the current approximate Sukuk yield (~4.5–5.5%). As Saudi rates broadly track US Fed Funds due to the SAR peg to USD, changes in US monetary policy affect TASI DCF valuations.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Terminal Value</div>
+          <div class="glossary-def">In DCF valuation, the terminal value represents the value of all cash flows beyond the explicit forecast period (typically 5 years), extending into perpetuity. It is usually calculated using the Gordon Growth Model: Terminal Value = FCF_{year 5} × (1 + g) ÷ (WACC − g), where g is the terminal growth rate. Terminal value often represents 60–80% of the total DCF enterprise value, illustrating how sensitive the result is to the assumed perpetual growth rate. Section 7 explains the sector-specific terminal growth rates used.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Net Debt</div>
+          <div class="glossary-def">Total financial debt minus cash and cash equivalents (and sometimes short-term investments). Net debt is used to bridge from Enterprise Value (total company value) to equity value: Equity Value = EV − Net Debt. A company with more cash than debt has "net cash" — shown as a negative net debt — which adds to equity value. For Saudi companies, cash held in Murabaha deposits (Sharia-compliant short-term instruments) is included in cash equivalents.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Book Value</div>
+          <div class="glossary-def">Shareholders' equity on the balance sheet — total assets minus total liabilities. Book value per share = total equity ÷ shares outstanding. Book value represents the accounting value of what shareholders own. For asset-heavy businesses (Real Estate, Banks), book value is a reasonable approximation of intrinsic value. For brand-driven or IP-heavy businesses (technology, pharmaceuticals), book value severely understates intrinsic value because internally generated intangibles are not capitalised under IFRS.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Working Capital</div>
+          <div class="glossary-def">Current Assets minus Current Liabilities. Working capital measures the liquidity available to fund day-to-day operations. Positive working capital means the company can cover its short-term obligations from short-term assets. Negative working capital is often a sign of stress, though some businesses (supermarkets, certain retailers) run sustainably on negative working capital because they collect cash before paying suppliers. Changes in working capital affect operating cash flow — a large increase in receivables (unpaid invoices) consumes cash even if revenue grows.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Current Ratio</div>
+          <div class="glossary-def">Current Assets divided by Current Liabilities. A ratio above 1.0 means the company has more short-term assets than short-term liabilities. A current ratio below 1.0 is not always a crisis — mature companies with strong credit access routinely operate with current ratios of 0.7–0.9. However, for smaller Saudi companies with limited banking relationships, a sustained current ratio below 0.8 warrants attention. The quick ratio (excludes inventory from current assets) is a more conservative liquidity measure.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">PEG Ratio</div>
+          <div class="glossary-def">Price/Earnings-to-Growth — P/E divided by the earnings growth rate (expressed as a whole number). PEG adjusts P/E for growth, making it possible to compare a fast-growing company against a slow-growing one on a fair basis. A PEG of 1.0 is traditionally considered fair value (paying 1× P/E for each 1% of growth). Saudi market PEG bands are adjusted slightly higher than US norms due to the premium multiple historically applied to the market. See Section 6 for the full scoring methodology and cyclical sector treatment.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">DCF</div>
+          <div class="glossary-def">Discounted Cash Flow — a valuation method that estimates the present value of all future free cash flows a business will generate, discounted at the WACC. DCF is the most theoretically correct valuation framework but is highly sensitive to assumptions — small changes in the growth rate or discount rate can change the output by 30–50%. DCF is therefore best used as a sanity check and range-of-outcomes framework rather than as a precise price target. The dashboard's DCF implementation is described in Section 7.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">NPV</div>
+          <div class="glossary-def">Net Present Value — the sum of all discounted future cash flows minus the initial investment. In DCF valuation, NPV represents the intrinsic value of the business. In capital budgeting (company management deciding whether to invest in a project), positive NPV means the project is value-creating; negative NPV means it destroys value. The dashboard's Fair Value estimate is essentially an equity NPV — the present value of future cash flows attributable to shareholders.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">CAGR</div>
+          <div class="glossary-def">Compound Annual Growth Rate — the annualised rate at which a value (revenue, EPS, dividends) has grown over a period, assuming compounding. CAGR smooths out year-to-year volatility and provides a single representative growth rate. Formula: CAGR = (End Value / Start Value)^(1/n) − 1, where n is the number of years. The PEG score uses a 2-year EPS CAGR as the preferred growth input. A 5-year revenue CAGR above 10% on a TASI company is considered strong, sustained growth.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">YoY</div>
+          <div class="glossary-def">Year-over-Year — the comparison of a metric (revenue, EPS, FCF) in one period against the same period one year earlier. YoY removes seasonality effects that distort quarter-over-quarter (QoQ) comparisons — Saudi retailers, for example, see spikes during Ramadan and Eid Al-Adha quarters. YoY growth in net income is the most commonly reported headline figure in Tadawul quarterly earnings announcements. The dashboard reports YoY for all fundamental growth metrics by default.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Shiller CAPE</div>
+          <div class="glossary-def">Cyclically Adjusted Price/Earnings ratio (also called PE10 or CAPE) — the current market price divided by the 10-year average real (inflation-adjusted) earnings. Developed by Nobel laureate Robert Shiller, CAPE smooths out cyclical earnings peaks and troughs to give a long-term valuation picture. The dashboard does not compute a full Shiller CAPE for individual Saudi stocks (10 years of inflation-adjusted data is not always available), but the Buffett Score's multi-year ROE and margin analysis serves a similar purpose — identifying companies with sustainably superior economics, not just cyclical peak earners.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Sector Median P/E</div>
+          <div class="glossary-def">The middle value of all P/E ratios within a TASI sector, computed live from the screener's 240+ stock universe. Using the median rather than the mean prevents extreme outliers (a loss-making company with a negative P/E, or a tiny company with a 200× P/E) from distorting the benchmark. Sector Median P/E updates automatically as prices and earnings change. It is used both as the sector P/E fair value method (Section 8) and as the benchmark for the relative P/E component of the Fundamental Score (Section 4).</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Illiquidity Premium</div>
+          <div class="glossary-def">An additional return demanded by investors for holding assets that cannot be easily bought or sold at fair prices. Illiquid stocks have wider bid-ask spreads (higher transaction costs) and can move sharply on small order sizes. In the dashboard's DCF model, an illiquidity premium of +0.5% to +2.0% is added to WACC for smaller Tadawul-listed companies, increasing the discount rate and reducing the computed fair value. This is academically supported by decades of research showing that small, illiquid stocks require higher expected returns to attract investors.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Zakat</div>
+          <div class="glossary-def">An Islamic wealth levy charged on Saudi-owned companies at approximately 2.5% of net Zakat-able assets per year. Unlike income tax, Zakat is assessed on the asset base, not on profits — a company can owe Zakat even in a loss year if it holds sufficient assets. The absence of interest deductibility under Zakat (since borrowing is Riba-adjacent, the interest tax shield does not apply) means Saudi companies' effective cost of debt is higher than comparable US/European companies. Zakat is administered by the General Authority of Zakat and Tax (GAZT, now ZATCA).</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">CIT</div>
+          <div class="glossary-def">Corporate Income Tax — a 20% tax on taxable income, levied on companies with foreign shareholders (proportional to foreign ownership) and on specific entity types including Saudi Aramco, SABIC subsidiaries, and certain financial institutions. Unlike Zakat, CIT allows deduction of interest expense from taxable income, providing the traditional interest tax shield. Companies subject to CIT therefore have a lower effective cost of debt. The dashboard applies the correct tax treatment in DCF and WACC calculations based on each company's classification.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">SAMA</div>
+          <div class="glossary-def">Saudi Arabian Monetary Authority — the Saudi central bank and primary financial regulator. SAMA supervises commercial banks, investment banks, and insurance companies. For banks, SAMA enforces Basel III capital adequacy requirements (minimum Total Capital Ratio of 10.5% in Saudi Arabia, above the international 8% minimum). For insurers, SAMA sets solvency margin requirements. SAMA also manages the SAR currency peg to the USD (3.75 SAR per USD, maintained since 1986) and oversees the Saudi payments infrastructure.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">REIT</div>
+          <div class="glossary-def">Real Estate Investment Trust — a listed investment vehicle that owns and operates income-producing real estate (commercial, retail, industrial, hospitality, logistics). Saudi REITs were introduced by the CMA in 2016. They must distribute at least 90% of net income as dividends, making them attractive for income investors. Saudi REITs trade on Tadawul and are exempt from D/E scoring penalties in this dashboard (their leverage is inherent to the business model). Examples include SICO REIT, Al Rajhi REIT, and Jadwa REIT Al-Haramain.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Vision 2030</div>
+          <div class="glossary-def">Saudi Arabia's national economic transformation plan, launched in 2016 under Crown Prince Mohammed bin Salman. Vision 2030 targets reducing Saudi Arabia's dependence on oil revenues, developing non-oil private sector industries, increasing female workforce participation, and creating a world-class tourism and entertainment sector. For investors, Vision 2030 has created tangible listed-company beneficiaries in Tourism, Healthcare, Technology, Defence, Entertainment, and Renewable Energy — sectors receiving significant government spending and regulatory support regardless of oil prices.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">TASI</div>
+          <div class="glossary-def">Tadawul All Share Index — the benchmark index tracking all ordinary share classes listed on the Saudi Exchange (Tadawul). TASI is market-capitalisation weighted and updated throughout the trading day (Sunday to Thursday, 10:00–15:00 AST). It is the primary performance benchmark for Saudi equity fund managers. This dashboard's Combined Score and Fundamental Score benchmark sector P/E ratios against the live TASI universe of 240+ stocks, not against a fixed index composition.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">NOMU</div>
+          <div class="glossary-def">The Saudi Parallel Market — a secondary listing platform for smaller and emerging companies with lighter regulatory requirements than the Main Market (Tadawul). NOMU allows companies to list with a minimum 20% free float (vs 30% on the Main Market) and fewer years of audited financials. Stocks on NOMU tend to have higher volatility, lower liquidity, and less analyst coverage. NOMU stocks are not currently included in this dashboard's screener, which focuses on Main Market (TASI) companies only.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Tadawul</div>
+          <div class="glossary-def">The Saudi Exchange — the official stock exchange of Saudi Arabia, operated by Saudi Exchange Company (formerly called Tadawul). The exchange lists equities (Main Market and NOMU), Sukuk and bonds, REITs, and ETFs. Tadawul is one of the largest stock exchanges in the world by market capitalisation (routinely in the top 10 globally), dominated by Saudi Aramco which alone represents approximately 80–85% of total Tadawul market cap. The exchange transitioned from a T+0 to T+2 settlement cycle in line with global standards.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Sukuk</div>
+          <div class="glossary-def">Islamic financial certificates — structured to be Sharia-compliant by avoiding Riba (interest). Instead of paying fixed interest, Sukuk holders receive a return based on a share of asset returns, rental income, or profits from an underlying Sharia-compliant transaction. In practice, Sukuk serve a similar economic function to conventional bonds — they raise debt capital for issuers and provide fixed-income-like returns for investors. Saudi companies (including the government) issue significant volumes of SAR-denominated and USD-denominated Sukuk. For DCF purposes, Sukuk are included in total debt.</div>
+        </div>
+
+        <div class="glossary-item">
+          <div class="glossary-term">Halala / SAR</div>
+          <div class="glossary-def">The Saudi Riyal (SAR or SR) is the currency of Saudi Arabia, pegged to the US Dollar at 3.75 SAR per USD since 1986. All stock prices on Tadawul are quoted in SAR. One Halala = 1/100 of a SAR (equivalent to a cent or fils). Stock prices move in Halala increments — a price of SAR 45.60 is "four thousand five hundred and sixty Halalas." The USD peg means Saudi monetary policy is largely imported from the US Federal Reserve, creating a direct link between US interest rate decisions and Saudi borrowing costs, WACC, and equity valuations.</div>
+        </div>
+
+      </div><!-- /glossary-grid -->
+
+    </section>
+
+    <!-- FOOTER -->
+    <div class="footer">
+      <p>TASI Dashboard &mdash; <span>User Guide</span></p>
+      <p style="margin-top:6px;">Covers 240+ Tadawul-listed stocks &middot; Educational &amp; research use only &middot; Not financial advice</p>
+      <p style="margin-top:6px; color: var(--border);">guide.html &middot; v1.0</p>
+    </div>
+
+  </main>
+</div><!-- /layout -->
+
+<script>
+  // ── READING PROGRESS BAR ──
+  const progressBar = document.getElementById('progressBar');
+  function updateProgress() {
+    const scrollTop = window.scrollY;
+    const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+    const pct = docHeight > 0 ? (scrollTop / docHeight) * 100 : 0;
+    progressBar.style.width = pct + '%';
+  }
+  window.addEventListener('scroll', updateProgress, { passive: true });
+
+  // ── ACTIVE TOC LINK ──
+  const sections = document.querySelectorAll('section[id]');
+  const tocLinks = document.querySelectorAll('#toc a');
+
+  function updateTOC() {
+    const scrollY = window.scrollY + 100;
+    let current = '';
+    sections.forEach(section => {
+      if (section.offsetTop <= scrollY) {
+        current = section.id;
+      }
+    });
+    tocLinks.forEach(link => {
+      link.classList.remove('active');
+      if (link.getAttribute('href') === '#' + current) {
+        link.classList.add('active');
+      }
+    });
+  }
+
+  window.addEventListener('scroll', updateTOC, { passive: true });
+  updateTOC();
+
+  // ── MOBILE: add a floating TOC toggle if sidebar is hidden ──
+  function checkMobile() {
+    const sidebar = document.querySelector('.sidebar');
+    if (window.innerWidth <= 900) {
+      sidebar.style.display = 'none';
+    } else {
+      sidebar.style.display = '';
+    }
+  }
+  window.addEventListener('resize', checkMobile);
+  checkMobile();
+</script>
+
+</body>
+</html>
