@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260616b'; // bump this string on every deploy that matters
+  var V='20260616c'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -439,7 +439,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260616b · configurable WACC (RF+ERP) · cyclical PEG fix · FCF dividend cover score · code-review fixes · Drive sync on connect · statements snapshot · dividend safety · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260616c · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · dividend safety · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -6447,7 +6447,44 @@ function buildOverview(d){
       const label=risky?'Risky':safe?'Safe':'Watch';
       const col=risky?'var(--red)':safe?'var(--green)':'var(--amb)';
       const det=[payoutEPS!=null?`payout ${(payoutEPS*100).toFixed(0)}%`:null,fcfCover!=null?`FCF cover ${fcfCover.toFixed(1)}x`:null,cons.years?cons.years+'y record':null].filter(Boolean).join(' · ');
-      return `<div class="mi"><div class="mil" ${T('div_safety')}>Div. Safety</div><div class="miv" style="color:${col}">${label} <span style="font-size:8px;color:var(--tx3)">${det}</span></div></div>`;
+      // Build detailed breakdown rows shown on click
+      function _brkRow(icon,val,thresh,note){return `<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:5px"><span style="font-family:var(--mono);font-size:9px;color:var(--tx3);width:72px;flex-shrink:0;padding-top:1px">${thresh}</span><span style="font-size:10px">${icon} ${val}</span></div><div style="font-size:9px;color:var(--tx3);margin:-3px 0 5px 78px">${note}</div>`;}
+      const payRow=payoutEPS!=null?_brkRow(
+        payoutEPS<0.7?'✓':payoutEPS<0.9?'⚠':'✗',
+        `${(payoutEPS*100).toFixed(0)}% EPS payout`,
+        'Payout',
+        payoutEPS<0.7?'Below 70% — earnings buffer intact'
+        :payoutEPS<0.9?'70–90% — limited buffer; watch earnings'
+        :'Above 90% — dividend exceeds sustainable EPS coverage'
+      ):'';
+      const fcfRow=fcfCover!=null?_brkRow(
+        fcfCover>=1.2?'✓':fcfCover>=1.0?'⚠':'✗',
+        `${fcfCover.toFixed(2)}× FCF cover`,
+        'FCF cover',
+        fcfCover>=1.2?'Above 1.2× — dividend genuinely funded by free cash'
+        :fcfCover>=1.0?'1.0–1.2× — marginal; little surplus after dividend'
+        :`${fcfCover.toFixed(2)}× — dividends exceed FCF; funded from debt or reserves`
+      ):'';
+      const hisRow=_brkRow(
+        cons.years>=3?'✓':cons.years>=1?'⚠':'✗',
+        cons.years?`${cons.years} consecutive year${cons.years>1?'s':''} of payments`:'No payment history found',
+        'History',
+        cons.years>=3?'3+ years — consistent distribution policy'
+        :cons.years>=1?'1–2 years — policy not yet established'
+        :'First dividend or data unavailable'
+      );
+      const brkId=`dsb_${d.ticker.replace(/\W/g,'_')}`;
+      const whyText=risky?'One or more risk thresholds breached. High probability of a dividend cut if earnings or cash flow soften.'
+        :safe?'All three sustainability checks pass. Dividend is well-supported by earnings, cash flow, and a consistent track record.'
+        :'Borderline metrics. Monitor closely — a downturn in earnings or FCF could tip this into Risky territory.';
+      return `<div class="mi" style="cursor:pointer;user-select:none" onclick="(function(el){var b=document.getElementById('${brkId}');if(!b)return;var open=b.style.display!=='none';b.style.display=open?'none':'block';el.querySelector('.dsb-arrow').textContent=open?'▸':'▾'})(this)">
+        <div class="mil" ${T('div_safety')}>Div. Safety <span class="dsb-arrow" style="font-size:9px;color:var(--tx3)">▸</span></div>
+        <div class="miv" style="color:${col}">${label} <span style="font-size:8px;color:var(--tx3)">${det}</span></div>
+        <div id="${brkId}" style="display:none;margin-top:8px;padding:10px 10px 6px;background:var(--bg3);border-radius:6px;border:1px solid var(--b1);cursor:default" onclick="event.stopPropagation()">
+          ${payRow}${fcfRow}${hisRow}
+          <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--b1);font-size:9px;color:${col};line-height:1.45">${whyText}</div>
+        </div>
+      </div>`;
     })()}
     <div class="mi"><div class="mil" ${T('roe')}>ROE</div><div class="miv ${d.roe!=null?(d.roe>0.12?"pos":d.roe<0?"neg":""):''}">${d.roe!=null?(d.roe*100).toFixed(1)+"%":"—"}</div></div>
     ${d.dcfPS!=null&&d.price?`<div class="mi"><div class="mil" ${T('intrinsic')}>${d.dcfMethod||'DCF'} Fair Value</div><div class="miv" style="color:${d.dcfUpside>0.10?'var(--green)':d.dcfUpside>-0.10?'var(--amb)':'var(--red)'}"><span style="font-weight:600">${d.dcfPS.toFixed(2)} SAR</span> <span style="font-size:9px;font-family:var(--mono)">${d.dcfUpside>=0?'+':''}${(d.dcfUpside*100).toFixed(1)}%</span></div></div>`:`<div class="mi"><div class="mil" ${T('intrinsic')}>DCF Fair Value</div><div class="miv" style="font-size:9px;color:var(--tx3)">Open Fair Value tab ↗</div></div>`}
