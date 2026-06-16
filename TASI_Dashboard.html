@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260613i'; // bump this string on every deploy that matters
+  var V='20260616a'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -22,7 +22,7 @@
 })();
 </script>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js" defer></script>
 <script src="https://accounts.google.com/gsi/client" async></script>
 <style>
 :root{--bg:#0a0c0f;--bg2:#111418;--bg3:#181c22;--b1:#232830;--b2:#2d3440;--tx:#e8eaed;--tx2:#8a9ab5;--tx3:#4a5568;--green:#22c55e;--gdim:#14532d;--red:#ef4444;--rdim:#7f1d1d;--amb:#f59e0b;--adim:#78350f;--blue:#60a5fa;--pur:#a855f7;--pdim:#3b0764;--acc:#00d4aa;--adm:#003d30;--mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans Arabic',sans-serif}
@@ -439,7 +439,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260613i · Drive sync on connect (no lost data) · statements snapshot · dividend safety · cyclical DCF · sector concentration warning · delisting tracker · staleness indicator · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260616a · code-review fixes (XSS hardening · TTM EPS/FCF accuracy · faster first paint · sector-median ≥3 names) · Drive sync on connect · statements snapshot · dividend safety · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -4341,12 +4341,13 @@ function scoreTechnicalWithSteps(closes){
 }
 
 function scorePEG(pe,eg,annIS){
-  // Use 3-year EPS CAGR from statements if available — more reliable than single-year eg
+  // Use 2-year EPS CAGR from statements if available — smooths the one-off recovery
+  // spikes that single-year eg produces (common for cyclicals coming off a trough).
   let pegGrowthRate = eg;
   if (annIS?.length >= 3) {
     const eps0 = parseFloat(annIS[0]?.eps), eps2 = parseFloat(annIS[2]?.eps);
     if (!isNaN(eps0) && !isNaN(eps2) && eps2 > 0 && eps0 > 0) {
-      pegGrowthRate = Math.pow(eps0 / eps2, 1/2) - 1; // 2-year CAGR
+      pegGrowthRate = Math.pow(eps0 / eps2, 1/2) - 1; // 2-year CAGR (annIS[0] → annIS[2])
     }
   }
   // Cap growth at 25% — Saudi banks/telecoms rarely sustain above this;
@@ -4464,7 +4465,7 @@ function deriveMetricsFromStatements(annual, quarterly){
 
   // ── FCF TTM ───────────────────────────────────────────────────────────────
   let ttmFCF=null;
-  if (Array.isArray(qCF) && qCF.length>=4){ const f4=qCF.slice(0,4); let s=0,cnt=0; for(const q of f4){const v=_num(q.free_cash_flow); if(v!=null){s+=v;cnt++;}} if(cnt>=3) ttmFCF=s; }
+  if (Array.isArray(qCF) && qCF.length>=4){ const f4=qCF.slice(0,4); let s=0,cnt=0; for(const q of f4){const v=_num(q.free_cash_flow); if(v!=null){s+=v;cnt++;}} if(cnt===4) ttmFCF=s; } // require all 4 quarters — summing 3 understates TTM FCF ~25%; else fall through to annual
   if (ttmFCF==null && semiAnnual) {
     const f = saVal(qCF,'free_cash_flow');
     if (f!=null) ttmFCF=f;
@@ -4487,7 +4488,7 @@ function deriveMetricsFromStatements(annual, quarterly){
   if (Array.isArray(qIS) && qIS.length>=4){
     const e4=qIS.slice(0,4); let s=0,n=0;
     let stmtShares=null;
-    for(const q of e4){ const ep=_num(q.eps), ni=_num(q.net_income); if(ep&&ni&&Math.abs(ep)>0) { stmtShares=ni/ep; break; } }
+    for(const q of e4){ const ep=_num(q.eps), ni=_num(q.net_income); if(ep>0 && ni>0) { stmtShares=ni/ep; break; } }
     for(const q of e4){
       let e=_num(q.eps);
       if(e==null && stmtShares>0){ const ni=_num(q.net_income); if(ni!=null) e=ni/stmtShares; }
@@ -4983,8 +4984,8 @@ function _addDiscoveredStock(ticker, name, sector, extra, existing) {
   if (!ticker || !/^\d{4}\.SR$/.test(ticker) || existing.has(ticker)) return false;
   // Names arrive via third-party CORS proxies that could rewrite bodies — strip any
   // markup at ingestion (same sanitizer importCache uses) so it never reaches innerHTML.
-  name = String(name || '').replace(/<[^>]*>/g, '');
-  sector = String(sector || '').replace(/<[^>]*>/g, '');
+  name = String(name || '').replace(/<[^>]*>?/g, '');
+  sector = String(sector || '').replace(/<[^>]*>?/g, '');
   // Yahoo v7/quote + screener return dividendYield in PERCENT (e.g. 4.4); the app
   // convention is a fraction (0.044). Normalize here — without this, discovered
   // stocks showed 100× yields ("440%"), maxed the dividend score, and inflated
@@ -5037,7 +5038,7 @@ function _persistCustomTicker(t, n, s, r, src){
   const prev = list.find(x => x.t === t);
   if (prev) { if (src === 'manual') { prev.src = 'manual'; prev.n = n; prev.s = s; _saveCustomTickers(list); } return; }
   // Strip markup — names can arrive via third-party proxies (same rule as _addDiscoveredStock)
-  list.push({ t, n: String(n||t).replace(/<[^>]*>/g,''), s: String(s||'Other').replace(/<[^>]*>/g,''), r: !!r, src: src || 'auto' });
+  list.push({ t, n: String(n||t).replace(/<[^>]*>?/g,''), s: String(s||'Other').replace(/<[^>]*>?/g,''), r: !!r, src: src || 'auto' });
   _saveCustomTickers(list);
 }
 
@@ -5082,7 +5083,7 @@ async function recheckCustomTicker(ticker){
   if (st) { st.textContent = 'Re-checking ' + ticker + '…'; st.style.color = 'var(--tx3)'; }
   try {
     const q = (await fetchWithProxy(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}`))?.quoteResponse?.result?.[0];
-    const name = (q?.shortName || q?.longName || '').replace(/<[^>]*>/g,'');
+    const name = (q?.shortName || q?.longName || '').replace(/<[^>]*>?/g,'');
     if (!name) { if (st) { st.textContent = 'No data returned for ' + ticker; st.style.color = 'var(--amb)'; } return; }
     const list = _customTickers();
     const e = list.find(x => x.t === ticker);
@@ -5930,7 +5931,7 @@ async function importCache(input){
     await dbPut(CACHE_KEY,p.stocks);
     await dbPut(META_KEY,meta);
     p.stocks.forEach(c=>{
-      ['name','desc','sector','website'].forEach(k=>{if(typeof c[k]==='string')c[k]=c[k].replace(/<[^>]*>/g,'');});
+      ['name','desc','sector','website'].forEach(k=>{if(typeof c[k]==='string')c[k]=c[k].replace(/<[^>]*>?/g,'');});
       const idx=allData.findIndex(d=>d.ticker===c.ticker);if(idx>=0)Object.assign(allData[idx],c);
     });
     updateCacheUI(meta);
@@ -9807,7 +9808,7 @@ function computeSectorMedianPE() {
   });
   const medians = {};
   Object.entries(bySector).forEach(([s, vals]) => {
-    if(vals.length < 2) return; // need at least 2 stocks for meaningful median
+    if(vals.length < 3) return; // need ≥3 names — a 2-name "median" is just their average
     vals.sort((a,b) => a-b);
     const mid = Math.floor(vals.length/2);
     medians[s] = vals.length % 2 === 0 ? (vals[mid-1]+vals[mid])/2 : vals[mid];
