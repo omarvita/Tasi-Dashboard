@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260616a'; // bump this string on every deploy that matters
+  var V='20260616b'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -439,7 +439,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260616a · code-review fixes (XSS hardening · TTM EPS/FCF accuracy · faster first paint · sector-median ≥3 names) · Drive sync on connect · statements snapshot · dividend safety · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260616b · configurable WACC (RF+ERP) · cyclical PEG fix · FCF dividend cover score · code-review fixes · Drive sync on connect · statements snapshot · dividend safety · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1260,6 +1260,10 @@ function showSettings() {
   updateGDStatus();
   renderWeightsUI();
   try { renderCustomTickerList(); } catch(e){}
+  const rfi  = document.getElementById('wacc-rf-input');
+  const erpi = document.getElementById('wacc-erp-input');
+  if (rfi)  rfi.value  = (getWaccRf()  * 100).toFixed(1);
+  if (erpi) erpi.value = (getWaccErp() * 100).toFixed(1);
   ov.style.display = 'flex';
 }
 
@@ -3788,8 +3792,8 @@ const TIPS = {
   wacc:           'Weighted Average Cost of Capital — the minimum return needed to create value. Formula: ke × E/(D+E) + kd×(1−t) × D/(D+E). TASI range: 9–13%.',
   ke:             'Cost of Equity — the return shareholders require. Calculated via CAPM: Risk-Free Rate + Beta × Equity Risk Premium.',
   kd:             'Cost of Debt — effective interest rate the company pays on borrowings, after the Zakat/tax shield benefit.',
-  rfr:            'Risk-Free Rate — return on Saudi government bonds (10Y SAR sukuk, ~5.5% as of June 2026). Used as the baseline for all investment returns in the DCF and WACC models.',
-  erp:            'Equity Risk Premium — extra return demanded over the risk-free rate for taking equity risk. Saudi ERP: ~6.0% (Damodaran 2026).',
+  rfr:            'Risk-Free Rate — return on Saudi government sukuk (10Y SAR, ~5.5% as of June 2026). Used as the baseline for all investment returns in the DCF and WACC models. Configurable in Settings → WACC Assumptions.',
+  erp:            'Equity Risk Premium — extra return demanded over the risk-free rate for taking equity risk. Saudi ERP: ~5.5% (Damodaran 2025: mature 4.2% + country risk ~1.3%). Configurable in Settings → WACC Assumptions.',
   term_growth:    'Perpetual growth rate assumed after year 5 — typically at or below long-run nominal GDP growth (2–3%). Small changes have a large impact on valuation.',
   term_value:     'Present value of all cash flows beyond the 5-year forecast. Typically 60–80% of total DCF value — highly sensitive to WACC and terminal growth.',
   ev:             'Enterprise Value — total acquisition cost of the business. Formula: PV of FCFs + Terminal Value. Compare to EBITDA for relative valuation (EV/EBITDA).',
@@ -3978,20 +3982,28 @@ function scoreFundamental(d){
     // ~90% of income by mandate, so their high payout is structural — exclude them.
     const isReitDiv = d.isReit || d.sector === 'REITs';
     const payoutR = (pe != null && pe > 0 && !isReitDiv) ? dy * pe : null;
-    const unsustainable = payoutR != null && payoutR > 0.90;
+    // FCF cover = free_cash_flow ÷ |dividends_paid|. A cover above 1.2x means dividends
+    // are funded by real cash; below 1.0x the company is paying from debt or reserves.
+    const _cf0 = d.rawTwelveData?.annual?.cf?.[0];
+    const _fcfV = _cf0?.free_cash_flow, _divV = _cf0?.dividends_paid;
+    const fcfCoverScore = (!isReitDiv && _fcfV != null && _fcfV > 0 && _divV != null && Math.abs(_divV) > 0)
+      ? _fcfV / Math.abs(_divV) : null;
+    const unsustainable = (payoutR != null && payoutR > 0.90) || (fcfCoverScore != null && fcfCoverScore < 1.0);
+    const fcfSafe = fcfCoverScore != null && fcfCoverScore >= 1.2;
+    const fcfStr = fcfCoverScore != null ? ` · FCF cover ${fcfCoverScore.toFixed(1)}x` : '';
     if(dy>0.06){
       if(unsustainable)
-        add("Dividend Yield",(dy*100).toFixed(2)+"%",-6,`Yield-trap risk — ${(payoutR*100).toFixed(0)}% payout`,`A ${(dy*100).toFixed(2)}% yield looks attractive but the payout ratio is ~${(payoutR*100).toFixed(0)}% of earnings — above the 90% sustainability threshold. When a company pays out more than it earns, the dividend is funded by debt or reserves and is a prime candidate to be cut in a downturn. High yields driven by a falling share price are the classic value trap. Verify FCF coverage before treating this as income.`);
+        add("Dividend Yield",(dy*100).toFixed(2)+"%",-6,`Yield-trap risk — ${payoutR!=null?(payoutR*100).toFixed(0)+'% payout':'low FCF cover'}${fcfStr}`,`A ${(dy*100).toFixed(2)}% yield looks attractive but ${payoutR!=null&&payoutR>0.9?`the payout ratio is ~${(payoutR*100).toFixed(0)}% of earnings — above the 90% sustainability threshold`:''}${fcfCoverScore!=null&&fcfCoverScore<1?` FCF cover is only ${fcfCoverScore.toFixed(1)}x — dividends exceed free cash flow`:''}. When a company pays out more than it earns, the dividend is funded by debt or reserves and is a prime candidate to be cut in a downturn. High yields driven by a falling share price are the classic value trap.`);
       else
-        add("Dividend Yield",(dy*100).toFixed(2)+"%",+10,"High dividend yield above 6%",`Excellent income well above Saudi government bond yields of 4–5%${payoutR!=null?`, and the ~${(payoutR*100).toFixed(0)}% payout ratio is sustainable`:''}. Still verify it is covered by free cashflow, not financed by debt or asset sales. Sustainable high yield from FCF is rare and valuable.`);
+        add("Dividend Yield",(dy*100).toFixed(2)+"%",fcfSafe?+12:+10,"High dividend yield above 6%",`Excellent income well above Saudi government bond yields of 4–5%${payoutR!=null?`, with a sustainable ~${(payoutR*100).toFixed(0)}% payout`:''}${fcfStr}. ${fcfSafe?'FCF more than covers the dividend — this yield is genuinely funded by real cash generation.':'Still verify it is covered by free cashflow, not financed by debt or asset sales.'} Sustainable high yield from FCF is rare and valuable.`);
     }
     else if(dy>0.04){
       if(unsustainable)
-        add("Dividend Yield",(dy*100).toFixed(2)+"%",0,`Good yield but ${(payoutR*100).toFixed(0)}% payout`,`A ${(dy*100).toFixed(2)}% yield is strong, but the payout ratio is ~${(payoutR*100).toFixed(0)}% of earnings — leaving little buffer. The dividend has limited room to grow and is vulnerable to an earnings dip. Confirm 3+ years of consistent coverage by operating cashflow before relying on this income.`);
+        add("Dividend Yield",(dy*100).toFixed(2)+"%",fcfCoverScore!=null&&fcfCoverScore<1?-4:0,`Good yield but ${payoutR!=null?(payoutR*100).toFixed(0)+'% payout':'low FCF cover'}${fcfStr}`,`A ${(dy*100).toFixed(2)}% yield is strong, but ${payoutR!=null&&payoutR>0.9?`the payout ratio is ~${(payoutR*100).toFixed(0)}% of earnings — leaving little buffer`:''}${fcfCoverScore!=null&&fcfCoverScore<1?` FCF cover is only ${fcfCoverScore.toFixed(1)}x — the dividend costs more than the company generates in free cash`:''}. The dividend is vulnerable to an earnings dip. Confirm 3+ years of consistent coverage before relying on this income.`);
       else
-        add("Dividend Yield",(dy*100).toFixed(2)+"%",+7,"Good dividend yield 4–6%",`Strong income above risk-free rates${payoutR!=null?` with a sustainable ~${(payoutR*100).toFixed(0)}% payout`:''}. Combined with potential price appreciation, total returns can reach 10–15% annually. Verify the dividend has been consistent for at least 3 years and covered by operating cashflow, not financed by debt or asset sales.`);
+        add("Dividend Yield",(dy*100).toFixed(2)+"%",fcfSafe?+9:+7,"Good dividend yield 4–6%",`Strong income above risk-free rates${payoutR!=null?` with a sustainable ~${(payoutR*100).toFixed(0)}% payout`:''}${fcfStr}. ${fcfSafe?'Dividend is well-covered by free cash flow.':'Verify the dividend has been consistent and covered by operating cashflow, not financed by debt or asset sales.'} Combined with price appreciation, total returns can reach 10–15% annually.`);
     }
-    else if(dy>0.02)add("Dividend Yield",(dy*100).toFixed(2)+"%",+4,"Moderate dividend yield 2–4%","Meaningful income component. Check if the dividend has been growing over time — a growing dividend signals management confidence in future earnings. Buffett says a growing dividend is one of the best signals of a financially healthy business with predictable earnings.");
+    else if(dy>0.02)add("Dividend Yield",(dy*100).toFixed(2)+"%",+4,"Moderate dividend yield 2–4%",`Meaningful income component${fcfStr}. Check if the dividend has been growing over time — a growing dividend signals management confidence in future earnings. Buffett says a growing dividend is one of the best signals of a financially healthy business with predictable earnings.`);
     else if(dy>0)add("Dividend Yield",(dy*100).toFixed(2)+"%",+1,"Low dividend yield below 2%","Modest income. Management prioritises reinvestment over cash returns. Only acceptable if ROE is high (above 15%) — reinvesting at high ROE creates more long-term value than paying dividends. If both ROE and dividend yield are low, ask where the earnings are going.");
     else add("Dividend Yield","0%",-2,"No dividend paid","Company retains all earnings. Acceptable for genuine high-growth compounders reinvesting at high ROE. Not acceptable for mature, slow-growth businesses — suggests poor capital allocation or undisclosed cash flow problems. Review cash flow statement directly to understand where retained earnings are deployed.");
   }
@@ -4340,15 +4352,23 @@ function scoreTechnicalWithSteps(closes){
   return{score:Math.min(100,Math.max(0,Math.round(p))),steps,rsi:rsiV,sma20,sma50,momentum:tr};
 }
 
-function scorePEG(pe,eg,annIS){
+function scorePEG(pe,eg,annIS,sector){
+  const _PEG_CYCLICAL = new Set(['Petrochemicals','Chemicals','Materials','Building Materials','Energy','Transportation','Industrial']);
   // Use 2-year EPS CAGR from statements if available — smooths the one-off recovery
   // spikes that single-year eg produces (common for cyclicals coming off a trough).
   let pegGrowthRate = eg;
-  if (annIS?.length >= 3) {
+  const hasCagr = annIS?.length >= 3;
+  if (hasCagr) {
     const eps0 = parseFloat(annIS[0]?.eps), eps2 = parseFloat(annIS[2]?.eps);
     if (!isNaN(eps0) && !isNaN(eps2) && eps2 > 0 && eps0 > 0) {
       pegGrowthRate = Math.pow(eps0 / eps2, 1/2) - 1; // 2-year CAGR (annIS[0] → annIS[2])
     }
+  }
+  // Cyclical sectors: single-year YoY earnings swings (trough→recovery or peak→bust)
+  // produce wildly misleading PEGs. Require the 2-year CAGR path; without it, return
+  // neutral so one-off spikes don't score the stock as a growth bargain.
+  if (_PEG_CYCLICAL.has(sector) && !hasCagr) {
+    return {score:50, peg:null, steps:[{label:"PEG Ratio",raw:"N/A",delta:0,why:`Cyclical sector (${sector||'?'}) — single-year earnings growth unreliable; need ≥3 annual rows for 2-yr CAGR`}]};
   }
   // Cap growth at 25% — Saudi banks/telecoms rarely sustain above this;
   // uncapped inputs from one-off earnings spikes produce misleadingly low PEGs.
@@ -4516,7 +4536,7 @@ function recomputeAllScores(d){
   const noHardcoded = d.noHardcodedData && !d.priceLoaded;
   const fRes = scoreFundamental(d);
   const bRes = scoreBuffett(d);
-  const pegRes = scorePEG(d.pe, d.eg, d.rawTwelveData?.annual?.is);
+  const pegRes = scorePEG(d.pe, d.eg, d.rawTwelveData?.annual?.is, d.sector);
   d.fundamental = noHardcoded ? null : fRes.score; d.fundSteps = fRes.steps;
   d.buffett = noHardcoded ? null : bRes.buffett; d.criteria = bRes.criteria; d.buffSteps = bRes.steps;
   d.peg = pegRes.peg; d.pegScore = pegRes.score; d.pegSteps = pegRes.steps;
@@ -6105,7 +6125,7 @@ async function openModal(idx){
           realD.fullLoaded = true;
           const fRes = scoreFundamental(realD);
           const bRes = scoreBuffett(realD);
-          const pegRes = scorePEG(realD.pe, realD.eg, realD.rawTwelveData?.annual?.is);
+          const pegRes = scorePEG(realD.pe, realD.eg, realD.rawTwelveData?.annual?.is, realD.sector);
           const tRes = scoreTechnicalWithSteps(realD.closes);
           realD.fundamental=fRes.score; realD.fundSteps=fRes.steps;
           realD.buffett=bRes.buffett; realD.criteria=bRes.criteria; realD.buffSteps=bRes.steps;
@@ -6157,7 +6177,7 @@ async function openModal(idx){
         realD.fullLoaded = true;
         const fRes = scoreFundamental(realD);
         const bRes = scoreBuffett(realD);
-        const pegRes = scorePEG(realD.pe, realD.eg, realD.rawTwelveData?.annual?.is);
+        const pegRes = scorePEG(realD.pe, realD.eg, realD.rawTwelveData?.annual?.is, realD.sector);
         const tRes = scoreTechnicalWithSteps(realD.closes);
         realD.fundamental=fRes.score; realD.fundSteps=fRes.steps;
         realD.buffett=bRes.buffett; realD.criteria=bRes.criteria; realD.buffSteps=bRes.steps;
@@ -7352,6 +7372,26 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
 
 async function buildAnnual(d, forceRefetch=false){ return buildFinancials(d, 'annual', forceRefetch); }
 
+// ── WACC assumption overrides (configurable in Settings) ─────────────────────
+function getWaccRf()  { return Math.max(0.01, Math.min(0.15, parseFloat(localStorage.getItem('TASI_wacc_rf'))  || 0.055)); }
+function getWaccErp() { return Math.max(0.02, Math.min(0.12, parseFloat(localStorage.getItem('TASI_wacc_erp')) || 0.055)); }
+function saveWaccAssumptions() {
+  const rf  = parseFloat(document.getElementById('wacc-rf-input')?.value);
+  const erp = parseFloat(document.getElementById('wacc-erp-input')?.value);
+  if (!isNaN(rf)  && rf  >= 1 && rf  <= 15) localStorage.setItem('TASI_wacc_rf',  rf  / 100);
+  if (!isNaN(erp) && erp >= 2 && erp <= 12) localStorage.setItem('TASI_wacc_erp', erp / 100);
+  showToast('✓ WACC assumptions saved — applies to next DCF calculation');
+}
+function resetWaccAssumptions() {
+  localStorage.removeItem('TASI_wacc_rf');
+  localStorage.removeItem('TASI_wacc_erp');
+  const rfi = document.getElementById('wacc-rf-input');
+  const erpi = document.getElementById('wacc-erp-input');
+  if (rfi)  rfi.value  = '5.5';
+  if (erpi) erpi.value = '5.5';
+  showToast('WACC assumptions reset to defaults (RF 5.5%, ERP 5.5%)');
+}
+
 // ── DCF ANALYSIS ──
 async function buildDCF(d, _opts={}) {
   const {noFetch=false, noHtml=false} = (_opts && typeof _opts === 'object') ? _opts : {};
@@ -7454,11 +7494,12 @@ async function buildDCF(d, _opts={}) {
   }
 
   // ── WACC ──
-  // rfRate: 10Y SAR sukuk yield estimate (SAMA policy rate ~5.5% as of June 2026).
-  // erp: Damodaran 2026 Saudi total ERP — mature 4.2% + CRP ~1.5% (Aa3/A+, calibrated June 2026).
+  // rfRate: 10Y SAR sukuk yield — user-configurable in Settings (default 5.5%).
+  // erp: Damodaran 2025 Saudi total ERP — mature 4.2% + CRP ~1.3% (Aa3/A+) ≈ 5.5%.
+  //      User-configurable in Settings. Prior default 6.0% was conservative; 5.5% aligns with 2025 estimates.
   // kd: rfRate + 150 bps (IG Saudi corp. sukuk; Aramco/banks ~115bps, blended IG ≈ 150bps).
-  const rfRate = 0.055;
-  const erp    = 0.060;
+  const rfRate = getWaccRf();
+  const erp    = getWaccErp();
   const kd     = Math.max(rfRate + 0.015, 0.05);
   // Sector-aware terminal growth — Vision 2030 tailwinds lift domestic sectors;
   // commodities/petrochem mean-revert to global cycle; banking/consumer = TASI long-run.
@@ -8841,7 +8882,7 @@ function init(){
     const noHardcoded = s._fromMoreTickers && s.pe==null && s.pb==null && s.roe==null;
     const fRes=scoreFundamental(s);
     const bRes=scoreBuffett(s);
-    const pegRes=scorePEG(s.pe,s.eg);
+    const pegRes=scorePEG(s.pe,s.eg,s.rawTwelveData?.annual?.is,s.sector);
     const _init={fundamental:fRes.score,technical:50,buffett:bRes.buffett,pegScore:pegRes.score,dcfUpside:null};
     const combined=noHardcoded?null:calcCombined(_init);
     return{
@@ -11627,6 +11668,10 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) _aut
     <div class="sp-close" onclick="hideSettings()">×</div>
     <div class="sp-title">⚙ Settings</div>
 
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+      <button class="sp-btn" style="background:var(--adm);border-color:var(--amb);color:var(--amb)" onclick="window.open('docs/guide.html','_blank')">📖 Open Full User Guide</button>
+    </div>
+
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
       <button class="sp-btn sp-btn-red" onclick="clearTwelveCache()">🗑 Clear Cache</button>
       <button class="sp-btn sp-btn-sec" onclick="validateTickers()" title="Check ALL tickers against Yahoo Finance — batches of 6, ~2-3 min total">⚡ Validate All Tickers</button>
@@ -11685,6 +11730,29 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) _aut
     <div style="display:flex;gap:6px;flex-wrap:wrap">
       <button class="sp-btn" onclick="saveScoreWeights()">✓ Apply Weights</button>
       <button class="sp-btn sp-btn-sec" onclick="resetScoreWeights()">Reset to Default</button>
+    </div>
+
+    <hr class="sp-divider">
+
+    <!-- DCF / WACC Assumptions -->
+    <div style="font-family:var(--mono);font-size:10px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">DCF / WACC Assumptions</div>
+    <div class="sp-desc" style="margin-bottom:8px">
+      Risk-free rate and equity risk premium used in all DCF fair value calculations. Defaults follow Damodaran 2025 Saudi estimates (RF 5.5%, ERP 5.5%). Changes apply on the next DCF calculation — use <strong>Recalculate All Scores</strong> to see updated fair values immediately.
+    </div>
+    <div class="sp-row" style="align-items:center;gap:10px;flex-wrap:wrap">
+      <label style="font-family:var(--mono);font-size:10px;color:var(--tx2);display:flex;align-items:center;gap:6px">
+        RF Rate (10Y sukuk %)
+        <input type="number" class="sp-input" id="wacc-rf-input" min="1" max="15" step="0.1" style="width:72px;flex:none" placeholder="5.5">
+      </label>
+      <label style="font-family:var(--mono);font-size:10px;color:var(--tx2);display:flex;align-items:center;gap:6px">
+        ERP (equity premium %)
+        <input type="number" class="sp-input" id="wacc-erp-input" min="2" max="12" step="0.1" style="width:72px;flex:none" placeholder="5.5">
+      </label>
+    </div>
+    <div class="sp-row" style="align-items:center;gap:8px;margin-top:6px">
+      <button class="sp-btn" onclick="saveWaccAssumptions()">💾 Save</button>
+      <button class="sp-btn sp-btn-sec" onclick="resetWaccAssumptions()">Reset to Default</button>
+      <span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">RF + β×ERP = cost of equity (ke) → drives all DCF fair values</span>
     </div>
 
     <hr class="sp-divider">
