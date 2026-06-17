@@ -7,7 +7,7 @@
 // {
 //   generated: 1760000000000, generatedISO: "...",
 //   quotes: { "1010.SR": { p, c, pe, eps, pb, mc, v, av, h52, l52, dy } },
-//   closes: { "1010.SR": { c: [..], t: [..] } },          // ~1y daily
+//   closes: { "1010.SR": { c: [..], t: [..] } },          // ~5y daily
 //   tasi:   { price, change, closes, timestamps, ytdReturn }
 // }
 
@@ -98,7 +98,7 @@ async function fetchCloses(tickers) {
     const syms = tickers.slice(i, i + 20).join(',');
     try {
       const j = await fetchJSON(
-        `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${syms}&range=1y&interval=1d`);
+        `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${syms}&range=5y&interval=1d`);
       // Yahoo serves spark in TWO shapes: browsers get {spark:{result:[{symbol,response:[…]}]}},
       // server-side callers get the compact map {"1010.SR":{timestamp:[…],close:[…]}}.
       let entries = [];
