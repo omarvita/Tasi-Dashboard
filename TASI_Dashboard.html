@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260616d'; // bump this string on every deploy that matters
+  var V='20260617a'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -439,7 +439,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260616c · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · dividend safety · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260617a · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1559,7 +1559,7 @@ function parseYahooTimeseries(data, period) {
       byDate[date][fieldName] = entry.reportedValue?.raw ?? null;
     }
   }
-  const limit = period === 'quarterly' ? 8 : 6;
+  const limit = period === 'quarterly' ? STMT_QTR_MAX : STMT_ANNUAL_MAX;
   const dates = Object.keys(byDate).sort().reverse().slice(0, limit);
   if (!dates.length) return { is: null, bs: null, cf: null };
   const rows = dates.map(d => byDate[d]);
@@ -1675,12 +1675,24 @@ function validateAndMerge(primary, secondary) {
 }
 
 // Merge two statement datasets — primary wins; secondary fills nulls and supplies older years
-function mergeStatements(primary, secondary) {
+// History caps — generous, bounded windows so the cache can ACCUMULATE periods over
+// time (each fetch only returns a recent window; merging unions them by fiscal date).
+// 15 years of quarters / 20 annual periods keeps full reportable history without
+// letting the Drive snapshot grow unbounded.
+const STMT_QTR_MAX    = 60;
+const STMT_ANNUAL_MAX = 20;
+
+// Merge two {is,bs,cf} statement objects by fiscal date. `primary` wins on field
+// conflicts (newest/restated values), `secondary` contributes any periods/fields the
+// primary lacks. maxRows defaults to the period cap so callers can pass the right
+// window (quarterly vs annual). Pass an explicit maxRows when known.
+function mergeStatements(primary, secondary, maxRows) {
+  if (!primary) return secondary || null;
   if (!secondary || (!secondary.is && !secondary.bs && !secondary.cf)) return primary;
-  function mergeArr(arr1, arr2, maxRows) {
+  function mergeArr(arr1, arr2, cap) {
     if (!arr1?.length && !arr2?.length) return null;
-    if (!arr1?.length) return arr2?.slice(0, maxRows) ?? null;
-    if (!arr2?.length) return arr1;
+    if (!arr1?.length) return arr2?.slice(0, cap) ?? null;
+    if (!arr2?.length) return arr1.slice(0, cap);
     const byDate = {};
     for (const r of arr2) {
       const key = (r.fiscal_date ?? '').slice(0, 7);
@@ -1695,12 +1707,13 @@ function mergeStatements(primary, secondary) {
     }
     return Object.values(byDate)
       .sort((a, b) => (b.fiscal_date ?? '').localeCompare(a.fiscal_date ?? ''))
-      .slice(0, maxRows);
+      .slice(0, cap);
   }
+  const cap = maxRows || STMT_ANNUAL_MAX;
   return {
-    is: mergeArr(primary.is, secondary.is, 6),
-    bs: mergeArr(primary.bs, secondary.bs, 6),
-    cf: mergeArr(primary.cf, secondary.cf, 6),
+    is: mergeArr(primary.is, secondary.is, cap),
+    bs: mergeArr(primary.bs, secondary.bs, cap),
+    cf: mergeArr(primary.cf, secondary.cf, cap),
   };
 }
 
@@ -2015,9 +2028,27 @@ function _applyStmtFundamentalsToAllData() {
 }
 
 // Update statement data for ticker and schedule a debounced bulk Drive save
+// Merge a statements-cache entry into another, accumulating annual/quarterly history
+// by fiscal date (src wins on field conflicts). Used wherever cache entries are combined
+// so periods are never dropped by a plain Object.assign array-replace.
+function _mergeStmtEntry(dst, src) {
+  if (!src) return dst || {};
+  const out = Object.assign(dst || {}, src);
+  if (src.annual)    out.annual    = mergeStatements(src.annual,    (dst || {}).annual,    STMT_ANNUAL_MAX);
+  if (src.quarterly) out.quarterly = mergeStatements(src.quarterly, (dst || {}).quarterly, STMT_QTR_MAX);
+  return out;
+}
+
 function gdSetStatement(ticker, patch) {
   if (!GD_TOKEN) return;
-  _stmtCache[ticker] = Object.assign(_stmtCache[ticker] || {}, patch);
+  const cur = _stmtCache[ticker] || {};
+  // ACCUMULATE statement history rather than replacing the array. Each fetch only
+  // returns a recent window, so we union the incoming periods with whatever is already
+  // cached (by fiscal date; newest fetch wins per field). This lets the Drive snapshot
+  // grow beyond any single fetch's window so older quarters/years are preserved.
+  if (patch.annual)    patch.annual    = mergeStatements(patch.annual,    cur.annual,    STMT_ANNUAL_MAX);
+  if (patch.quarterly) patch.quarterly = mergeStatements(patch.quarterly, cur.quarterly, STMT_QTR_MAX);
+  _stmtCache[ticker] = Object.assign(cur, patch);
   gdScheduleStatementsSave();
 }
 
@@ -2033,11 +2064,15 @@ function _backfillStmtCacheFromMemory() {
     if (!rt) continue;
     const cur = _stmtCache[d.ticker] || {};
     const patch = {};
-    if (rt.annual && (rt.annual.is?.length || 0) > (cur.annual?.is?.length || 0)) {
-      patch.annual = rt.annual; patch.annualUpdated = cur.annualUpdated || Date.now();
+    // Union in-memory statements with the cache (newest data wins) so connecting Drive
+    // never drops periods either side already has.
+    if (rt.annual && (rt.annual.is || rt.annual.bs || rt.annual.cf)) {
+      patch.annual = mergeStatements(rt.annual, cur.annual, STMT_ANNUAL_MAX);
+      patch.annualUpdated = cur.annualUpdated || Date.now();
     }
-    if (rt.quarterly && (rt.quarterly.is?.length || 0) > (cur.quarterly?.is?.length || 0)) {
-      patch.quarterly = rt.quarterly; patch.quarterlyUpdated = cur.quarterlyUpdated || Date.now();
+    if (rt.quarterly && (rt.quarterly.is || rt.quarterly.bs || rt.quarterly.cf)) {
+      patch.quarterly = mergeStatements(rt.quarterly, cur.quarterly, STMT_QTR_MAX);
+      patch.quarterlyUpdated = cur.quarterlyUpdated || Date.now();
     }
     if (Object.keys(patch).length) { _stmtCache[d.ticker] = Object.assign(cur, patch); n++; }
   }
@@ -2107,14 +2142,15 @@ async function gdLoadStatementsBulk() {
         if (!bulk) continue;
         if (bulk.statements) {
           for (const [ticker, data] of Object.entries(bulk.statements)) {
-            _stmtCache[ticker] = Object.assign(_stmtCache[ticker] || {}, data);
+            _stmtCache[ticker] = _mergeStmtEntry(_stmtCache[ticker], data);
             totalMerged++;
           }
         }
         if (bulk.finLastFetched && bulk.finLastFetched > (finLastFetched || 0)) finLastFetched = bulk.finLastFetched;
       }
-      // Re-apply session-fresh entries on top so local data wins over Drive per key.
-      for (const [t, v] of Object.entries(_localSnapshot)) _stmtCache[t] = Object.assign(_stmtCache[t] || {}, v);
+      // Re-apply session-fresh entries on top so local data wins over Drive per key,
+      // while still accumulating any older periods Drive holds.
+      for (const [t, v] of Object.entries(_localSnapshot)) _stmtCache[t] = _mergeStmtEntry(_stmtCache[t], v);
 
       if (totalMerged) console.log(`[GD] Loaded statements for ${Object.keys(_stmtCache).length} stocks from Drive (${stmtFiles.length} file(s) merged)`);
 
@@ -4691,8 +4727,8 @@ async function _fetchAndApplyFundamentals(d, fetchStmts = true){
           Promise.race([fetchYahooTimeseries(tgt.ticker, 'quarterly'), new Promise(r => setTimeout(() => r({is:null,bs:null,cf:null}), 12000))]),
           Promise.race([fetchYahooFinancials(tgt.ticker),              new Promise(r => setTimeout(() => r(null), 12000))]),
         ]);
-        const annMerged = mergeStatements(ytA, parseYahooFinancials(qsRaw, 'annual'));
-        const qtrMerged = mergeStatements(ytQ, parseYahooFinancials(qsRaw, 'quarterly'));
+        const annMerged = mergeStatements(ytA, parseYahooFinancials(qsRaw, 'annual'), STMT_ANNUAL_MAX);
+        const qtrMerged = mergeStatements(ytQ, parseYahooFinancials(qsRaw, 'quarterly'), STMT_QTR_MAX);
         if (annMerged && (annMerged.is || annMerged.bs || annMerged.cf)) {
           tgt.rawTwelveData.annual = annMerged;
           gdSetStatement(tgt.ticker, { annual: annMerged, annualUpdated: Date.now() });
@@ -7468,7 +7504,7 @@ async function buildDCF(d, _opts={}) {
                    : fetchYahooFinancials(d.ticker).then(r => parseYahooFinancials(r, 'annual')),
         fetchArgaamFinancials(code, 'annual'),
       ]);
-      const merged = validateAndMerge(mergeStatements(yt, qs), argRes);
+      const merged = validateAndMerge(mergeStatements(yt, qs, STMT_ANNUAL_MAX), argRes);
       if (merged.is || merged.bs || merged.cf) {
         if (!d.rawTwelveData) d.rawTwelveData = {};
         d.rawTwelveData.annual = merged;

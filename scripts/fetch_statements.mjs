@@ -29,6 +29,48 @@ function extractTickers() {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// History caps — must match the dashboard's STMT_QTR_MAX / STMT_ANNUAL_MAX so the
+// snapshot accumulates a bounded but generous window (15y quarters / 20y annual).
+const STMT_QTR_MAX    = 60;
+const STMT_ANNUAL_MAX = 20;
+
+// Union freshly-fetched periods with the previous snapshot's by fiscal date so the
+// snapshot ACCUMULATES history. Fresh data wins on field conflicts (restatements);
+// older periods that fall outside the new fetch window are preserved.
+function mergeStatementArr(fresh, prev, cap) {
+  if (!fresh?.length && !prev?.length) return null;
+  if (!fresh?.length) return prev.slice(0, cap);
+  if (!prev?.length)  return fresh.slice(0, cap);
+  const byDate = {};
+  for (const r of prev)  { const k = (r.fiscal_date ?? '').slice(0, 7); if (k) byDate[k] = { ...r }; }
+  for (const r of fresh) {
+    const k = (r.fiscal_date ?? '').slice(0, 7); if (!k) continue;
+    if (!byDate[k]) byDate[k] = { ...r };
+    else for (const [kk, v] of Object.entries(r)) { if (v != null) byDate[k][kk] = v; }
+  }
+  return Object.values(byDate)
+    .sort((a, b) => (b.fiscal_date ?? '').localeCompare(a.fiscal_date ?? ''))
+    .slice(0, cap);
+}
+
+// Merge a fetched {annual,quarterly} statement set with the previous snapshot entry.
+function mergeStatementEntry(fresh, prev) {
+  if (!prev) return fresh;
+  if (!fresh) return prev;
+  const out = {};
+  for (const period of ['annual', 'quarterly']) {
+    const cap = period === 'quarterly' ? STMT_QTR_MAX : STMT_ANNUAL_MAX;
+    const f = fresh[period], p = prev[period];
+    if (!f && !p) continue;
+    out[period] = {
+      is: mergeStatementArr(f?.is, p?.is, cap),
+      bs: mergeStatementArr(f?.bs, p?.bs, cap),
+      cf: mergeStatementArr(f?.cf, p?.cf, cap),
+    };
+  }
+  return out;
+}
+
 async function fetchJSON(url, tries = 3) {
   for (let i = 0; i < tries; i++) {
     try {
@@ -81,7 +123,7 @@ function parseTimeseries(data, period) {
       byDate[date][fieldName] = entry.reportedValue?.raw ?? null;
     }
   }
-  const limit = period === 'quarterly' ? 8 : 6;
+  const limit = period === 'quarterly' ? STMT_QTR_MAX : STMT_ANNUAL_MAX;
   const dates = Object.keys(byDate).sort().reverse().slice(0, limit);
   if (!dates.length) return null;
   const rows = dates.map(d => byDate[d]);
@@ -143,9 +185,11 @@ for (let i = 0; i < tickers.length; i += CONCURRENCY) {
       fetchStatement(t, 'quarterly'),
     ]);
     if (annual || quarterly) {
-      statements[t] = {};
-      if (annual) statements[t].annual = annual;
-      if (quarterly) statements[t].quarterly = quarterly;
+      const fresh = {};
+      if (annual) fresh.annual = annual;
+      if (quarterly) fresh.quarterly = quarterly;
+      // Accumulate against the previous snapshot so older periods aren't dropped.
+      statements[t] = mergeStatementEntry(fresh, prevSnap?.statements?.[t]);
       ok++;
     } else if (prevSnap?.statements?.[t]) {
       statements[t] = prevSnap.statements[t];
