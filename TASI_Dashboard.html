@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260617a'; // bump this string on every deploy that matters
+  var V='20260617b'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -439,7 +439,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260617a · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260617b · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -550,6 +550,8 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
           <button class="tasi-rng-btn" id="mpe-r-1y"  onclick="setMPERange('1Y')" style="background:var(--acc);color:#000;border-color:var(--acc)">1Y</button>
           <button class="tasi-rng-btn" id="mpe-r-2y"  onclick="setMPERange('2Y')">2Y</button>
           <button class="tasi-rng-btn" id="mpe-r-5y"  onclick="setMPERange('5Y')">5Y</button>
+          <button class="tasi-rng-btn" id="mpe-r-10y" onclick="setMPERange('10Y')">10Y</button>
+          <button class="tasi-rng-btn" id="mpe-r-all" onclick="setMPERange('All')">All</button>
         </div>
       </div>
       <!-- Selected-indicator description (updates as you click a tile) -->
@@ -1848,8 +1850,8 @@ async function gdSaveBulkPrices() {
     // Include TASI index historical closes in bulk file so next load is instant
     if (tasiIndex.closes?.length > 10) {
       prices['_tasi'] = {
-        closes: tasiIndex.closes.slice(-1500),
-        timestamps: tasiIndex.timestamps.slice(-1500),
+        closes: tasiIndex.closes.slice(-2520),
+        timestamps: tasiIndex.timestamps.slice(-2520),
         price: tasiIndex.price,
         change: tasiIndex.change,
         ytdReturn: tasiIndex.ytdReturn,
@@ -4825,7 +4827,7 @@ async function _enrichPriceHistory() {
       await Promise.allSettled(_needs.slice(i, i + _BATCH).map(async d => {
         _priceHistAttempted.add(d.ticker);
         try {
-          const url = `https://query1.finance.yahoo.com/v8/finance/chart/${d.ticker}?interval=1d&range=5y`;
+          const url = `https://query1.finance.yahoo.com/v8/finance/chart/${d.ticker}?interval=1d&range=10y`;
           const data = await fetchWithProxy(url);
           const rc = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close || [];
           const rt = data?.chart?.result?.[0]?.timestamp || [];
@@ -4839,8 +4841,8 @@ async function _enrichPriceHistory() {
           allData[idx].timestamps = timestamps;
           _gdCache[d.ticker] = Object.assign(_gdCache[d.ticker] || {}, {
             priceData: Object.assign(_gdCache[d.ticker]?.priceData || {}, {
-              closes: closes.slice(-1260),
-              timestamps: timestamps.slice(-1260),
+              closes: closes.slice(-2520),
+              timestamps: timestamps.slice(-2520),
             }),
             // Closes-only update: do NOT bump priceUpdated — it's the freshness stamp
             // for the PRICE, and bumping it here made a week-old price reject this
@@ -4866,7 +4868,7 @@ async function _enrichPriceHistory() {
       for (let i = 0; i < _failed.length; i += 4) {
         await Promise.allSettled(_failed.slice(i, i + 4).map(async d => {
           try {
-            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${d.ticker}?interval=1d&range=5y`;
+            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${d.ticker}?interval=1d&range=10y`;
             const data = await fetchWithProxy(url);
             const rc = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close || [];
             const rt = data?.chart?.result?.[0]?.timestamp || [];
@@ -4880,7 +4882,7 @@ async function _enrichPriceHistory() {
             allData[idx].timestamps = timestamps;
             _gdCache[d.ticker] = Object.assign(_gdCache[d.ticker] || {}, {
               priceData: Object.assign(_gdCache[d.ticker]?.priceData || {}, {
-                closes: closes.slice(-1260), timestamps: timestamps.slice(-1260),
+                closes: closes.slice(-2520), timestamps: timestamps.slice(-2520),
               }),
               priceUpdated: Date.now(),
             });
@@ -5379,7 +5381,7 @@ async function autoDiscoverSaudiStocks() {
           if (GD_TOKEN) {
             _gdCache[d.ticker] = Object.assign(_gdCache[d.ticker] || {}, {
               priceData: Object.assign(_gdCache[d.ticker]?.priceData || {}, {
-                closes: hit.closes.slice(-1260), timestamps: hit.timestamps.slice(-1260),
+                closes: hit.closes.slice(-2520), timestamps: hit.timestamps.slice(-2520),
               }),
               priceUpdated: Date.now(),
             });
@@ -5393,7 +5395,7 @@ async function autoDiscoverSaudiStocks() {
 }
 
 async function fetchYahoo(ticker) {
-  const chartUrl   = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=5y`;
+  const chartUrl   = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=10y`;
   const summaryUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=incomeStatementHistory,incomeStatementHistoryQuarterly,balanceSheetHistory,balanceSheetHistoryQuarterly,cashflowStatementHistory,cashflowStatementHistoryQuarterly,summaryDetail,financialData,defaultKeyStatistics,earningsHistory,earningsTrend`;
   try{
     const [chart, summary] = await Promise.all([
@@ -6076,7 +6078,7 @@ function _renderModalShell(d) {
       <div class="tab active" id="tab-overview" onclick="switchTab('overview')">Overview</div>
       <div class="tab" id="tab-breakdown" onclick="switchTab('breakdown')">Score Breakdown</div>
       <div class="tab" id="tab-quarterly" onclick="switchTab('quarterly')">Quarterly</div>
-      <div class="tab" id="tab-annual" onclick="switchTab('annual')">5-Year</div>
+      <div class="tab" id="tab-annual" onclick="switchTab('annual')">Annual</div>
       <div class="tab" id="tab-buffett" onclick="switchTab('buffett')">Buffett</div>
       <div class="tab" id="tab-chart" onclick="switchTab('chart')">Chart</div>
       <div class="tab" id="tab-dcf" onclick="switchTab('dcf')">Fair Value</div>
@@ -6944,7 +6946,7 @@ function generateFundManagerAnalysis(is, bs, cf, period, stockObj) {
     else if (niCagr!=null&&niCagr<0&&mG) { verdict='MARGIN COMPRESSION'; vColor='var(--red)'; vDetail=`Revenue growing but earnings declining — cost pressures exceeding top-line growth. Watch for operating leverage recovery.`; }
     else if (revCagr!=null&&Math.abs(revCagr)<=0.03) { verdict='MATURE / LOW GROWTH'; vColor='var(--tx3)'; vDetail=`Near-zero revenue CAGR. Likely a mature or defensive business. Value case rests on yield and balance sheet quality.`; }
     else { verdict='MIXED'; vColor='var(--amb)'; vDetail=`Uneven profile over ${yrs} years. Review sector context and any one-off items before drawing conclusions.`; }
-    title = `5-Year Performance Analysis ${yrRng}`;
+    title = `${yrs}-Year Performance Analysis ${yrRng}`;
   }
 
   if (!rows.length) return '';
@@ -7436,10 +7438,12 @@ function renderTwelveStatements(data, period, ticker, source = 'Yahoo Finance', 
     <b>Cash Flow</b> = actual cash generated (Operating CF) vs spent (CapEx). &nbsp;
     Green numbers = positive/growing · Red = negative/declining · % rows show year-on-year change.
   </div>`;
+  const _annYrs = (is?.length || bs?.length || cf?.length) || 0;
+  const _annLbl = period === 'quarterly' ? '' : (_annYrs > 1 ? `${_annYrs}-Year ` : '');
   return refetchBar + tableIntro + validationHtml
-       + makeTable(period === 'quarterly' ? 'Quarterly Income Statement' : '5-Year Income Statement', isRows, is?.map(pLabel) || [])
-       + makeTable(period === 'quarterly' ? 'Quarterly Balance Sheet'    : '5-Year Balance Sheet',    bsRows, bs?.map(pLabel) || [])
-       + makeTable(period === 'quarterly' ? 'Quarterly Cash Flow'        : '5-Year Cash Flow',        cfRows, cf?.map(pLabel) || [])
+       + makeTable(period === 'quarterly' ? 'Quarterly Income Statement' : `${_annLbl}Annual Income Statement`, isRows, is?.map(pLabel) || [])
+       + makeTable(period === 'quarterly' ? 'Quarterly Balance Sheet'    : `${_annLbl}Annual Balance Sheet`,    bsRows, bs?.map(pLabel) || [])
+       + makeTable(period === 'quarterly' ? 'Quarterly Cash Flow'        : `${_annLbl}Annual Cash Flow`,        cfRows, cf?.map(pLabel) || [])
        + `<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:4px">Source: ${source} · SAR · B = Billions · M = Millions · Growth rows: YoY vs prior period · Margins are % of Revenue</div>`
        + analysisHtml;
 }
@@ -7530,7 +7534,7 @@ async function buildDCF(d, _opts={}) {
   if (annualData?.cf?.length) {
     const fcfRaw = parseFloat(annualData.cf[0].free_cash_flow);
     if (_CYCLICAL.has(d.sector)) {
-      const hist = annualData.cf.slice(0, 5).map(r => parseFloat(r.free_cash_flow)).filter(v => !isNaN(v));
+      const hist = annualData.cf.map(r => parseFloat(r.free_cash_flow)).filter(v => !isNaN(v));
       if (hist.length >= 3) {
         baseFCF = hist.reduce((a, b) => a + b, 0) / hist.length;
         fcfSource = `${hist.length}-yr avg FCF (cyclical sector — normalized)`;
@@ -9208,7 +9212,7 @@ async function _fetchTVQuotes() {
     _gdCache[d.ticker] = Object.assign(_gdCache[d.ticker] || {}, {
       priceData: Object.assign(_gdCache[d.ticker]?.priceData || {},
         { price: d.price, change: d.change,
-          closes: (d.closes||[]).slice(-1260), timestamps: (d.timestamps||[]).slice(-1260),
+          closes: (d.closes||[]).slice(-2520), timestamps: (d.timestamps||[]).slice(-2520),
           volume: d.volume, avgVolume3M: d.avgVolume3M }),
       priceUpdated: Date.now(),
     });
@@ -9550,7 +9554,7 @@ async function refreshAll(forceRefresh=false){
         // pass doesn't produce (e.g. volatility) aren't wiped from the Drive cache.
         _gdCache[q.symbol] = Object.assign(_gdCache[q.symbol] || {}, {
           priceData: Object.assign(_gdCache[q.symbol]?.priceData || {}, { price, change,
-            closes: existingCloses.slice(-1260), timestamps: existingTimestamps.slice(-1260),
+            closes: existingCloses.slice(-2520), timestamps: existingTimestamps.slice(-2520),
             volume: allData[idx].volume, avgVolume3M: allData[idx].avgVolume3M }),
           priceUpdated: Date.now(),
         });
@@ -9634,7 +9638,7 @@ async function refreshAll(forceRefresh=false){
             combined: _combined2,
           });
           _gdCache[q.symbol] = Object.assign(_gdCache[q.symbol] || {}, {
-            priceData: Object.assign(_gdCache[q.symbol]?.priceData || {}, { price, change, closes: existingCloses.slice(-1260), timestamps: (allData[idx].timestamps||[]).slice(-1260) }),
+            priceData: Object.assign(_gdCache[q.symbol]?.priceData || {}, { price, change, closes: existingCloses.slice(-2520), timestamps: (allData[idx].timestamps||[]).slice(-2520) }),
             priceUpdated: Date.now(),
           });
         }
@@ -9743,7 +9747,7 @@ async function refreshAll(forceRefresh=false){
         if (ok && GD_TOKEN) {
           _gdCache[d.ticker] = Object.assign(_gdCache[d.ticker] || {}, {
             priceData: Object.assign(_gdCache[d.ticker]?.priceData || {}, {
-              closes: hit.closes.slice(-1260), timestamps: hit.timestamps.slice(-1260),
+              closes: hit.closes.slice(-2520), timestamps: hit.timestamps.slice(-2520),
             }),
             // Closes-only: keep the price's freshness stamp (see _enrichPriceHistory note)
             priceUpdated: _gdCache[d.ticker]?.priceUpdated ?? Date.now(),
@@ -9963,8 +9967,8 @@ function openTASIModal() {
   bg.style.display = 'block';
   document.body.style.overflow = 'hidden';
   setTimeout(() => drawTASIChart(), 50);
-  // If we have less than 1000 closes, fetch full 10y data for richer chart
-  if (closes.length < 1000) fetchTASIIndexLong();
+  // If we have less than 2000 closes (~8y), fetch full 10y data for richer chart
+  if (closes.length < 2000) fetchTASIIndexLong();
 }
 
 function closeTASIModal() {
@@ -11001,16 +11005,16 @@ function toggleMarketPEChart() {
 
 function setMPERange(r) {
   _mpeRange = r;
-  ['3M','6M','1Y','2Y','5Y'].forEach(x => {
+  ['3M','6M','1Y','2Y','5Y','10Y','All'].forEach(x => {
     const btn = document.getElementById('mpe-r-'+x.toLowerCase());
     if (!btn) return;
     if (x === r) { btn.style.background='var(--acc)'; btn.style.color='#000'; btn.style.borderColor='var(--acc)'; }
     else { btn.style.background=''; btn.style.color=''; btn.style.borderColor=''; }
   });
   _mktValHistCache = null; // range changed → indicator-history reconstruction must rebuild
-  // 2Y/5Y need deeper index history than the default load (~3Y). Fetch it, then re-render.
-  const needLong = (r === '2Y' || r === '5Y');
-  if (needLong && (tasiIndex.closes || []).length < 600 && typeof fetchTASIIndexLong === 'function') {
+  // 2Y+ ranges need deeper index history. Fetch it when we don't have enough yet.
+  const needLong = (r === '2Y' || r === '5Y' || r === '10Y' || r === 'All');
+  if (needLong && (tasiIndex.closes || []).length < 2000 && typeof fetchTASIIndexLong === 'function') {
     fetchTASIIndexLong().then(() => { _mktValHistCache = null; _renderMPEChart(); }).catch(()=>{});
   }
   _renderMPEChart();
@@ -11068,7 +11072,7 @@ function _renderMPEChart() {
     ptr.style.left = pct + '%';
   }
 
-  const rangeDays = { '3M':90, '6M':180, '1Y':365, '2Y':730, '5Y':1825 }[_mpeRange] || 365;
+  const rangeDays = { '3M':90, '6M':180, '1Y':365, '2Y':730, '5Y':1825, '10Y':3650, 'All':30*365 }[_mpeRange] || 365;
   const cutoffMs  = Date.now() - rangeDays * 864e5;
 
   // Filter out pre-REIT-exclusion data (inflated entries with pe > 40)
@@ -11347,7 +11351,7 @@ function _renderIndicatorHistChart(ctx) {
   }
   if (bigEl) bigEl.textContent = curVal != null ? meta.fmt(curVal) : '—';
 
-  const rangeDays = { '3M':90, '6M':180, '1Y':365, '2Y':730, '5Y':1825 }[_mpeRange] || 365;
+  const rangeDays = { '3M':90, '6M':180, '1Y':365, '2Y':730, '5Y':1825, '10Y':3650, 'All':30*365 }[_mpeRange] || 365;
   const cutoffMs  = Date.now() - rangeDays * 864e5;
 
   // Merge two sources, stored daily snapshots (authoritative) win over reconstruction.
