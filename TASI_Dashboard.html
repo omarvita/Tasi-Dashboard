@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260617b'; // bump this string on every deploy that matters
+  var V='20260617c'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -439,7 +439,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260617b · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260617c · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -6056,13 +6056,23 @@ function _renderModalShell(d) {
   const moat=d.criteria?.hasMoat?`<span class="badge b-moat">Moat</span>`:"";
   const reit=d.isReit?`<span class="badge b-reit">REIT</span>`:"";
   const _risk=computeRiskRating(d);
+  const _riskRows=_risk.steps.map(s=>{
+    const col=s.pts>=3?'var(--red)':s.pts===2?'var(--amb)':s.pts===1?'#d9a441':'var(--green)';
+    const mark=s.pts>0?`+${s.pts}`:'✓';
+    return `<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px solid var(--b1)"><span style="color:var(--tx2)">${s.label} <span style="color:var(--tx3)">— ${escapeHTML(s.detail)}</span></span><span style="color:${col};font-weight:600;flex-shrink:0">${mark}</span></div>`;
+  }).join('');
+  const _riskBreakdownHtml=`<div id="risk-breakdown" style="display:none;background:var(--bg3);border:1px solid ${_risk.color}55;border-radius:6px;padding:9px 11px;margin:7px 0 0;font-family:var(--mono);font-size:9px;line-height:1.5">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px"><span style="color:${_risk.color};font-weight:600;letter-spacing:.05em">RISK BREAKDOWN — ${_risk.level}</span><span style="color:var(--tx3)">risk score ${_risk.score}</span></div>
+    ${_riskRows}
+    <div style="margin-top:6px;color:var(--tx3);line-height:1.4">Higher points = more downside risk. Totals: <span style="color:var(--green)">0–2 LOW</span> · <span style="color:var(--amb)">3–5 MEDIUM</span> · <span style="color:var(--red)">6+ HIGH</span>. Based on leverage, liquidity, profitability, cash flow & earnings trend.</div>
+  </div>`;
   const _capTier=(()=>{const mc=d.mktCap;if(!mc)return null;if(mc>=50e9)return{label:'Large Cap',color:'var(--acc)'};if(mc>=5e9)return{label:'Mid Cap',color:'var(--tx2)'};return{label:'Small Cap',color:'var(--tx3)'};})();
   document.getElementById("mc2").innerHTML=`
   <div class="mhead">
     <div class="mhtop">
       <div>
         <div class="mtitle">${escapeHTML(d.name)} ${moat}${reit}${_capTier?` <span style="color:${_capTier.color};font-size:8px;font-family:var(--mono)">${_capTier.label}</span>`:''}</div>
-        <div class="msub">${escapeHTML(d.ticker)} · ${escapeHTML(d.sector)} · Signal: <span class="badge ${sig.cls}">${sig.label}</span> &nbsp;<span style="font-family:var(--mono);font-size:9px;font-weight:600;padding:2px 7px;border-radius:3px;background:${_risk.color}22;color:${_risk.color};border:1px solid ${_risk.color}55" title="Risk factors: ${_risk.flags.join(', ')||'None identified'}">Risk: ${_risk.level}</span> · ${(()=>{ // honest provenance: only call it Live when the quote came from this session
+        <div class="msub">${escapeHTML(d.ticker)} · ${escapeHTML(d.sector)} · Signal: <span class="badge ${sig.cls}">${sig.label}</span> &nbsp;<span onclick="toggleRiskBreakdown()" style="font-family:var(--mono);font-size:9px;font-weight:600;padding:2px 7px;border-radius:3px;background:${_risk.color}22;color:${_risk.color};border:1px solid ${_risk.color}55;cursor:pointer;user-select:none" title="Tap for risk breakdown">Risk: ${_risk.level} <span id="risk-arrow" style="font-size:7px">▾</span></span> ·${(()=>{ // honest provenance: only call it Live when the quote came from this session
           if (d._livePrice) return '<span style="color:var(--acc);white-space:nowrap">● Live data</span>';
           if (d.dataSource === 'gh-snapshot') return `<span style="color:var(--blue);white-space:nowrap" title="Server snapshot fetched by GitHub Action${d._priceTs?' · '+new Date(d._priceTs).toLocaleString('en-SA',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):''}">● Snapshot${d._priceTs?' '+new Date(d._priceTs).toLocaleTimeString('en-SA',{hour:'2-digit',minute:'2-digit'}):''}</span>`;
           if (d.priceLoaded) return '<span style="color:var(--tx2);white-space:nowrap">● Cached price</span>';
@@ -6074,6 +6084,7 @@ function _renderModalShell(d) {
         <div class="mclose" onclick="closeModal()">×</div>
       </div>
     </div>
+    ${_riskBreakdownHtml}
     <div class="tabs">
       <div class="tab active" id="tab-overview" onclick="switchTab('overview')">Overview</div>
       <div class="tab" id="tab-breakdown" onclick="switchTab('breakdown')">Score Breakdown</div>
@@ -6404,34 +6415,58 @@ function switchTab(tab){
 }
 
 function computeRiskRating(d) {
-  let score = 0, flags = [];
-  // Leverage
-  if (d.de != null) {
-    const de = d.de / 100; // convert to ratio
-    if (de > 3.0)       { score += 3; flags.push('Very high leverage'); }
-    else if (de > 1.5)  { score += 2; flags.push('High leverage'); }
-    else if (de > 0.5)  { score += 1; }
-  }
-  // Liquidity
-  if (d.cr != null) {
-    if (d.cr < 0.8)     { score += 3; flags.push('Liquidity risk (CR < 0.8)'); }
-    else if (d.cr < 1.2){ score += 2; flags.push('Tight liquidity'); }
-    else if (d.cr < 1.5){ score += 1; }
-  }
-  // Profitability
-  if (d.npm != null) {
-    if (d.npm < 0)      { score += 3; flags.push('Loss-making'); }
-    else if (d.npm < 0.03) { score += 2; flags.push('Very thin margins'); }
-    else if (d.npm < 0.07) { score += 1; }
-  }
-  // FCF
-  if (d.fcf === false)  { score += 1; flags.push('Negative FCF'); }
-  // Earnings trend
-  if (d.eg != null && d.eg < -0.10) { score += 2; flags.push('Declining earnings'); }
+  let score = 0; const flags = []; const steps = [];
+  // Each dimension records a step (even when healthy) so the breakdown shows the full
+  // picture — what adds risk AND what's sound. pts>0 also pushes a flag for the summary.
+  const add = (label, pts, detail, flag) => { score += pts; steps.push({ label, pts, detail }); if (flag) flags.push(flag); };
 
-  if (score >= 6)      return { level: 'HIGH',   color: 'var(--red)',   flags };
-  if (score >= 3)      return { level: 'MEDIUM', color: 'var(--amb)',   flags };
-  return               { level: 'LOW',    color: 'var(--green)', flags };
+  // Leverage (Debt / Equity) — d.de is a percentage (70 = 0.70x)
+  if (d.de != null) {
+    const de = d.de / 100;
+    if (de > 3.0)       add('Leverage', 3, `D/E ${de.toFixed(2)}x — very high debt load`, 'Very high leverage');
+    else if (de > 1.5)  add('Leverage', 2, `D/E ${de.toFixed(2)}x — high debt load`, 'High leverage');
+    else if (de > 0.5)  add('Leverage', 1, `D/E ${de.toFixed(2)}x — moderate debt`);
+    else                add('Leverage', 0, `D/E ${de.toFixed(2)}x — low debt`);
+  } else add('Leverage', 0, 'no debt data');
+
+  // Liquidity (Current Ratio)
+  if (d.cr != null) {
+    if (d.cr < 0.8)      add('Liquidity', 3, `Current ratio ${d.cr.toFixed(2)} — may struggle to cover short-term bills`, 'Liquidity risk (CR < 0.8)');
+    else if (d.cr < 1.2) add('Liquidity', 2, `Current ratio ${d.cr.toFixed(2)} — tight`, 'Tight liquidity');
+    else if (d.cr < 1.5) add('Liquidity', 1, `Current ratio ${d.cr.toFixed(2)} — adequate`);
+    else                 add('Liquidity', 0, `Current ratio ${d.cr.toFixed(2)} — healthy`);
+  } else add('Liquidity', 0, 'no current-ratio data');
+
+  // Profitability (Net Profit Margin)
+  if (d.npm != null) {
+    if (d.npm < 0)         add('Profitability', 3, `Net margin ${(d.npm*100).toFixed(1)}% — loss-making`, 'Loss-making');
+    else if (d.npm < 0.03) add('Profitability', 2, `Net margin ${(d.npm*100).toFixed(1)}% — very thin`, 'Very thin margins');
+    else if (d.npm < 0.07) add('Profitability', 1, `Net margin ${(d.npm*100).toFixed(1)}% — slim`);
+    else                   add('Profitability', 0, `Net margin ${(d.npm*100).toFixed(1)}% — solid`);
+  } else add('Profitability', 0, 'no margin data');
+
+  // Free cash flow
+  if (d.fcf === false)  add('Cash Flow', 1, 'Negative free cash flow', 'Negative FCF');
+  else                  add('Cash Flow', 0, 'Positive / unknown free cash flow');
+
+  // Earnings trend
+  if (d.eg != null && d.eg < -0.10) add('Earnings Trend', 2, `Earnings ${(d.eg*100).toFixed(0)}% — declining`, 'Declining earnings');
+  else if (d.eg != null)            add('Earnings Trend', 0, `Earnings ${(d.eg>=0?'+':'')}${(d.eg*100).toFixed(0)}% YoY`);
+  else                              add('Earnings Trend', 0, 'no earnings-growth data');
+
+  const level = score >= 6 ? 'HIGH' : score >= 3 ? 'MEDIUM' : 'LOW';
+  const color = score >= 6 ? 'var(--red)' : score >= 3 ? 'var(--amb)' : 'var(--green)';
+  return { level, color, flags, steps, score };
+}
+
+// Toggle the risk-factor breakdown panel under the modal header.
+function toggleRiskBreakdown() {
+  const p = document.getElementById('risk-breakdown');
+  const a = document.getElementById('risk-arrow');
+  if (!p) return;
+  const open = p.style.display === 'none' || !p.style.display;
+  p.style.display = open ? 'block' : 'none';
+  if (a) a.textContent = open ? '▴' : '▾';
 }
 
 function buildOverview(d){
