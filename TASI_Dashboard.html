@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260617e'; // bump this string on every deploy that matters
+  var V='20260617f'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -439,7 +439,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260617e · valuation charts measured from real statements only (no estimates/back-projection) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260617f · valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1911,7 +1911,7 @@ function connectGoogleDrive() {
         // so connecting mid-session never loses data and never overwrites Drive with less.
         const _migrated = _backfillStmtCacheFromMemory();
         gdLoadStatementsBulk().then(() => {
-          try { _applyDriveValuations(); _applyStmtFundamentalsToAllData(); doFilter(); updateMetrics(); } catch(e){}
+          try { _mktValHistCache = null; _applyDriveValuations(); _applyStmtFundamentalsToAllData(); doFilter(); updateMetrics(); } catch(e){}
           if (_migrated > 0 || Object.keys(_stmtCache).length) gdScheduleStatementsSave();
         }).catch(()=>{});
         try { gdSaveBulkPrices(); } catch(e){} // persist any prices fetched before connecting
@@ -2198,6 +2198,7 @@ async function gdForceReloadStatements() {
     await gdLoadStatementsBulk();
     const count = Object.keys(_stmtCache).length;
     const applied = _applyDriveValuations();
+    _mktValHistCache = null;
     doFilter(); updateMetrics();
     // Invalidate open stock HTML cache so re-opening a card shows fresh data
     if (window._fd) window._fd.forEach(d => { d._htmlCache = {}; });
@@ -10521,7 +10522,7 @@ function computeVolatility(closesIn) {
 // ── Market P/E Statistics ─────────────────────────────────────────────────
 let marketPEChartInst = null;
 let marketPEChartVisible = false;
-let _mpeRange = '1Y'; // active range button
+let _mpeRange = '5Y'; // active range button
 let _mpeCurve = 'wtd'; // 'wtd' | 'med' | 'mean'
 let _mpeHistCache = null; // in-memory cache to avoid repeated localStorage parse
 // Guarded loader: one corrupted/quota-truncated write to tasi_mpe_hist used to throw
@@ -10717,8 +10718,8 @@ const _IND_HIST_META = {
   hl52:    { label:'52W High/Low',        yLabel:'% Near 52W High', color:'#22c55e', fmt: v => (v*100).toFixed(0)+'%',         mField: 'hl52Ratio'       },
 };
 
-// Cache for _buildMktValHistory — invalidated when range changes.
-let _mktValHistCache = null; // { cutoffMs, data: Map }
+// Cache for _buildMktValHistory — covers ALL available dates; invalidated when closes/statements change.
+let _mktValHistCache = null; // { data: Map<dateStr,{...}> }
 
 // Reconstruct each indicator's history from stored per-stock price closes — the same
 // price-scaling assumption the P/E chart uses (fundamentals held at today's values,
@@ -10756,7 +10757,7 @@ function _stmtTimeline(qRows, aRows, field, isFlow) {
   return tl.length ? tl : null;
 }
 
-function _buildMktValHistory(cutoffMs) {
+function _buildMktValHistory() {
   const GD = SAUDI_GDP_SAR, RF = SAUDI_RF;
   const agg = new Map();
   // Total current (non-Aramco) market cap of stocks that HAVE financial statements. Used to
@@ -10812,7 +10813,6 @@ function _buildMktValHistory(cutoffMs) {
       const c = closes[i], ts = stamps[i];
       if (!(c > 0) || !ts) continue;
       const tMs = ts * 1000;
-      if (tMs < cutoffMs) continue;
       const ratio  = c / s.price;
       const dateStr = new Date(tMs).toISOString().slice(0, 10);
       const A = getA(dateStr, tMs);
@@ -11102,7 +11102,6 @@ function setMPERange(r) {
     if (x === r) { btn.style.background='var(--acc)'; btn.style.color='#000'; btn.style.borderColor='var(--acc)'; }
     else { btn.style.background=''; btn.style.color=''; btn.style.borderColor=''; }
   });
-  _mktValHistCache = null; // range changed → indicator-history reconstruction must rebuild
   // 2Y+ ranges need deeper index history. Fetch it when we don't have enough yet.
   const needLong = (r === '2Y' || r === '5Y' || r === '10Y' || r === 'All');
   if (needLong && (tasiIndex.closes || []).length < 2000 && typeof fetchTASIIndexLong === 'function') {
@@ -11227,18 +11226,18 @@ function _renderMPEChart() {
       }
     }
 
-    // Annual fallback — one data point per year
-    if (tl.length < 2) {
-      const aIS = stmt.annual?.is;
-      if (aIS) {
-        const ys = aIS
-          .map(r => { const d = r.fiscal_date || r.date, ni = parseFloat(r.net_income); return (d && !isNaN(ni)) ? { tMs: new Date(d).getTime(), ni } : null; })
-          .filter(Boolean).sort((a,b) => a.tMs - b.tMs);
-        for (const y of ys) {
-          if (!(y.ni > 0)) continue;
-          const r = y.ni / curNI;
-          if (r > 0 && r < 15) tl.push({ tMs: y.tMs, eps: curEPS * r });
-        }
+    // Annual: fill dates BEFORE the earliest quarterly TTM so older years show in the chart.
+    // (Mirrors _stmtTimeline — annual contributes only where quarterly coverage doesn't exist.)
+    const earliestTTM = tl.length ? tl[0].tMs : Infinity;
+    const aIS = stmt.annual?.is;
+    if (aIS) {
+      const ys = aIS
+        .map(r => { const d = r.fiscal_date || r.date, ni = parseFloat(r.net_income); return (d && !isNaN(ni)) ? { tMs: new Date(d).getTime(), ni } : null; })
+        .filter(Boolean).sort((a,b) => a.tMs - b.tMs);
+      for (const y of ys) {
+        if (!(y.ni > 0) || y.tMs >= earliestTTM) continue; // only before quarterly window
+        const r = y.ni / curNI;
+        if (r > 0 && r < 15) tl.push({ tMs: y.tMs, eps: curEPS * r });
       }
     }
 
@@ -11273,7 +11272,6 @@ function _renderMPEChart() {
       const c = closes[i], ts = stamps[i];
       if (!c || !ts) continue;
       const tMs = ts * 1000;
-      if (tMs < cutoffMs) continue;
       const eps = _epsAt(tl, tMs);          // REAL reported TTM earnings as of t — no constant-EPS estimate
       if (!(eps > 0)) continue;             // before first report → don't plot (no extrapolation)
       const histPE = c / eps;
@@ -11287,6 +11285,7 @@ function _renderMPEChart() {
     }
   }
   for (const [dateStr, agg] of dateAgg) {
+    if (agg.t < cutoffMs) continue;        // display range filter (all closes are built, chart slices by range)
     if (agg.peList.length < 5) continue; // need enough stocks for a meaningful market figure
     const stored = storedMap.get(dateStr);
     const wtd    = agg.earnSum > 0 ? agg.capSum / agg.earnSum : null;
@@ -11435,13 +11434,16 @@ function _renderIndicatorHistChart(ctx) {
   const cutoffMs  = Date.now() - rangeDays * 864e5;
 
   // Merge two sources, stored daily snapshots (authoritative) win over reconstruction.
-  if (!_mktValHistCache || _mktValHistCache.cutoffMs !== cutoffMs) {
-    _mktValHistCache = { cutoffMs, data: _buildMktValHistory(cutoffMs) };
+  // Cache covers ALL available dates (not range-limited) so changing the range button
+  // never requires re-processing all closes — just re-slicing the display window.
+  if (!_mktValHistCache) {
+    _mktValHistCache = { data: _buildMktValHistory() };
   }
   const recon = _mktValHistCache.data;              // Map<dateStr,{...}>
   const rawHist = _loadMpeHist();
   const merged  = new Map();
   for (const [d, v] of recon) {
+    if (v.t < cutoffMs) continue;
     const val = v[_mktValIndicator];
     if (val != null && isFinite(val)) merged.set(d, { t: v.t, v: val });
   }
