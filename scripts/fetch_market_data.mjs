@@ -122,10 +122,11 @@ async function fetchCloses(tickers) {
   return out;
 }
 
-// ── 5. TASI index — 5y daily for the market charts ──
+// ── 5. TASI index — 10y daily so the snapshot seeds enough history to clear the
+// dashboard's < 2000-close threshold (no redundant fetchTASIIndexLong on every load). ──
 async function fetchTasi() {
   try {
-    const j = await fetchJSON('https://query1.finance.yahoo.com/v8/finance/chart/%5ETASI.SR?range=5y&interval=1d');
+    const j = await fetchJSON('https://query1.finance.yahoo.com/v8/finance/chart/%5ETASI.SR?range=10y&interval=1d');
     const res = j?.chart?.result?.[0];
     if (!res) return null;
     const ts = res.timestamp || [];

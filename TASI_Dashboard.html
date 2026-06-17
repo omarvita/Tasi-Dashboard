@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260617f'; // bump this string on every deploy that matters
+  var V='20260617g'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -439,7 +439,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260617f · valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -4813,13 +4813,16 @@ async function _enrichPriceHistory() {
   _priceHistInFlight = true;
   try {
     // Sort by market cap descending so the stocks that matter most for the cap-weighted
-    // P/E chart get 5Y history first — chart starts showing real divergence faster.
+    // P/E chart get deep history first — chart starts showing real divergence faster.
+    // Threshold < 2000 (~8y): the snapshot now seeds ~5y (1260 closes), so a < 500 gate
+    // would skip every stock and cap the 10Y/All chart ranges at 5y. Anything shorter than
+    // ~8y gets a background 10y fetch; stocks already near 10y (~2520) are left alone.
     const _needs = allData
-      .filter(d => d.priceLoaded && (d.closes || []).length > 5 && (d.closes || []).length < 500
+      .filter(d => d.priceLoaded && (d.closes || []).length > 5 && (d.closes || []).length < 2000
                    && !_priceHistAttempted.has(d.ticker))
       .sort((a, b) => (b.mktCap || 0) - (a.mktCap || 0));
     if (!_needs.length) return;
-    console.log(`[PriceHistory] Extending history for ${_needs.length} stocks to 5Y (largest caps first)…`);
+    console.log(`[PriceHistory] Extending history for ${_needs.length} stocks to 10Y (largest caps first)…`);
     const _failed = [];
     let enriched = 0;
     // v8/chart is a cheap endpoint; higher concurrency + shorter pause than quoteSummary passes
@@ -5925,7 +5928,10 @@ async function saveCache(){
   try{saveUIState();}catch(e){}
   const slim=allData.map(d=>{
     const{rawData,...rest}=d;
-    return{...rest,closes:d.closes?.slice(-252)||[],timestamps:d.timestamps?.slice(-252)||[]};
+    // Keep up to ~10y of closes (matches the Drive cache slice) so enriched history
+    // survives a reload instead of being truncated to 1y and re-fetched every session.
+    // _lsPut strips closes entirely on a localStorage quota error, so this is size-safe.
+    return{...rest,closes:d.closes?.slice(-2520)||[],timestamps:d.timestamps?.slice(-2520)||[]};
   });
   const meta={savedAt:Date.now(),count:slim.length,ttl:CACHE_TTL};
   await dbPut(CACHE_KEY,slim);
@@ -8304,9 +8310,15 @@ function selectChartRange(idx){
   chartRangeIdx=idx;
   const r=RANGES[idx];
   const d=window._fd?.[window._curIdx];
-  // For 5Y or All, fetch extended history if we don't have enough bars yet
-  if(r.days>504&&(d?.closes||[]).length<r.days){
-    fetchChartData(r.days>1260?'max':'5y');
+  // For 5Y / All, fetch deeper history if we don't have it yet — but ALWAYS via range=10y
+  // (daily). range=max makes Yahoo downsample old history to WEEKLY bars even with
+  // interval=1d, which turns the 20-bar SMA into a 20-WEEK average that no longer tracks
+  // the daily price (and gives the "All" chart far fewer, coarser points than 5Y). 10y of
+  // daily sessions (~2520) covers every Tadawul listing, so we never need range=max.
+  const haveBars=(d?.closes||[]).length;
+  const wantBars=Math.min(r.days, 2400); // ~10y daily is the practical maximum
+  if(r.days>504 && haveBars<wantBars){
+    fetchChartData('10y');
   } else {
     redrawChart();
   }
@@ -11209,7 +11221,10 @@ function _renderMPEChart() {
     if (!(curEPS > 0)) return null;
     const curNI = (s.ni || 0) * 1e9; // d.ni is billions; raw statement values are in same base units
     if (!(curNI > 0)) return null;
-    const stmt = _stmtCache[s.ticker] || {};
+    // Same source fallback as _buildMktValHistory: prefer the Drive statement cache, but
+    // fall back to rawTwelveData so the P/E chart still builds from the repo statements
+    // snapshot when Drive isn't connected (otherwise the main P/E line would be empty).
+    const stmt = _stmtCache[s.ticker] || s.rawTwelveData || {};
     const tl = [];
 
     // Quarterly TTM — 4-quarter rolling sum gives earnings at each reporting date
