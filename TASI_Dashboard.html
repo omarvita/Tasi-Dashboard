@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260617d'; // bump this string on every deploy that matters
+  var V='20260617e'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -439,7 +439,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260617d · smoother market valuation charts (spike filter + coverage gating) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260617e · valuation charts measured from real statements only (no estimates/back-projection) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -10723,19 +10723,49 @@ let _mktValHistCache = null; // { cutoffMs, data: Map }
 // Reconstruct each indicator's history from stored per-stock price closes — the same
 // price-scaling assumption the P/E chart uses (fundamentals held at today's values,
 // scaled by each stock's historical close). Returns Map<dateStr, {t, ...indicators}>.
+// As-of lookup over an ascending [{tMs,v}] timeline — returns the latest value reported
+// on or before tMs, or null if tMs precedes the first report (we never extrapolate before
+// the earliest statement, so charts only show periods we actually have data for).
+function _asof(tl, tMs) {
+  if (!tl || !tl.length) return null;
+  let best = null;
+  for (const p of tl) { if (p.tMs <= tMs) best = p.v; else break; }
+  return best;
+}
+
+// Build a real fundamental timeline from financial statements. Flow metrics (revenue,
+// net income, dividends) use trailing-twelve-month sums from quarterly data where ≥4
+// quarters exist, with annual full-year values filling older dates. Stock metrics (equity)
+// use the reported point value. Returns ascending [{tMs,v}] or null. No estimates — every
+// point is a real reported number.
+function _stmtTimeline(qRows, aRows, field, isFlow) {
+  const tl = [];
+  const parse = rows => (rows || [])
+    .map(r => ({ tMs: new Date(r.fiscal_date || r.date).getTime(), v: parseFloat(r[field]) }))
+    .filter(o => o.tMs && isFinite(o.v))
+    .sort((a, b) => a.tMs - b.tMs);
+  const q = parse(qRows);
+  if (q.length) {
+    if (isFlow) { for (let i = 3; i < q.length; i++) tl.push({ tMs: q[i].tMs, v: q[i-3].v + q[i-2].v + q[i-1].v + q[i].v }); }
+    else        { for (const o of q) tl.push({ tMs: o.tMs, v: o.v }); }
+  }
+  const earliestQ = tl.length ? tl[0].tMs : Infinity;
+  const a = parse(aRows);
+  for (const o of a) if (o.tMs < earliestQ) tl.push({ tMs: o.tMs, v: o.v }); // annual already full-year
+  tl.sort((a, b) => a.tMs - b.tMs);
+  return tl.length ? tl : null;
+}
+
 function _buildMktValHistory(cutoffMs) {
   const GD = SAUDI_GDP_SAR, RF = SAUDI_RF;
   const agg = new Map();
-  // Reference: total current (non-Aramco) market cap of all stocks with price history.
-  // Used to gate each historical date by COVERAGE — the basket of stocks with a close on
-  // a given day varies (different history lengths, Yahoo gaps), and a missing large-cap
-  // makes the cap-weighted aggregate lurch. Dropping low-coverage dates removes those
-  // spikes; the smooth TASI-index proxy fills the gaps instead.
+  // Total current (non-Aramco) market cap of stocks that HAVE financial statements. Used to
+  // gate each date by statement coverage so valuation charts only plot years with real data.
   let totalCapRef = 0;
   const getA = (d, t) => {
     let a = agg.get(d);
-    if (!a) { a = { t, capExA:0, curCapPresent:0, peCap:0, peW:0, pbCap:0, pbW:0, dyCap:0, dyW:0,
-                    psCap:0, revSum:0, a50:0, v50:0, a200:0, v200:0, nh:0, nl:0 }; agg.set(d, a); }
+    if (!a) { a = { t, capExA:0, stmtCapPresent:0, peMC:0, niSum:0, psMC:0, revSum:0,
+                    pbMC:0, eqSum:0, dyMC:0, divSum:0, a50:0, v50:0, a200:0, v200:0, nh:0, nl:0 }; agg.set(d, a); }
     return a;
   };
   for (const s of allData) {
@@ -10745,12 +10775,15 @@ function _buildMktValHistory(cutoffMs) {
     const shares = s.sharesOutstanding || (s.mktCap > 0 ? s.mktCap / s.price : 0);
     const curMC  = s.mktCap > 0 ? s.mktCap : (shares > 0 ? s.price * shares : 0);
     const isAramco = s.ticker === '2222.SR';
-    if (!isAramco && curMC > 0) totalCapRef += curMC;
     const isReit   = s.isReit || s.sector === 'REITs';
-    const pe = (s.pe > 0 && s.pe < 200 && !isReit) ? s.pe : null;
-    const pb = (s.pb > 0 && s.pb < 30) ? s.pb : null;
-    const dy = (s.dy > 0 && s.dy < 0.25) ? s.dy : null;
-    const rev = s.ttmRev > 0 ? s.ttmRev : null;
+    // Real fundamental timelines from accumulated statements (raw SAR, same units as mktCap)
+    const _st  = _stmtCache[s.ticker] || s.rawTwelveData || {};
+    const niTL  = _stmtTimeline(_st.quarterly?.is, _st.annual?.is, 'net_income',     true);
+    const revTL = _stmtTimeline(_st.quarterly?.is, _st.annual?.is, 'revenue',        true);
+    const eqTL  = _stmtTimeline(_st.quarterly?.bs, _st.annual?.bs, 'total_equity',   false);
+    const divTL = _stmtTimeline(_st.quarterly?.cf, _st.annual?.cf, 'dividends_paid', true);
+    const hasStmt = !!(niTL || revTL || eqTL || divTL);
+    if (!isAramco && curMC > 0 && hasStmt) totalCapRef += curMC;
     // Prefix sums for O(1) SMA-50/SMA-200 per point
     const pref = new Float64Array(n + 1);
     for (let i = 0; i < n; i++) pref[i + 1] = pref[i] + closes[i];
@@ -10784,16 +10817,24 @@ function _buildMktValHistory(cutoffMs) {
       const dateStr = new Date(tMs).toISOString().slice(0, 10);
       const A = getA(dateStr, tMs);
       const histMC = curMC > 0 ? curMC * ratio : 0;
-      if (histMC > 0) {
-        if (!isAramco) { A.capExA += histMC; A.curCapPresent += curMC; }
-        // Exclude Aramco from cap-weighted P/E, P/B and DY — matches _mpeCalc / _marketConditions
-        // headline methodology (Aramco's ~2% free float makes full-cap weighting unrepresentative).
-        if (!isAramco) {
-          if (pe != null) { const hp = pe * ratio; if (hp > 0 && hp < 200) { A.peCap += histMC; A.peW += histMC * hp; } }
-          if (pb != null) { A.pbCap += histMC; A.pbW += histMC * pb * ratio; }
-          if (dy != null) { A.dyCap += histMC; A.dyW += histMC * Math.min(dy / ratio, 0.6); }
+      if (histMC > 0 && !isAramco) {
+        // Buffett (total market cap / GDP) is price-measured — applies to every stock.
+        A.capExA += histMC;
+        // Cap-weighted valuation ratios use REAL reported fundamentals as of date t
+        // (ΣmarketCap / Σfundamental). No estimates: a stock only contributes once its
+        // statements cover this date.
+        if (hasStmt) {
+          let contributed = false;
+          const niV = _asof(niTL, tMs);
+          if (niV != null && niV > 0 && !isReit) { A.peMC += histMC; A.niSum += niV; contributed = true; }
+          const revV = _asof(revTL, tMs);
+          if (revV != null && revV > 0)          { A.psMC += histMC; A.revSum += revV; contributed = true; }
+          const eqV = _asof(eqTL, tMs);
+          if (eqV != null && eqV > 0)            { A.pbMC += histMC; A.eqSum += eqV; contributed = true; }
+          const divV = _asof(divTL, tMs);
+          if (divV != null && Math.abs(divV) > 0){ A.dyMC += histMC; A.divSum += Math.abs(divV); contributed = true; }
+          if (contributed) A.stmtCapPresent += curMC;
         }
-        if (rev != null) { A.psCap += histMC; A.revSum += rev; }
       }
       if (i >= 49)  { const sma = (pref[i + 1] - pref[i - 49])  / 50;  A.v50++;  if (c > sma) A.a50++; }
       if (i >= 199) { const sma = (pref[i + 1] - pref[i - 199]) / 200; A.v200++; if (c > sma) A.a200++; }
@@ -10812,23 +10853,25 @@ function _buildMktValHistory(cutoffMs) {
     }
   }
   const out = new Map();
-  // Require a date's basket to represent at least this share of total current market cap
-  // before we trust its cap-weighted ratios. Below it, the day is too sparse/composition-
-  // unstable to be meaningful — skip it and let the TASI-index proxy back-fill smoothly.
-  const MIN_COV = 0.6;
+  // Valuation ratios only count on dates where stocks holding ≥ this share of total
+  // statement-market-cap have reported data — so the lines only span years we truly have
+  // statements for (no estimates, no back-projection).
+  const MIN_COV = 0.5;
   for (const [d, A] of agg) {
-    const coverage = totalCapRef > 0 ? A.curCapPresent / totalCapRef : 0;
-    if (coverage < MIN_COV) continue; // drop sparse days → removes the spikes
-    const wtdPE = A.peCap > 0 ? A.peW / A.peCap : null;
+    const covOK = totalCapRef > 0 && (A.stmtCapPresent / totalCapRef) >= MIN_COV;
+    // Cap-weighted ratios = Σ marketCap(t) / Σ reportedFundamental(t) — real, measured.
+    const wtdPE = covOK && A.peMC > 0 && A.niSum  > 0 ? A.peMC / A.niSum  : null;
     const ey    = wtdPE > 0 ? 1 / wtdPE : null;
     const erp   = ey != null ? ey - RF : null;
-    const pb    = A.pbCap > 0 ? A.pbW / A.pbCap : null;
-    const dy    = A.dyCap > 0 ? A.dyW / A.dyCap : null;
-    const ps    = (A.psCap > 0 && A.revSum > 0) ? A.psCap / A.revSum : null;
+    const pb    = covOK && A.pbMC > 0 && A.eqSum  > 0 ? A.pbMC / A.eqSum  : null;
+    const dy    = covOK && A.dyMC > 0 && A.divSum > 0 ? A.divSum / A.dyMC : null;
+    const ps    = covOK && A.psMC > 0 && A.revSum > 0 ? A.psMC / A.revSum : null;
+    // Breadth & 52w high/low are price-measured (no statements needed) — always emit.
     const br50  = A.v50  >= 20 ? A.a50  / A.v50  : null;
     const br200 = A.v200 >= 20 ? A.a200 / A.v200 : null;
     const hl52N = A.nh + A.nl;
     const hl52  = hl52N > 0 ? A.nh / hl52N : null;
+    // Buffett (total market cap / GDP) is price-measured — always emit.
     const buffett = A.capExA > 0 ? A.capExA / GD : null;
     const overall = _computeOverallScore({ wtdAvg: wtdPE, erp, breadth: br50, wtdDY: dy,
                                            wtdPB: pb, cape: null, mktPS: ps, breadth200: br200 });
@@ -11223,17 +11266,16 @@ function _renderMPEChart() {
     const stamps = s.timestamps || [];
     if (closes.length < 5 || stamps.length !== closes.length) continue;
     if (!(s.pe > 0) || !(s.price > 0)) continue;
-    const staticEPS = s.price / s.pe;
-    if (!(staticEPS > 0)) continue;
     const shares = s.sharesOutstanding || (s.mktCap > 0 ? s.mktCap / s.price : 0);
     const tl = epsTimelines.get(s.ticker);
+    if (!tl) continue; // no statement-derived earnings history → not measured, skip
     for (let i = 0; i < closes.length; i++) {
       const c = closes[i], ts = stamps[i];
       if (!c || !ts) continue;
       const tMs = ts * 1000;
       if (tMs < cutoffMs) continue;
-      const eps = (tl ? _epsAt(tl, tMs) : null) ?? staticEPS;
-      if (!(eps > 0)) continue;
+      const eps = _epsAt(tl, tMs);          // REAL reported TTM earnings as of t — no constant-EPS estimate
+      if (!(eps > 0)) continue;             // before first report → don't plot (no extrapolation)
       const histPE = c / eps;
       if (!(histPE > 0) || histPE > 60) continue;
       const dateStr = new Date(tMs).toISOString().slice(0,10);
@@ -11241,7 +11283,7 @@ function _renderMPEChart() {
       if (!agg) { agg = { capSum:0, earnSum:0, peList:[], t:tMs, dynN:0, statN:0 }; dateAgg.set(dateStr, agg); }
       agg.peList.push(histPE);
       if (shares > 0) { agg.capSum += c * shares; agg.earnSum += eps * shares; }
-      if (tl && _epsAt(tl, tMs) != null) agg.dynN++; else agg.statN++;
+      agg.dynN++;
     }
   }
   for (const [dateStr, agg] of dateAgg) {
@@ -11259,39 +11301,8 @@ function _renderMPEChart() {
     else if (mean > 0 && mean < 40)           meanMap.set(dateStr, { t:agg.t, pe:+mean.toFixed(2), estimated:true });
   }
 
-  // ── TASI-index extension: fill any dates the per-stock reconstruction doesn't cover. ──
-  // Per-stock `closes` are capped at ~252 points (≈1Y) when cached, so for 2Y/5Y ranges the
-  // per-stock series can't reach back far enough. The TASI index history (up to 5Y via
-  // fetchTASIIndexLong) is scaled by current market EPS to estimate the older P/E, filling
-  // only the gaps so the more-accurate per-stock data still wins where it exists.
-  const priceCloses  = tasiIndex.closes || [];
-  const priceStamps  = tasiIndex.timestamps || [];
-  const currentPrice = tasiIndex.price;
-  if (priceCloses.length > 5 && currentPrice > 0 && wtdAvg > 0) {
-    const mktEPS = currentPrice / wtdAvg;
-    for (let i = 0; i < priceCloses.length; i++) {
-      if (!priceCloses[i] || !priceStamps[i]) continue;
-      const tMs = priceStamps[i] * 1000;
-      if (tMs < cutoffMs) continue;
-      const dateStr = new Date(tMs).toISOString().slice(0,10);
-      const stored  = storedMap.get(dateStr);
-      const estWtd  = +(priceCloses[i] / mktEPS).toFixed(2);
-      if (estWtd <= 0 || estWtd > 40) continue;
-      // Per-stock data wins; only fill dates it didn't already produce.
-      if (!wtdMap.has(dateStr)) {
-        if (stored?.pe  > 0 && stored.pe  < 40) wtdMap.set(dateStr,  { t:tMs, pe:stored.pe  });
-        else                                      wtdMap.set(dateStr,  { t:tMs, pe:estWtd, estimated:true });
-      }
-      if (!medMap.has(dateStr)) {
-        if (stored?.med > 0 && stored.med < 40) medMap.set(dateStr,  { t:tMs, pe:stored.med });
-        else                                      medMap.set(dateStr,  { t:tMs, pe:+(estWtd*medRatio).toFixed(2), estimated:true });
-      }
-      if (!meanMap.has(dateStr)) {
-        if (stored?.mean> 0 && stored.mean< 40) meanMap.set(dateStr, { t:tMs, pe:stored.mean });
-        else                                      meanMap.set(dateStr, { t:tMs, pe:+(estWtd*meanRatio).toFixed(2), estimated:true });
-      }
-    }
-  }
+  // No TASI-index back-projection: the P/E line is built only from real reported earnings
+  // (per-stock TTM as of each date). It spans exactly the period we have statements for.
   // Add stored entries not covered by TASI price timestamps
   validHist.forEach(e => {
     const tMs = new Date(e.d).getTime();
@@ -11329,8 +11340,8 @@ function _renderMPEChart() {
   const dynStocks = epsTimelines.size;
   const eligStocks = allData.filter(s => s.pe > 0 && s.price > 0).length;
   const dynamicNote = dynStocks > 0
-    ? `${dynStocks}/${eligStocks} stocks using actual reported earnings · ${eligStocks - dynStocks} using constant EPS estimate`
-    : 'Constant EPS proxy — retrieve financial statements for dynamic earnings history';
+    ? `Measured from ${dynStocks} stocks' reported earnings — only periods with statements are shown`
+    : 'No statement history yet — retrieve financial statements to build the chart';
 
   // Show only the curve selected by the Wtd Avg / Median / Mean toggle, plus the
   // average of THAT curve over the visible period (so "Median" shows the median line
@@ -11357,7 +11368,7 @@ function _renderMPEChart() {
       responsive:true, maintainAspectRatio:false,
       interaction:{ mode:'index', intersect:false },
       plugins: {
-        title:{ display:true, text:['Historical P/E using actual reported earnings per period where available.', dynamicNote], color:'#7a8aa5', font:{size:8,family:"'IBM Plex Mono'"}, padding:{bottom:4} },
+        title:{ display:true, text:['Historical P/E from real reported earnings (TTM) at each date.', dynamicNote], color:'#7a8aa5', font:{size:8,family:"'IBM Plex Mono'"}, padding:{bottom:4} },
         legend:{ display:true, labels:{color:'#8a9ab5', font:fontOpts, boxWidth:10} },
         tooltip:{ backgroundColor:'rgba(24,28,34,0.97)', borderColor:'#2d3440', borderWidth:1,
           titleColor:'#e8eaed', bodyColor:'#8a9ab5',
@@ -11442,44 +11453,9 @@ function _renderIndicatorHistChart(ctx) {
     merged.set(e.d, { t, v: val });        // stored value overrides reconstruction
   }
 
-  // TASI-proxy gap-fill — mirrors the same technique used in the Market P/E chart.
-  // For indicators whose value scales predictably with market price, use the TASI long
-  // history (already fetched by setMPERange for 2Y/5Y) to estimate values on dates not
-  // covered by per-stock reconstruction or localStorage snapshots.
-  //
-  // Scaling rules (cur_tasi/hist_tasi = 1/ratio):
-  //   linear  → hist_val = cur_val × ratio       (P/X ratios rise/fall with price)
-  //   inverse → hist_val = cur_val / ratio        (yields fall when price rises)
-  //   erp     → hist_erp = (cur_ey / ratio) − RF (derived from scaled earnings yield)
-  //
-  // Skipped: br50/br200/hl52 (need individual stock SMA/52W data), overall (composite),
-  // cape (needs 10Y of inflation-adjusted earnings).
-  const _PROXY_MODE = {
-    buffett: 'linear', pb: 'linear', ps: 'linear',
-    ey:      'inverse', dy: 'inverse',
-    erp:     'erp',
-  };
-  const _proxyMode = _PROXY_MODE[_mktValIndicator];
-  const _pCloses = tasiIndex.closes || [], _pStamps = tasiIndex.timestamps || [];
-  const _curTasi = tasiIndex.price;
-  if (_proxyMode && _pCloses.length > 5 && _curTasi > 0 && mc != null) {
-    const _curVal = mc[meta.mField];
-    const _curEY  = mc.earningsYield;
-    for (let i = 0; i < _pCloses.length; i++) {
-      if (!_pCloses[i] || !_pStamps[i]) continue;
-      const tMs = _pStamps[i] * 1000;
-      if (tMs < cutoffMs) continue;
-      const dateStr = new Date(tMs).toISOString().slice(0, 10);
-      if (merged.has(dateStr)) continue; // real data always wins
-      const ratio = _pCloses[i] / _curTasi;
-      if (!(ratio > 0)) continue;
-      let estVal = null;
-      if (_proxyMode === 'linear'  && _curVal > 0) estVal = _curVal * ratio;
-      if (_proxyMode === 'inverse' && _curVal > 0) estVal = _curVal / ratio;
-      if (_proxyMode === 'erp'     && _curEY  > 0) estVal = (_curEY / ratio) - SAUDI_RF;
-      if (estVal != null && isFinite(estVal)) merged.set(dateStr, { t: tMs, v: estVal });
-    }
-  }
+  // No TASI-index proxy / back-projection: valuation ratios are shown only for dates where
+  // real financial statements exist (built in _buildMktValHistory). Charts therefore span
+  // exactly the years we have data for — no estimates.
 
   let hist = [...merged.entries()]
     .map(([d, o]) => ({ d, v: o.v }))
