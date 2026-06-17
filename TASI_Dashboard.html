@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260617c'; // bump this string on every deploy that matters
+  var V='20260617d'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -439,7 +439,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260617c · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260617d · smoother market valuation charts (spike filter + coverage gating) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -10726,9 +10726,15 @@ let _mktValHistCache = null; // { cutoffMs, data: Map }
 function _buildMktValHistory(cutoffMs) {
   const GD = SAUDI_GDP_SAR, RF = SAUDI_RF;
   const agg = new Map();
+  // Reference: total current (non-Aramco) market cap of all stocks with price history.
+  // Used to gate each historical date by COVERAGE — the basket of stocks with a close on
+  // a given day varies (different history lengths, Yahoo gaps), and a missing large-cap
+  // makes the cap-weighted aggregate lurch. Dropping low-coverage dates removes those
+  // spikes; the smooth TASI-index proxy fills the gaps instead.
+  let totalCapRef = 0;
   const getA = (d, t) => {
     let a = agg.get(d);
-    if (!a) { a = { t, capExA:0, peCap:0, peW:0, pbCap:0, pbW:0, dyCap:0, dyW:0,
+    if (!a) { a = { t, capExA:0, curCapPresent:0, peCap:0, peW:0, pbCap:0, pbW:0, dyCap:0, dyW:0,
                     psCap:0, revSum:0, a50:0, v50:0, a200:0, v200:0, nh:0, nl:0 }; agg.set(d, a); }
     return a;
   };
@@ -10739,6 +10745,7 @@ function _buildMktValHistory(cutoffMs) {
     const shares = s.sharesOutstanding || (s.mktCap > 0 ? s.mktCap / s.price : 0);
     const curMC  = s.mktCap > 0 ? s.mktCap : (shares > 0 ? s.price * shares : 0);
     const isAramco = s.ticker === '2222.SR';
+    if (!isAramco && curMC > 0) totalCapRef += curMC;
     const isReit   = s.isReit || s.sector === 'REITs';
     const pe = (s.pe > 0 && s.pe < 200 && !isReit) ? s.pe : null;
     const pb = (s.pb > 0 && s.pb < 30) ? s.pb : null;
@@ -10778,7 +10785,7 @@ function _buildMktValHistory(cutoffMs) {
       const A = getA(dateStr, tMs);
       const histMC = curMC > 0 ? curMC * ratio : 0;
       if (histMC > 0) {
-        if (!isAramco) A.capExA += histMC;
+        if (!isAramco) { A.capExA += histMC; A.curCapPresent += curMC; }
         // Exclude Aramco from cap-weighted P/E, P/B and DY — matches _mpeCalc / _marketConditions
         // headline methodology (Aramco's ~2% free float makes full-cap weighting unrepresentative).
         if (!isAramco) {
@@ -10805,7 +10812,13 @@ function _buildMktValHistory(cutoffMs) {
     }
   }
   const out = new Map();
+  // Require a date's basket to represent at least this share of total current market cap
+  // before we trust its cap-weighted ratios. Below it, the day is too sparse/composition-
+  // unstable to be meaningful — skip it and let the TASI-index proxy back-fill smoothly.
+  const MIN_COV = 0.6;
   for (const [d, A] of agg) {
+    const coverage = totalCapRef > 0 ? A.curCapPresent / totalCapRef : 0;
+    if (coverage < MIN_COV) continue; // drop sparse days → removes the spikes
     const wtdPE = A.peCap > 0 ? A.peW / A.peCap : null;
     const ey    = wtdPE > 0 ? 1 / wtdPE : null;
     const erp   = ey != null ? ey - RF : null;
@@ -11074,6 +11087,25 @@ function selectMktValIndicator(key) {
   _renderMPEChart();
 }
 
+// Centered rolling-median spike filter. The market-valuation charts reconstruct history
+// by aggregating per-stock prices day-by-day; the basket shifts as histories/gaps differ,
+// producing single-day outliers. A median (not mean) strips those spikes while preserving
+// the underlying level. Nulls are passed through so chart gaps stay intact.
+function _rollingMedian(vals, win) {
+  if (!Array.isArray(vals) || vals.length <= win || win < 2) return vals;
+  const half = win >> 1;
+  return vals.map((v, i) => {
+    if (v == null) return v;
+    const lo = Math.max(0, i - half), hi = Math.min(vals.length - 1, i + half);
+    const w = [];
+    for (let j = lo; j <= hi; j++) { const x = vals[j]; if (x != null && isFinite(x)) w.push(x); }
+    if (!w.length) return v;
+    w.sort((a, b) => a - b);
+    const m = w.length >> 1;
+    return w.length % 2 ? w[m] : (w[m - 1] + w[m]) / 2;
+  });
+}
+
 function _renderMPEChart() {
   if (marketPEChartInst) { try { marketPEChartInst.destroy(); } catch(e){} marketPEChartInst = null; }
   const ctx = document.getElementById('market-pe-chart');
@@ -11286,9 +11318,11 @@ function _renderMPEChart() {
     return;
   }
 
-  const wtdVals  = allDates.map(d => wtdMap.get(d)?.pe  ?? null);
-  const medVals  = allDates.map(d => medMap.get(d)?.pe  ?? null);
-  const meanVals = allDates.map(d => meanMap.get(d)?.pe ?? null);
+  // Spike removal — same composition-noise filter as the other market charts.
+  const _peWin = rangeDays <= 200 ? 3 : rangeDays <= 800 ? 7 : 15;
+  const wtdVals  = _rollingMedian(allDates.map(d => wtdMap.get(d)?.pe  ?? null), _peWin);
+  const medVals  = _rollingMedian(allDates.map(d => medMap.get(d)?.pe  ?? null), _peWin);
+  const meanVals = _rollingMedian(allDates.map(d => meanMap.get(d)?.pe ?? null), _peWin);
   const fontOpts = { size:8, family:"'IBM Plex Mono'" };
 
   // Measure how much of the chart uses actual vs constant EPS
@@ -11447,9 +11481,16 @@ function _renderIndicatorHistChart(ctx) {
     }
   }
 
-  const hist = [...merged.entries()]
+  let hist = [...merged.entries()]
     .map(([d, o]) => ({ d, v: o.v }))
     .sort((a, b) => a.d < b.d ? -1 : 1);
+
+  // Spike removal — strip single-day composition outliers (window scales with range).
+  if (hist.length > 8) {
+    const win = rangeDays <= 200 ? 3 : rangeDays <= 800 ? 7 : 15;
+    const smoothed = _rollingMedian(hist.map(e => e.v), win);
+    hist = hist.map((e, i) => ({ d: e.d, v: smoothed[i] }));
+  }
 
   if (!hist.length) {
     const c2 = ctx.getContext('2d');
