@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260618a'; // bump this string on every deploy that matters
+  var V='20260618b'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -439,7 +439,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260618a · breakdown chart below the valuation chart: P/E shows Market Cap vs Earnings vs Revenue (indexed); Buffett shows Market Cap vs GDP · curve + range selectors moved directly above the chart · v20260617h · market P/E history (Wtd/Median/Mean) now uses the same universe as the headline tiles — REITs & delisted excluded, Aramco out of the cap-weighted curve only (was inflating it ~1.6x); even-count median fixed; removed dead estimation code · v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260618b · breakdown P/E (Market Cap/Earnings/Revenue) now built from the SAME reconstruction as the P/E line above — identical basket & date span (was using the 50%-coverage builder, so earnings/revenue started years later than the P/E line) · v20260618a · breakdown chart below the valuation chart: P/E shows Market Cap vs Earnings vs Revenue (indexed); Buffett shows Market Cap vs GDP · curve + range selectors moved directly above the chart · v20260617h · market P/E history (Wtd/Median/Mean) now uses the same universe as the headline tiles — REITs & delisted excluded, Aramco out of the cap-weighted curve only (was inflating it ~1.6x); even-count median fixed; removed dead estimation code · v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -10542,6 +10542,7 @@ function computeVolatility(closesIn) {
 // ── Market P/E Statistics ─────────────────────────────────────────────────
 let marketPEChartInst = null;
 let _mpeBreakdownInst = null; // component-breakdown chart below the main valuation chart
+let _mpePeBreakdown = null;   // P/E breakdown data (Map<date,{mcap,earn,rev}>) built by _renderMPEChart
 let marketPEChartVisible = false;
 let _mpeRange = '5Y'; // active range button
 let _mpeCurve = 'wtd'; // 'wtd' | 'med' | 'mean'
@@ -11183,8 +11184,7 @@ function _renderMPEChart() {
   if (marketPEChartInst) { try { marketPEChartInst.destroy(); } catch(e){} marketPEChartInst = null; }
   const ctx = document.getElementById('market-pe-chart');
   if (!ctx) return;
-  try { _renderBreakdownChart(); } catch(e) {} // component breakdown (P/E & Buffett only; self-hides otherwise)
-  if (_mktValIndicator !== 'pe') { _renderIndicatorHistChart(ctx); return; }
+  if (_mktValIndicator !== 'pe') { _renderIndicatorHistChart(ctx); try { _renderBreakdownChart(); } catch(e) {} return; }
   const r = _mpeCalc();
   if (!r) return;
   const { wtdAvg, median, mean } = r;
@@ -11230,30 +11230,36 @@ function _renderMPEChart() {
   // (ratio-scaled from current EPS to cancel out unit differences).  For stocks without
   // statement history the constant-EPS fallback is still used; the chart title shows coverage.
   //
-  // EPS timeline helper — returns [{tMs, eps}] sorted ascending, or null
+  // EPS (and TTM revenue) timeline helper — returns [{tMs, eps, rev}] sorted ascending, or null.
+  // rev is raw TTM revenue in SAR (null where a stock doesn't report revenue, e.g. some banks).
   const _epsTimeline = s => {
     if (!(s.pe > 0) || !(s.price > 0)) return null;
     const curEPS = s.price / s.pe;
     if (!(curEPS > 0)) return null;
     const curNI = (s.ni || 0) * 1e9; // d.ni is billions; raw statement values are in same base units
     if (!(curNI > 0)) return null;
+    const curRev = s.ttmRev > 0 ? s.ttmRev : (s.rev > 0 ? s.rev * 1e9 : null); // anchor for "today"
     // Same source fallback as _buildMktValHistory: prefer the Drive statement cache, but
     // fall back to rawTwelveData so the P/E chart still builds from the repo statements
     // snapshot when Drive isn't connected (otherwise the main P/E line would be empty).
     const stmt = _stmtCache[s.ticker] || s.rawTwelveData || {};
     const tl = [];
 
-    // Quarterly TTM — 4-quarter rolling sum gives earnings at each reporting date
+    // Quarterly TTM — 4-quarter rolling sum gives earnings (and revenue) at each report date
     const qIS = stmt.quarterly?.is;
     if (qIS && qIS.length >= 4) {
       const qs = qIS
-        .map(r => { const d = r.fiscal_date || r.date, ni = parseFloat(r.net_income); return (d && !isNaN(ni)) ? { tMs: new Date(d).getTime(), ni } : null; })
+        .map(r => { const d = r.fiscal_date || r.date, ni = parseFloat(r.net_income), rev = parseFloat(r.revenue);
+                    return (d && !isNaN(ni)) ? { tMs: new Date(d).getTime(), ni, rev: isNaN(rev) ? null : rev } : null; })
         .filter(Boolean).sort((a,b) => a.tMs - b.tMs);
       for (let i = 3; i < qs.length; i++) {
         const ttm = qs[i-3].ni + qs[i-2].ni + qs[i-1].ni + qs[i].ni;
         if (!(ttm > 0)) continue;
         const r = ttm / curNI;
-        if (r > 0 && r < 15) tl.push({ tMs: qs[i].tMs, eps: curEPS * r });
+        if (!(r > 0 && r < 15)) continue;
+        const w = [qs[i-3], qs[i-2], qs[i-1], qs[i]];
+        const ttmRev = w.every(x => x.rev != null) ? w.reduce((a,x)=>a+x.rev,0) : null;
+        tl.push({ tMs: qs[i].tMs, eps: curEPS * r, rev: ttmRev > 0 ? ttmRev : null });
       }
     }
 
@@ -11263,34 +11269,35 @@ function _renderMPEChart() {
     const aIS = stmt.annual?.is;
     if (aIS) {
       const ys = aIS
-        .map(r => { const d = r.fiscal_date || r.date, ni = parseFloat(r.net_income); return (d && !isNaN(ni)) ? { tMs: new Date(d).getTime(), ni } : null; })
+        .map(r => { const d = r.fiscal_date || r.date, ni = parseFloat(r.net_income), rev = parseFloat(r.revenue);
+                    return (d && !isNaN(ni)) ? { tMs: new Date(d).getTime(), ni, rev: isNaN(rev) ? null : rev } : null; })
         .filter(Boolean).sort((a,b) => a.tMs - b.tMs);
       for (const y of ys) {
         if (!(y.ni > 0) || y.tMs >= earliestTTM) continue; // only before quarterly window
         const r = y.ni / curNI;
-        if (r > 0 && r < 15) tl.push({ tMs: y.tMs, eps: curEPS * r });
+        if (r > 0 && r < 15) tl.push({ tMs: y.tMs, eps: curEPS * r, rev: y.rev > 0 ? y.rev : null });
       }
     }
 
     if (tl.length < 1) return null;
-    tl.push({ tMs: Date.now(), eps: curEPS }); // anchor current EPS at today
+    tl.push({ tMs: Date.now(), eps: curEPS, rev: curRev }); // anchor current EPS/revenue at today
     return tl.sort((a,b) => a.tMs - b.tMs);
   };
 
-  // EPS lookup — step-function (no interpolation) so we never pretend to know
-  // intra-period earnings; use the last known TTM EPS until the next report date
-  const _epsAt = (tl, tMs) => {
+  // As-of lookup — step-function (no interpolation) so we never pretend to know
+  // intra-period figures; use the last known TTM point until the next report date
+  const _ptAt = (tl, tMs) => {
     if (!tl) return null;
     let best = null;
-    for (const pt of tl) { if (pt.tMs <= tMs) best = pt.eps; else break; }
-    return best; // null if tMs is before all reporting dates
+    for (const pt of tl) { if (pt.tMs <= tMs) best = pt; else break; }
+    return best; // {eps, rev} or null if tMs is before all reporting dates
   };
 
   // Pre-compute EPS timelines for every stock with statement cache data
   const epsTimelines = new Map();
   for (const s of allData) { const tl = _epsTimeline(s); if (tl) epsTimelines.set(s.ticker, tl); }
 
-  const dateAgg = new Map(); // dateStr -> { capSum, earnSum, peList, t, dynN, staticN }
+  const dateAgg = new Map(); // dateStr -> { capSum, earnSum, revSum, peList, t, dynN, staticN }
   for (const s of allData) {
     const closes = s.closes || [];
     const stamps = s.timestamps || [];
@@ -11309,18 +11316,23 @@ function _renderMPEChart() {
       const c = closes[i], ts = stamps[i];
       if (!c || !ts) continue;
       const tMs = ts * 1000;
-      const eps = _epsAt(tl, tMs);          // REAL reported TTM earnings as of t — no constant-EPS estimate
+      const pt = _ptAt(tl, tMs);            // REAL reported TTM figures as of t — no constant estimate
+      const eps = pt ? pt.eps : 0;
       if (!(eps > 0)) continue;             // before first report → don't plot (no extrapolation)
       const histPE = c / eps;
       if (!(histPE > 0) || histPE > 60) continue;
       const dateStr = new Date(tMs).toISOString().slice(0,10);
       let agg = dateAgg.get(dateStr);
-      if (!agg) { agg = { capSum:0, earnSum:0, peList:[], t:tMs, dynN:0, statN:0 }; dateAgg.set(dateStr, agg); }
+      if (!agg) { agg = { capSum:0, earnSum:0, revSum:0, peList:[], t:tMs, dynN:0, statN:0 }; dateAgg.set(dateStr, agg); }
       agg.peList.push(histPE);
-      if (shares > 0 && !isAramco) { agg.capSum += c * shares; agg.earnSum += eps * shares; } // ex-Aramco, matches tile
+      if (shares > 0 && !isAramco) {
+        agg.capSum += c * shares; agg.earnSum += eps * shares; // ex-Aramco, matches tile
+        if (pt && pt.rev > 0) agg.revSum += pt.rev;            // raw reported TTM revenue (SAR)
+      }
       agg.dynN++;
     }
   }
+  _mpePeBreakdown = new Map(); // rebuilt each render; consumed by _renderBreakdownChart for the P/E view
   for (const [dateStr, agg] of dateAgg) {
     if (agg.t < cutoffMs) continue;        // display range filter (all closes are built, chart slices by range)
     if (agg.peList.length < 5) continue; // need enough stocks for a meaningful market figure
@@ -11336,6 +11348,13 @@ function _renderMPEChart() {
     else if (med > 0 && med < 40)             medMap.set(dateStr,  { t:agg.t, pe:+med.toFixed(2),  estimated:true });
     if (stored?.mean > 0 && stored.mean < 40) meanMap.set(dateStr, { t:agg.t, pe:stored.mean });
     else if (mean > 0 && mean < 40)           meanMap.set(dateStr, { t:agg.t, pe:+mean.toFixed(2), estimated:true });
+    // Breakdown components — same basket/date span as the P/E line above (all ex-Aramco, SAR):
+    // market cap and earnings are the exact numerator/denominator of the Wtd-Avg line; revenue
+    // is the raw reported TTM total of revenue-reporting names.
+    _mpePeBreakdown.set(dateStr, { t:agg.t,
+      mcap: agg.capSum  > 0 ? agg.capSum  : null,
+      earn: agg.earnSum > 0 ? agg.earnSum : null,
+      rev:  agg.revSum  > 0 ? agg.revSum  : null });
   }
 
   // No TASI-index back-projection: the P/E line is built only from real reported earnings
@@ -11348,6 +11367,10 @@ function _renderMPEChart() {
     if (!medMap.has(e.d)  && e.med  > 0) medMap.set(e.d,  { t:tMs, pe:e.med  });
     if (!meanMap.has(e.d) && e.mean > 0) meanMap.set(e.d, { t:tMs, pe:e.mean });
   });
+
+  // Render the component breakdown now that _mpePeBreakdown is populated for this range,
+  // so it always updates even if the main P/E chart hits an early return below.
+  try { _renderBreakdownChart(); } catch(e) {}
 
   const allDates = [...new Set([...wtdMap.keys(), ...medMap.keys(), ...meanMap.keys()])]
     .filter(d => { const e = wtdMap.get(d)||medMap.get(d)||meanMap.get(d); return e && e.t >= cutoffMs; })
@@ -11445,11 +11468,20 @@ function _renderBreakdownChart() {
   if (!canvas) return;
   if (_mpeBreakdownInst) { try { _mpeBreakdownInst.destroy(); } catch(e){} _mpeBreakdownInst = null; }
 
-  if (!_mktValHistCache) _mktValHistCache = { data: _buildMktValHistory() };
-  const recon = _mktValHistCache.data;
   const rangeDays = { '3M':90, '6M':180, '1Y':365, '2Y':730, '5Y':1825, '10Y':3650, 'All':30*365 }[_mpeRange] || 365;
   const cutoffMs  = Date.now() - rangeDays * 864e5;
   const win = rangeDays <= 200 ? 3 : rangeDays <= 800 ? 7 : 15;
+
+  // Source: the P/E view reuses _renderMPEChart's OWN reconstruction (_mpePeBreakdown) so the
+  // breakdown shares the exact basket and date span as the P/E line above it. The Buffett view
+  // uses _buildMktValHistory (its market-cap series is the same one the Buffett line is built from).
+  let src;
+  if (isBuf) {
+    if (!_mktValHistCache) _mktValHistCache = { data: _buildMktValHistory() };
+    src = _mktValHistCache.data;
+  } else {
+    src = _mpePeBreakdown || new Map();
+  }
 
   const titleEl  = document.getElementById('mpe-breakdown-title');
   const legendEl = document.getElementById('mpe-breakdown-legend');
@@ -11463,7 +11495,7 @@ function _renderBreakdownChart() {
     return v.toFixed(0);
   };
 
-  const rows = [...recon.entries()].filter(([d,v]) => v.t >= cutoffMs).sort((a,b)=> a[0] < b[0] ? -1 : 1);
+  const rows = [...src.entries()].filter(([d,v]) => v.t >= cutoffMs).sort((a,b)=> a[0] < b[0] ? -1 : 1);
   if (rows.length < 5) {
     const c2 = canvas.getContext('2d');
     c2.clearRect(0,0,canvas.width,canvas.height);
