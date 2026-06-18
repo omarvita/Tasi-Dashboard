@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260618b'; // bump this string on every deploy that matters
+  var V='20260618c'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -439,7 +439,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260618b · breakdown P/E (Market Cap/Earnings/Revenue) now built from the SAME reconstruction as the P/E line above — identical basket & date span (was using the 50%-coverage builder, so earnings/revenue started years later than the P/E line) · v20260618a · breakdown chart below the valuation chart: P/E shows Market Cap vs Earnings vs Revenue (indexed); Buffett shows Market Cap vs GDP · curve + range selectors moved directly above the chart · v20260617h · market P/E history (Wtd/Median/Mean) now uses the same universe as the headline tiles — REITs & delisted excluded, Aramco out of the cap-weighted curve only (was inflating it ~1.6x); even-count median fixed; removed dead estimation code · v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260618c · Buffett Indicator now divides by time-varying nominal GDP (annual series 2019-2026, World Bank/IMF × 3.75 peg, mid-year interpolated) instead of a flat SAR 4.83T — history and the Market Cap vs GDP breakdown use the GDP of each date · v20260618b · breakdown P/E (Market Cap/Earnings/Revenue) now built from the SAME reconstruction as the P/E line above — identical basket & date span (was using the 50%-coverage builder, so earnings/revenue started years later than the P/E line) · v20260618a · breakdown chart below the valuation chart: P/E shows Market Cap vs Earnings vs Revenue (indexed); Buffett shows Market Cap vs GDP · curve + range selectors moved directly above the chart · v20260617h · market P/E history (Wtd/Median/Mean) now uses the same universe as the headline tiles — REITs & delisted excluded, Aramco out of the cap-weighted curve only (was inflating it ~1.6x); even-count median fixed; removed dead estimation code · v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -10581,9 +10581,37 @@ function _mpeCalc() {
 }
 
 // ── Macro / whole-market valuation context ────────────────────────────────
-// Saudi nominal GDP ≈ SAR 4.83 trillion (2025 IMF/SAMA estimate; 2024 actual was 4.55T).
-// Update annually from: https://www.sama.gov.sa/en-US/EconomicReports
-const SAUDI_GDP_SAR = 4.83e12;
+// Saudi nominal GDP (current prices), in SAR, by calendar year. The Buffett Indicator
+// divides market cap by *contemporaneous* GDP, so this must vary over time — a flat
+// constant overstated GDP in the low-oil years (2020–21) and understated the indicator then.
+// Sources: World Bank "GDP (current US$)" × 3.75 SAR/USD peg for 2019–2024; IMF WEO
+// Apr-2026 for 2025 (matches GASTAT's SAR 4,789bn) and the 2026 forecast. GASTAT rebased
+// the series in 2025, so pre-2022 levels carry minor vintage uncertainty.
+//   data.worldbank.org/indicator/NY.GDP.MKTP.CD?locations=SA · imf.org/external/datamapper/NGDPD@WEO/SAU
+const SAUDI_GDP_BY_YEAR = {
+  2019: 3.145e12, 2020: 2.754e12, 2021: 3.278e12, 2022: 4.646e12,
+  2023: 4.570e12, 2024: 4.641e12, 2025: 4.789e12, 2026: 5.208e12,
+};
+// GDP for a given instant — each annual figure is anchored at MID-YEAR (it represents the
+// whole year, ≈ the mid-point run-rate), and we linearly interpolate between consecutive
+// mid-year anchors so the Buffett denominator moves smoothly. Clamps to the table ends.
+function gdpAt(tMs) {
+  const yrs = Object.keys(SAUDI_GDP_BY_YEAR).map(Number).sort((a, b) => a - b);
+  const anchor = y => Date.UTC(y, 6, 1); // ≈ July 1
+  const firstY = yrs[0], lastY = yrs[yrs.length - 1];
+  if (tMs <= anchor(firstY)) return SAUDI_GDP_BY_YEAR[firstY];
+  if (tMs >= anchor(lastY))  return SAUDI_GDP_BY_YEAR[lastY];
+  for (let i = 0; i < yrs.length - 1; i++) {
+    const a0 = anchor(yrs[i]), a1 = anchor(yrs[i + 1]);
+    if (tMs >= a0 && tMs <= a1) {
+      const g0 = SAUDI_GDP_BY_YEAR[yrs[i]], g1 = SAUDI_GDP_BY_YEAR[yrs[i + 1]];
+      return g0 + (g1 - g0) * ((tMs - a0) / (a1 - a0));
+    }
+  }
+  return SAUDI_GDP_BY_YEAR[lastY];
+}
+// Current GDP — used for the live Buffett tile and label text.
+const SAUDI_GDP_SAR = gdpAt(Date.now());
 const SAUDI_RF = 0.055;
 const _clamp01 = x => Math.max(0, Math.min(1, x));
 
@@ -10713,7 +10741,7 @@ function _computeOverallScore(m) {
 const _MKT_IND_DESC = {
   pe:      'Market P/E — the cap-weighted price-to-earnings ratio of the market (excl. Aramco & REITs). How many riyals investors pay per riyal of annual earnings. <15x is historically cheap for TASI, 15–25x fair, >25x expensive.',
   overall: 'Overall Score — a single 0–100 valuation gauge blending P/E, breadth >SMA-50 & >SMA-200, dividend yield, P/B, and P/S. 0 = cheap / fearful market, 100 = expensive / greedy market. Equal-weighted average of all available signals. CAPE is shown separately but excluded (needs historical reconstruction). ERP is excluded because it is directly derived from P/E (ERP = 1/P/E − RF) — including both would double-weight the earnings-yield signal.',
-  buffett: `Buffett Indicator — total stock-market value ÷ GDP (ex-Aramco). Warren Buffett's favourite gauge of whether a whole market is cheap or rich. <80% undervalued, 80–110% fair, 110–150% modestly rich, >150% overvalued (Saudi-calibrated). Saudi GDP ≈ SAR ${(SAUDI_GDP_SAR/1e12).toFixed(2)}T (2025 est.).`,
+  buffett: `Buffett Indicator — total stock-market value ÷ GDP (ex-Aramco). Warren Buffett's favourite gauge of whether a whole market is cheap or rich. <80% undervalued, 80–110% fair, 110–150% modestly rich, >150% overvalued (Saudi-calibrated). Uses contemporaneous nominal GDP each year (≈ SAR ${(SAUDI_GDP_SAR/1e12).toFixed(2)}T now); the history divides by the GDP of that date, not a flat figure.`,
   ey:      'Earnings Yield — the inverse of the market P/E (1 ÷ P/E). The percentage of earnings the market produces per riyal invested. Directly comparable to bond yields: higher than the risk-free rate means equities are attractive.',
   erp:     'Equity Risk Premium — earnings yield minus the Saudi risk-free rate (10Y sukuk ≈ 5.5% as of June 2026). The extra reward you get for holding stocks instead of government bonds. Above +2% = equities attractive vs bonds; negative = equities expensive vs bonds.',
   dy:      'Dividend Yield — cap-weighted dividend yield across all dividend-paying stocks (annual dividend ÷ price). Higher yields usually accompany cheaper markets. The TASI long-run average is roughly 3.5%; below 2% is expensive, above 4% is cheap.',
@@ -10780,7 +10808,7 @@ function _stmtTimeline(qRows, aRows, field, isFlow) {
 }
 
 function _buildMktValHistory() {
-  const GD = SAUDI_GDP_SAR, RF = SAUDI_RF;
+  const RF = SAUDI_RF;
   const agg = new Map();
   // Total current (non-Aramco) market cap of stocks that HAVE financial statements. Used to
   // gate each date by statement coverage so valuation charts only plot years with real data.
@@ -10893,8 +10921,9 @@ function _buildMktValHistory() {
     const br200 = A.v200 >= 20 ? A.a200 / A.v200 : null;
     const hl52N = A.nh + A.nl;
     const hl52  = hl52N > 0 ? A.nh / hl52N : null;
-    // Buffett (total market cap / GDP) is price-measured — always emit.
-    const buffett = A.capExA > 0 ? A.capExA / GD : null;
+    // Buffett (total market cap / GDP) is price-measured — always emit. GDP is the
+    // contemporaneous (date-appropriate) figure, not a flat constant.
+    const buffett = A.capExA > 0 ? A.capExA / gdpAt(A.t) : null;
     const overall = _computeOverallScore({ wtdAvg: wtdPE, erp, breadth: br50, wtdDY: dy,
                                            wtdPB: pb, cape: null, mktPS: ps, breadth200: br200 });
     // Raw component aggregates for the breakdown chart (all ex-Aramco, raw SAR):
@@ -10973,7 +11002,7 @@ function _renderMarketConditions() {
     const verdict = b < 0.80 ? 'Undervalued' : b < 1.1 ? 'Fair' : b < 1.5 ? 'Modestly rich' : 'Overvalued';
     tiles.push(tile('buffett', 'Buffett Indicator', (b*100).toFixed(0)+'%',
       `${verdict} · incl. Aramco ${(m.buffettInd*100).toFixed(0)}%`, col,
-      `Liquid market cap (ex-Aramco) ÷ GDP. Thresholds calibrated for Saudi/EM norms: <80% undervalued, 80–110% fair, 110–150% modestly rich, >150% overvalued. Covers app's ~238 liquid stocks; full TASI has additional micro-caps. GDP ≈ SAR ${(SAUDI_GDP_SAR/1e12).toFixed(2)}T (2025 est.).`));
+      `Liquid market cap (ex-Aramco) ÷ GDP. Thresholds calibrated for Saudi/EM norms: <80% undervalued, 80–110% fair, 110–150% modestly rich, >150% overvalued. Covers app's ~238 liquid stocks; full TASI has additional micro-caps. Uses contemporaneous nominal GDP (≈ SAR ${(SAUDI_GDP_SAR/1e12).toFixed(2)}T now).`));
   }
 
   // 2. Earnings Yield
@@ -11509,22 +11538,22 @@ function _renderBreakdownChart() {
 
   let datasets, yTitle, tooltipLabel;
   if (isBuf) {
-    // Absolute trillions: total Market Cap (ex-Aramco) against the constant GDP base.
-    // Their ratio is exactly the Buffett Indicator shown in the chart above.
+    // Absolute trillions: total Market Cap (ex-Aramco) against GDP. GDP is the date-appropriate
+    // nominal figure (rising over time), so the gap between the lines IS the Buffett Indicator.
     const mcT  = _rollingMedian(rows.map(r => r[1].mcap ?? null), win).map(v => v != null ? +(v/1e12).toFixed(3) : null);
-    const gdpT = +(SAUDI_GDP_SAR/1e12).toFixed(3);
+    const gdpT = rows.map(r => +(gdpAt(r[1].t)/1e12).toFixed(3));
     datasets = [
       { label:'Market Cap (ex-Aramco)', data:mcT, borderColor:'#4f9cf9', backgroundColor:'rgba(79,156,249,0.07)', fill:true, pointRadius:0, borderWidth:2, tension:0.2, spanGaps:true },
-      { label:'Saudi GDP', data:labels.map(()=>gdpT), borderColor:'#f59e0b', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
+      { label:'Saudi GDP', data:gdpT, borderColor:'#f59e0b', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
     ];
     yTitle = 'SAR (trillions)';
     tooltipLabel = c => c.raw != null ? `${c.dataset.label}: ${c.raw}T` : null;
-    if (titleEl) titleEl.textContent = 'Market Cap vs GDP — the Buffett Indicator is their ratio';
-    const lMC = last(mcT);
+    if (titleEl) titleEl.textContent = 'Market Cap vs GDP (nominal, by year) — the Buffett Indicator is their ratio';
+    const lMC = last(mcT), lGDP = gdpT.length ? gdpT[gdpT.length-1] : (SAUDI_GDP_SAR/1e12);
     if (legendEl) legendEl.innerHTML =
         `<span style="color:#4f9cf9">■ Market Cap: ${lMC!=null?lMC.toFixed(2)+'T':'—'} SAR</span>`
-      + `<span style="color:#f59e0b">■ Saudi GDP: ${gdpT.toFixed(2)}T SAR</span>`
-      + `<span style="color:var(--tx3)">▸ Ratio: ${lMC!=null?((lMC/gdpT)*100).toFixed(0)+'%':'—'}</span>`;
+      + `<span style="color:#f59e0b">■ Saudi GDP: ${lGDP.toFixed(2)}T SAR</span>`
+      + `<span style="color:var(--tx3)">▸ Ratio: ${lMC!=null?((lMC/lGDP)*100).toFixed(0)+'%':'—'}</span>`;
   } else {
     // P/E: index Market Cap, Earnings and Revenue to 100 at the first date all three
     // exist, so their relative growth is comparable on one axis (P/E rises when cap
@@ -11632,12 +11661,17 @@ function _renderIndicatorHistChart(ctx) {
     const val = v[_mktValIndicator];
     if (val != null && isFinite(val)) merged.set(d, { t: v.t, v: val });
   }
-  for (const e of rawHist) {
-    const val = e[_mktValIndicator];
-    if (val == null || !isFinite(val)) continue;
-    const t = new Date(e.d).getTime();
-    if (t < cutoffMs) continue;
-    merged.set(e.d, { t, v: val });        // stored value overrides reconstruction
+  // Stored daily snapshots override reconstruction — EXCEPT buffett, whose stored values
+  // were computed against the old flat GDP. The reconstruction now divides by date-appropriate
+  // GDP and covers every date (it's price-measured), so prefer it for buffett.
+  if (_mktValIndicator !== 'buffett') {
+    for (const e of rawHist) {
+      const val = e[_mktValIndicator];
+      if (val == null || !isFinite(val)) continue;
+      const t = new Date(e.d).getTime();
+      if (t < cutoffMs) continue;
+      merged.set(e.d, { t, v: val });        // stored value overrides reconstruction
+    }
   }
 
   // No TASI-index proxy / back-projection: valuation ratios are shown only for dates where
