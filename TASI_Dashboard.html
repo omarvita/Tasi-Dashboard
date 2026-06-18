@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260618c'; // bump this string on every deploy that matters
+  var V='20260618d'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -9076,6 +9076,9 @@ async function loadRepoSnapshot() {
     window._snapGenerated = snap.generated; // staleness indicator reads this
     if (Date.now() - snap.generated > 7*24*36e5) return 0; // ignore week-old snapshots
     const snapDate = new Date(snap.generated).toISOString().slice(0, 10);
+    // Saudi GDP from the World Bank (written by the Action) — merge over the hardcoded
+    // seed table so the Buffett indicator/breakdown track official figures automatically.
+    if (snap.gdp) applyGdpFromSnapshot(snap.gdp);
     const idxMap = new Map(allData.map((d, i) => [d.ticker, i]));
     // Delisting markers from the Action: tickers Yahoo hasn't returned a quote for in 35+ days
     for (const t of snap.delisted || []) {
@@ -10588,6 +10591,11 @@ function _mpeCalc() {
 // Apr-2026 for 2025 (matches GASTAT's SAR 4,789bn) and the 2026 forecast. GASTAT rebased
 // the series in 2025, so pre-2022 levels carry minor vintage uncertainty.
 //   data.worldbank.org/indicator/NY.GDP.MKTP.CD?locations=SA · imf.org/external/datamapper/NGDPD@WEO/SAU
+// AUTO-UPDATE: the nightly GitHub Action (fetch_market_data.mjs) pulls the World Bank
+// series NY.GDP.MKTP.CN (GDP in current SAR) into market_snapshot.json. loadRepoSnapshot()
+// then merges those authoritative actuals over this table. This hardcoded table is the
+// seed/fallback and supplies the forward years the World Bank hasn't published yet
+// (WB actuals lag ~1y), so keep its newest 1–2 entries as IMF-WEO forecasts.
 const SAUDI_GDP_BY_YEAR = {
   2019: 3.145e12, 2020: 2.754e12, 2021: 3.278e12, 2022: 4.646e12,
   2023: 4.570e12, 2024: 4.641e12, 2025: 4.789e12, 2026: 5.208e12,
@@ -10610,8 +10618,23 @@ function gdpAt(tMs) {
   }
   return SAUDI_GDP_BY_YEAR[lastY];
 }
-// Current GDP — used for the live Buffett tile and label text.
-const SAUDI_GDP_SAR = gdpAt(Date.now());
+// Current GDP — used for the live Buffett tile and label text. `let` so the snapshot
+// merge (applyGdpFromSnapshot) can refresh it after World Bank data arrives.
+let SAUDI_GDP_SAR = gdpAt(Date.now());
+// Merge the Action's World Bank GDP series over the hardcoded table. WB actuals are
+// authoritative; the hardcoded forecast years it lacks are left untouched. Returns the
+// number of years changed so callers can decide whether to re-render Buffett views.
+function applyGdpFromSnapshot(gdp) {
+  if (!gdp || typeof gdp !== 'object') return 0;
+  let changed = 0;
+  for (const [y, v] of Object.entries(gdp)) {
+    const yr = +y, val = +v;
+    if (!Number.isInteger(yr) || !(val > 0)) continue;
+    if (SAUDI_GDP_BY_YEAR[yr] !== val) { SAUDI_GDP_BY_YEAR[yr] = val; changed++; }
+  }
+  if (changed) SAUDI_GDP_SAR = gdpAt(Date.now());
+  return changed;
+}
 const SAUDI_RF = 0.055;
 const _clamp01 = x => Math.max(0, Math.min(1, x));
 

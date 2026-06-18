@@ -148,6 +148,26 @@ async function fetchTasi() {
   } catch (e) { console.warn(`TASI index: ${e.message}`); return null; }
 }
 
+// ── 6. Saudi nominal GDP from the World Bank (NY.GDP.MKTP.CN = GDP in current ──
+// local currency = SAR, exactly the unit the dashboard's Buffett denominator uses).
+// Free, no key. The WB publishes actuals ~1y in arrears, so this keeps the
+// historical years aligned with official GASTAT revisions and adds each new year
+// as it lands; the dashboard keeps its hardcoded IMF forecast for years the WB
+// hasn't published yet. Returns { "2019": 3145..e9, ... } in SAR, or null.
+async function fetchGDP() {
+  try {
+    const j = await fetchJSON('https://api.worldbank.org/v2/country/SA/indicator/NY.GDP.MKTP.CN?format=json&per_page=40');
+    const rows = Array.isArray(j) ? j[1] : null;
+    if (!Array.isArray(rows)) return null;
+    const out = {};
+    for (const r of rows) {
+      const y = Number(r?.date), v = r?.value;
+      if (Number.isInteger(y) && v != null && v > 0) out[y] = Math.round(v);
+    }
+    return Object.keys(out).length ? out : null;
+  } catch (e) { console.warn(`GDP: ${e.message}`); return null; }
+}
+
 // ── main ──
 const tickers = extractTickers();
 console.log(`Tickers: ${tickers.length}`);
@@ -164,6 +184,12 @@ const [quotes, closes, tasi] = [
   await fetchCloses(tickers),
   await fetchTasi(),
 ];
+
+// Saudi GDP — carry the previous snapshot forward if the WB call hiccups so the
+// Buffett denominator never silently drops to its hardcoded fallback.
+const gdp = (await fetchGDP()) || prevSnap?.gdp || null;
+if (gdp) console.log(`GDP: ${Object.keys(gdp).length} years (latest ${Math.max(...Object.keys(gdp).map(Number))})`);
+else console.warn('GDP: unavailable this run — dashboard will use its hardcoded table');
 
 // Fill quote gaps from spark closes (price = last close, change = vs previous)
 let derived = 0;
@@ -210,7 +236,7 @@ const DELIST_MS = 35 * 24 * 36e5;
 const delisted = tickers.filter(t => seen[t] != null && now - seen[t] > DELIST_MS);
 if (delisted.length) console.warn(`Possibly delisted/suspended (${delisted.length}): ${delisted.join(', ')}`);
 
-const snapshot = { generated: Date.now(), generatedISO: new Date().toISOString(), quotes, closes, tasi, seen, delisted };
+const snapshot = { generated: Date.now(), generatedISO: new Date().toISOString(), quotes, closes, tasi, seen, delisted, gdp };
 mkdirSync(join(ROOT, 'data'), { recursive: true });
 writeFileSync(join(ROOT, 'data', 'market_snapshot.json'), JSON.stringify(snapshot));
 console.log(`Wrote data/market_snapshot.json (${(JSON.stringify(snapshot).length / 1048576).toFixed(2)} MB)`);

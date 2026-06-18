@@ -31,10 +31,20 @@ function extractFunction(name) {
 }
 
 const ctx = vm.createContext({ console });
-for (const fn of ['_num', 'deriveMetricsFromStatements', 'scorePEG']) {
+// The GDP helpers depend on the SAUDI_GDP_BY_YEAR table and SAUDI_GDP_SAR, which are
+// const/let declarations rather than functions — eval them into the context first.
+{
+  const tbl = html.match(/const SAUDI_GDP_BY_YEAR = \{[\s\S]*?\};/);
+  if (tbl) vm.runInContext(tbl[0], ctx);
+}
+for (const fn of ['_num', 'deriveMetricsFromStatements', 'scorePEG', 'gdpAt', 'applyGdpFromSnapshot']) {
   vm.runInContext(extractFunction(fn), ctx);
 }
-const { _num, deriveMetricsFromStatements, scorePEG } = ctx;
+vm.runInContext('let SAUDI_GDP_SAR = gdpAt(Date.now());', ctx);
+// `const` declarations aren't exposed on the context object — re-export the table by
+// reference so tests can read its (mutating) values.
+vm.runInContext('globalThis.__GDP = SAUDI_GDP_BY_YEAR;', ctx);
+const { _num, deriveMetricsFromStatements, scorePEG, gdpAt, applyGdpFromSnapshot, __GDP } = ctx;
 
 // ── tiny assertion harness ──
 let passed = 0, failed = 0;
@@ -184,6 +194,35 @@ eq(scorePEG(15, null).score, 50, 'missing growth → neutral score 50');
   const r = scorePEG(10, 0.25);
   eq(r.peg, 0.4, 'PEG below 0.5');
   eq(r.score, 75, 'PEG < 0.5 → exceptional band (+25)');
+}
+
+// ════════ gdpAt — mid-year-anchored interpolation ════════
+{
+  const jul1 = y => Date.UTC(y, 6, 1);
+  // Each annual figure is the value exactly at its mid-year anchor.
+  eq(gdpAt(jul1(2024)), __GDP[2024], 'gdpAt at mid-2024 returns the 2024 figure exactly');
+  eq(gdpAt(jul1(2025)), __GDP[2025], 'gdpAt at mid-2025 returns the 2025 figure exactly');
+  // Halfway between two anchors → halfway between the two figures.
+  const mid = (jul1(2024) + jul1(2025)) / 2;
+  const expectMid = (__GDP[2024] + __GDP[2025]) / 2;
+  eq(gdpAt(mid), expectMid, 'gdpAt halfway between anchors interpolates linearly');
+  // Clamps below the first / above the last anchor.
+  eq(gdpAt(jul1(2000)), __GDP[2019], 'gdpAt clamps to first year before the table');
+  eq(gdpAt(jul1(2099)), __GDP[2026], 'gdpAt clamps to last year after the table');
+}
+
+// ════════ applyGdpFromSnapshot — World Bank merge over the seed table ════════
+{
+  const before2024 = __GDP[2024];
+  // Authoritative WB actuals override matching years; new years extend the table.
+  const changed = applyGdpFromSnapshot({ 2024: before2024 + 5e9, 2027: 5.5e12 });
+  eq(changed, 2, 'applyGdpFromSnapshot reports 2 changed years');
+  eq(__GDP[2024], before2024 + 5e9, 'WB actual overrides the seed 2024 value');
+  eq(__GDP[2027], 5.5e12, 'WB adds a new year beyond the seed table');
+  // Identical/invalid payloads are no-ops.
+  eq(applyGdpFromSnapshot({ 2024: before2024 + 5e9 }), 0, 'unchanged value is not re-counted');
+  eq(applyGdpFromSnapshot({ 2028: -1, 2029: 0 }), 0, 'non-positive values are ignored');
+  eq(applyGdpFromSnapshot(null), 0, 'null payload → 0 changes');
 }
 
 // ── result ──
