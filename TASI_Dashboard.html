@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260617g'; // bump this string on every deploy that matters
+  var V='20260617h'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -439,7 +439,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260617h · market P/E history (Wtd/Median/Mean) now uses the same universe as the headline tiles — REITs & delisted excluded, Aramco out of the cap-weighted curve only (was inflating it ~1.6x); even-count median fixed; removed dead estimation code · v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -11201,10 +11201,6 @@ function _renderMPEChart() {
   const validHist = rawHist.filter(e => e.pe > 0 && e.pe < 40);
   const storedMap = new Map(validHist.map(e=>[e.d, e]));
 
-  // Ratios for estimating historical median/mean from TASI price (when actual stored data unavailable)
-  const medRatio  = wtdAvg > 0 ? median / wtdAvg : 1;
-  const meanRatio = wtdAvg > 0 ? mean   / wtdAvg : 1;
-
   // Three separate point maps — one per curve
   const wtdMap = new Map(), medMap = new Map(), meanMap = new Map();
 
@@ -11280,6 +11276,12 @@ function _renderMPEChart() {
     const stamps = s.timestamps || [];
     if (closes.length < 5 || stamps.length !== closes.length) continue;
     if (!(s.pe > 0) || !(s.price > 0)) continue;
+    // Match _mpeCalc's universe so the historical curves agree with the headline tiles:
+    // REITs are excluded (their P/E is structurally incomparable to equities) and delisted
+    // names dropped. Aramco is excluded from the cap-weighted sum ONLY (below) — its ~7T cap
+    // would dominate the index P/E — but it stays in the equal-weighted median/mean as 1 of N.
+    if (s.isReit || s.sector === 'REITs' || s._delisted) continue;
+    const isAramco = s.ticker === '2222.SR';
     const shares = s.sharesOutstanding || (s.mktCap > 0 ? s.mktCap / s.price : 0);
     const tl = epsTimelines.get(s.ticker);
     if (!tl) continue; // no statement-derived earnings history → not measured, skip
@@ -11295,7 +11297,7 @@ function _renderMPEChart() {
       let agg = dateAgg.get(dateStr);
       if (!agg) { agg = { capSum:0, earnSum:0, peList:[], t:tMs, dynN:0, statN:0 }; dateAgg.set(dateStr, agg); }
       agg.peList.push(histPE);
-      if (shares > 0) { agg.capSum += c * shares; agg.earnSum += eps * shares; }
+      if (shares > 0 && !isAramco) { agg.capSum += c * shares; agg.earnSum += eps * shares; } // ex-Aramco, matches tile
       agg.dynN++;
     }
   }
@@ -11305,7 +11307,8 @@ function _renderMPEChart() {
     const stored = storedMap.get(dateStr);
     const wtd    = agg.earnSum > 0 ? agg.capSum / agg.earnSum : null;
     const sorted = agg.peList.slice().sort((a,b)=>a-b);
-    const med    = sorted[Math.floor(sorted.length/2)];
+    const mid    = Math.floor(sorted.length/2);
+    const med    = sorted.length%2 ? sorted[mid] : (sorted[mid-1]+sorted[mid])/2; // matches _mpeCalc
     const mean   = agg.peList.reduce((a,b)=>a+b,0) / agg.peList.length;
     if (stored?.pe   > 0 && stored.pe   < 40) wtdMap.set(dateStr,  { t:agg.t, pe:stored.pe });
     else if (wtd > 0 && wtd < 40)             wtdMap.set(dateStr,  { t:agg.t, pe:+wtd.toFixed(2),  estimated:true });
