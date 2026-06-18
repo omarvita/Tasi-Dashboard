@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260617h'; // bump this string on every deploy that matters
+  var V='20260618a'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -439,7 +439,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260617h · market P/E history (Wtd/Median/Mean) now uses the same universe as the headline tiles — REITs & delisted excluded, Aramco out of the cap-weighted curve only (was inflating it ~1.6x); even-count median fixed; removed dead estimation code · v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260618a · breakdown chart below the valuation chart: P/E shows Market Cap vs Earnings vs Revenue (indexed); Buffett shows Market Cap vs GDP · curve + range selectors moved directly above the chart · v20260617h · market P/E history (Wtd/Median/Mean) now uses the same universe as the headline tiles — REITs & delisted excluded, Aramco out of the cap-weighted curve only (was inflating it ~1.6x); even-count median fixed; removed dead estimation code · v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -537,22 +537,6 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
             <span>Cheap &lt;15</span><span>Fair 15–25</span><span>Expensive &gt;25</span>
           </div>
         </div>
-        <div style="display:flex;gap:4px;margin-left:auto;align-items:center;flex-wrap:wrap">
-          <span id="mpe-curve-wrap" style="display:inline-flex;gap:4px;align-items:center">
-            <span style="color:var(--tx3);font-size:8px;margin-right:2px">Curve:</span>
-            <button class="tasi-rng-btn" id="mpe-c-wtd"  onclick="setMPECurve('wtd')"  style="background:var(--acc);color:#000;border-color:var(--acc)">Wtd Avg</button>
-            <button class="tasi-rng-btn" id="mpe-c-med"  onclick="setMPECurve('med')">Median</button>
-            <button class="tasi-rng-btn" id="mpe-c-mean" onclick="setMPECurve('mean')">Mean</button>
-            <span style="border-left:1px solid var(--b2);height:12px;margin:0 4px"></span>
-          </span>
-          <button class="tasi-rng-btn" id="mpe-r-3m"  onclick="setMPERange('3M')">3M</button>
-          <button class="tasi-rng-btn" id="mpe-r-6m"  onclick="setMPERange('6M')">6M</button>
-          <button class="tasi-rng-btn" id="mpe-r-1y"  onclick="setMPERange('1Y')" style="background:var(--acc);color:#000;border-color:var(--acc)">1Y</button>
-          <button class="tasi-rng-btn" id="mpe-r-2y"  onclick="setMPERange('2Y')">2Y</button>
-          <button class="tasi-rng-btn" id="mpe-r-5y"  onclick="setMPERange('5Y')">5Y</button>
-          <button class="tasi-rng-btn" id="mpe-r-10y" onclick="setMPERange('10Y')">10Y</button>
-          <button class="tasi-rng-btn" id="mpe-r-all" onclick="setMPERange('All')">All</button>
-        </div>
       </div>
       <!-- Selected-indicator description (updates as you click a tile) -->
       <div id="mpe-ind-desc" style="font-size:9px;color:var(--tx3);line-height:1.45;margin-bottom:10px;padding:6px 9px;background:var(--bg3);border:1px solid var(--b1);border-radius:5px"></div>
@@ -560,7 +544,31 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
       <div id="mkt-cond-banner" style="display:none;margin-bottom:10px"></div>
       <div style="font-size:8px;color:var(--tx3);margin-bottom:6px">👆 Click any tile below to see its history over time. Hover for a definition.</div>
       <div id="mkt-cond-tiles" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>
+      <!-- Curve + range selectors — placed directly above the chart they control -->
+      <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+        <span id="mpe-curve-wrap" style="display:inline-flex;gap:4px;align-items:center">
+          <span style="color:var(--tx3);font-size:8px;margin-right:2px">Curve:</span>
+          <button class="tasi-rng-btn" id="mpe-c-wtd"  onclick="setMPECurve('wtd')"  style="background:var(--acc);color:#000;border-color:var(--acc)">Wtd Avg</button>
+          <button class="tasi-rng-btn" id="mpe-c-med"  onclick="setMPECurve('med')">Median</button>
+          <button class="tasi-rng-btn" id="mpe-c-mean" onclick="setMPECurve('mean')">Mean</button>
+          <span style="border-left:1px solid var(--b2);height:12px;margin:0 4px"></span>
+        </span>
+        <button class="tasi-rng-btn" id="mpe-r-3m"  onclick="setMPERange('3M')">3M</button>
+        <button class="tasi-rng-btn" id="mpe-r-6m"  onclick="setMPERange('6M')">6M</button>
+        <button class="tasi-rng-btn" id="mpe-r-1y"  onclick="setMPERange('1Y')">1Y</button>
+        <button class="tasi-rng-btn" id="mpe-r-2y"  onclick="setMPERange('2Y')">2Y</button>
+        <button class="tasi-rng-btn" id="mpe-r-5y"  onclick="setMPERange('5Y')" style="background:var(--acc);color:#000;border-color:var(--acc)">5Y</button>
+        <button class="tasi-rng-btn" id="mpe-r-10y" onclick="setMPERange('10Y')">10Y</button>
+        <button class="tasi-rng-btn" id="mpe-r-all" onclick="setMPERange('All')">All</button>
+      </div>
       <div style="height:180px"><canvas id="market-pe-chart"></canvas></div>
+      <!-- Component breakdown — shown only for P/E (Market Cap vs Earnings vs Revenue)
+           and Buffett (Market Cap vs GDP). Hidden for all other indicators. -->
+      <div id="mpe-breakdown-wrap" style="display:none;margin-top:12px;padding-top:10px;border-top:1px solid var(--b1)">
+        <div id="mpe-breakdown-title" style="font-size:10px;color:var(--tx2);margin-bottom:4px;font-weight:600">Breakdown</div>
+        <div style="height:160px"><canvas id="mpe-breakdown-chart"></canvas></div>
+        <div id="mpe-breakdown-legend" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:10px;font-family:var(--mono)"></div>
+      </div>
     </div>
   </div>
   <div class="pw" id="pw" style="display:none">
@@ -10533,6 +10541,7 @@ function computeVolatility(closesIn) {
 
 // ── Market P/E Statistics ─────────────────────────────────────────────────
 let marketPEChartInst = null;
+let _mpeBreakdownInst = null; // component-breakdown chart below the main valuation chart
 let marketPEChartVisible = false;
 let _mpeRange = '5Y'; // active range button
 let _mpeCurve = 'wtd'; // 'wtd' | 'med' | 'mean'
@@ -10887,7 +10896,14 @@ function _buildMktValHistory() {
     const buffett = A.capExA > 0 ? A.capExA / GD : null;
     const overall = _computeOverallScore({ wtdAvg: wtdPE, erp, breadth: br50, wtdDY: dy,
                                            wtdPB: pb, cape: null, mktPS: ps, breadth200: br200 });
-    out.set(d, { t: A.t, pe: wtdPE, buffett, ey, erp, dy, pb, ps, br50, br200, hl52, overall });
+    // Raw component aggregates for the breakdown chart (all ex-Aramco, raw SAR):
+    //   mcap = total market cap (price-measured, every date)
+    //   earn = total reported TTM net income, rev = total reported TTM revenue
+    //          (only where statement coverage ≥ MIN_COV, so they line up with the P/E line)
+    const mcap = A.capExA > 0 ? A.capExA : null;
+    const earn = covOK && A.niSum  > 0 ? A.niSum  : null;
+    const rev  = covOK && A.revSum > 0 ? A.revSum : null;
+    out.set(d, { t: A.t, pe: wtdPE, buffett, ey, erp, dy, pb, ps, br50, br200, hl52, overall, mcap, earn, rev });
   }
   return out;
 }
@@ -11103,7 +11119,10 @@ function toggleMarketPEChart() {
   wrap.style.display = marketPEChartVisible ? 'block' : 'none';
   if (hint) hint.textContent = marketPEChartVisible ? '▲ hide tools' : '▼ valuation tools';
   if (marketPEChartVisible) { updateMarketPEStats(); _renderMarketConditions(); setTimeout(_renderMPEChart, 30); }
-  else if (marketPEChartInst) { try { marketPEChartInst.destroy(); } catch(e){} marketPEChartInst = null; }
+  else {
+    if (marketPEChartInst) { try { marketPEChartInst.destroy(); } catch(e){} marketPEChartInst = null; }
+    if (_mpeBreakdownInst) { try { _mpeBreakdownInst.destroy(); } catch(e){} _mpeBreakdownInst = null; }
+  }
 }
 
 function setMPERange(r) {
@@ -11164,6 +11183,7 @@ function _renderMPEChart() {
   if (marketPEChartInst) { try { marketPEChartInst.destroy(); } catch(e){} marketPEChartInst = null; }
   const ctx = document.getElementById('market-pe-chart');
   if (!ctx) return;
+  try { _renderBreakdownChart(); } catch(e) {} // component breakdown (P/E & Buffett only; self-hides otherwise)
   if (_mktValIndicator !== 'pe') { _renderIndicatorHistChart(ctx); return; }
   const r = _mpeCalc();
   if (!r) return;
@@ -11399,6 +11419,121 @@ function _renderMPEChart() {
         y:{ title:{display:true, text:'P/E Ratio', color:'#4a5568', font:fontOpts},
             ticks:{font:fontOpts, color:'#4a5568', callback:v=>v+'x'},
             grid:{color:'rgba(255,255,255,0.03)'}, border:{color:'#232830'} }
+      }
+    }
+  });
+}
+
+// Component breakdown beneath the main valuation chart. Shown only for the two
+// indicators whose value is a ratio of two aggregates the user may want to see
+// separately: P/E (Market Cap vs Earnings vs Revenue) and the Buffett Indicator
+// (Market Cap vs GDP). Hidden for every other indicator. Reads the same
+// _buildMktValHistory cache and the active range, so it stays in sync with the
+// chart above. Data is real (ex-Aramco, statement-measured) — no estimates.
+function _renderBreakdownChart() {
+  const wrap = document.getElementById('mpe-breakdown-wrap');
+  if (!wrap) return;
+  const ind = _mktValIndicator;
+  const isPE = ind === 'pe', isBuf = ind === 'buffett';
+  if (!isPE && !isBuf) {
+    wrap.style.display = 'none';
+    if (_mpeBreakdownInst) { try { _mpeBreakdownInst.destroy(); } catch(e){} _mpeBreakdownInst = null; }
+    return;
+  }
+  wrap.style.display = 'block';
+  const canvas = document.getElementById('mpe-breakdown-chart');
+  if (!canvas) return;
+  if (_mpeBreakdownInst) { try { _mpeBreakdownInst.destroy(); } catch(e){} _mpeBreakdownInst = null; }
+
+  if (!_mktValHistCache) _mktValHistCache = { data: _buildMktValHistory() };
+  const recon = _mktValHistCache.data;
+  const rangeDays = { '3M':90, '6M':180, '1Y':365, '2Y':730, '5Y':1825, '10Y':3650, 'All':30*365 }[_mpeRange] || 365;
+  const cutoffMs  = Date.now() - rangeDays * 864e5;
+  const win = rangeDays <= 200 ? 3 : rangeDays <= 800 ? 7 : 15;
+
+  const titleEl  = document.getElementById('mpe-breakdown-title');
+  const legendEl = document.getElementById('mpe-breakdown-legend');
+  const fontOpts = { size:8, family:"'IBM Plex Mono'" };
+  const _fmtSAR = v => {
+    if (v == null || !isFinite(v)) return '—';
+    const a = Math.abs(v);
+    if (a >= 1e12) return (v/1e12).toFixed(2)+'T';
+    if (a >= 1e9)  return (v/1e9).toFixed(1)+'B';
+    if (a >= 1e6)  return (v/1e6).toFixed(0)+'M';
+    return v.toFixed(0);
+  };
+
+  const rows = [...recon.entries()].filter(([d,v]) => v.t >= cutoffMs).sort((a,b)=> a[0] < b[0] ? -1 : 1);
+  if (rows.length < 5) {
+    const c2 = canvas.getContext('2d');
+    c2.clearRect(0,0,canvas.width,canvas.height);
+    c2.fillStyle='#4a5568'; c2.font="11px 'IBM Plex Mono'"; c2.textAlign='center';
+    c2.fillText('Breakdown appears once statement history finishes loading.', canvas.width/2, canvas.height/2);
+    if (legendEl) legendEl.innerHTML = '';
+    return;
+  }
+  const labels = rows.map(r => r[0]);
+  const last = arr => { for (let i=arr.length-1;i>=0;i--) if (arr[i]!=null) return arr[i]; return null; };
+
+  let datasets, yTitle, tooltipLabel;
+  if (isBuf) {
+    // Absolute trillions: total Market Cap (ex-Aramco) against the constant GDP base.
+    // Their ratio is exactly the Buffett Indicator shown in the chart above.
+    const mcT  = _rollingMedian(rows.map(r => r[1].mcap ?? null), win).map(v => v != null ? +(v/1e12).toFixed(3) : null);
+    const gdpT = +(SAUDI_GDP_SAR/1e12).toFixed(3);
+    datasets = [
+      { label:'Market Cap (ex-Aramco)', data:mcT, borderColor:'#4f9cf9', backgroundColor:'rgba(79,156,249,0.07)', fill:true, pointRadius:0, borderWidth:2, tension:0.2, spanGaps:true },
+      { label:'Saudi GDP', data:labels.map(()=>gdpT), borderColor:'#f59e0b', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
+    ];
+    yTitle = 'SAR (trillions)';
+    tooltipLabel = c => c.raw != null ? `${c.dataset.label}: ${c.raw}T` : null;
+    if (titleEl) titleEl.textContent = 'Market Cap vs GDP — the Buffett Indicator is their ratio';
+    const lMC = last(mcT);
+    if (legendEl) legendEl.innerHTML =
+        `<span style="color:#4f9cf9">■ Market Cap: ${lMC!=null?lMC.toFixed(2)+'T':'—'} SAR</span>`
+      + `<span style="color:#f59e0b">■ Saudi GDP: ${gdpT.toFixed(2)}T SAR</span>`
+      + `<span style="color:var(--tx3)">▸ Ratio: ${lMC!=null?((lMC/gdpT)*100).toFixed(0)+'%':'—'}</span>`;
+  } else {
+    // P/E: index Market Cap, Earnings and Revenue to 100 at the first date all three
+    // exist, so their relative growth is comparable on one axis (P/E rises when cap
+    // outpaces earnings). Legend shows the latest absolute totals.
+    const rawMc = _rollingMedian(rows.map(r => r[1].mcap ?? null), win);
+    const rawEa = _rollingMedian(rows.map(r => r[1].earn ?? null), win);
+    const rawRv = _rollingMedian(rows.map(r => r[1].rev  ?? null), win);
+    let baseI = -1;
+    for (let i=0;i<labels.length;i++){ if (rawMc[i]>0 && rawEa[i]>0 && rawRv[i]>0){ baseI=i; break; } }
+    const idx = arr => { const base = baseI>=0 ? arr[baseI] : arr.find(v=>v>0); return arr.map(v => (v>0 && base>0) ? +(v/base*100).toFixed(1) : null); };
+    datasets = [
+      { label:'Market Cap', data:idx(rawMc), borderColor:'#4f9cf9', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:2, tension:0.2, spanGaps:true },
+      { label:'Earnings',   data:idx(rawEa), borderColor:'#22c55e', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:2, tension:0.2, spanGaps:true },
+      { label:'Revenue',    data:idx(rawRv), borderColor:'#f59e0b', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:2, tension:0.2, spanGaps:true },
+    ];
+    yTitle = 'Indexed (start = 100)';
+    tooltipLabel = c => c.raw != null ? `${c.dataset.label}: ${c.raw}` : null;
+    if (titleEl) titleEl.textContent = 'Total Market Cap vs Earnings vs Revenue (indexed to 100 at period start)';
+    if (legendEl) legendEl.innerHTML =
+        `<span style="color:#4f9cf9">■ Market Cap: ${_fmtSAR(last(rawMc))} SAR</span>`
+      + `<span style="color:#22c55e">■ Earnings: ${_fmtSAR(last(rawEa))} SAR</span>`
+      + `<span style="color:#f59e0b">■ Revenue: ${_fmtSAR(last(rawRv))} SAR</span>`;
+  }
+
+  _mpeBreakdownInst = new Chart(canvas, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins: {
+        legend:{ display:false },
+        tooltip:{ backgroundColor:'rgba(24,28,34,0.97)', borderColor:'#2d3440', borderWidth:1,
+          titleColor:'#e8eaed', bodyColor:'#8a9ab5',
+          titleFont:{family:"'IBM Plex Mono'",size:9}, bodyFont:{family:"'IBM Plex Mono'",size:9},
+          callbacks:{ label: tooltipLabel } }
+      },
+      scales: {
+        x:{ ticks:{font:fontOpts, color:'#4a5568', ..._axDateTicks(labels)}, grid:{display:false}, border:{color:'#232830'} },
+        y:{ title:{display:true, text:yTitle, color:'#4a5568', font:fontOpts},
+            ticks:{font:fontOpts, color:'#4a5568'}, grid:{color:'rgba(255,255,255,0.03)'}, border:{color:'#232830'} }
       }
     }
   });
