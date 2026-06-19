@@ -45,7 +45,7 @@ for (const re of [/const _DE_TOLERANCE = \{[\s\S]*?\};/, /const _CYCLICAL_SCORE 
 vm.runInContext('let sectorMedianPE = {};', ctx);
 // _computeOverallScore depends on the _clamp01 helper (a const arrow) — eval it first.
 { const m = html.match(/const _clamp01 = [^;]+;/); if (m) vm.runInContext(m[0], ctx); }
-for (const fn of ['_num', 'deriveMetricsFromStatements', 'scorePEG', 'gdpAt', 'applyGdpFromSnapshot', '_cycleMetrics', 'scoreFundamental', 'scoreBuffett', '_computeOverallScore']) {
+for (const fn of ['_num', 'deriveMetricsFromStatements', 'scorePEG', 'gdpAt', 'applyGdpFromSnapshot', '_cycleMetrics', 'scoreFundamental', 'scoreBuffett', '_computeOverallScore', '_pctileVerdict']) {
   vm.runInContext(extractFunction(fn), ctx);
 }
 vm.runInContext('let SAUDI_GDP_SAR = gdpAt(Date.now());', ctx);
@@ -53,7 +53,7 @@ vm.runInContext('let SAUDI_GDP_SAR = gdpAt(Date.now());', ctx);
 // reference so tests can read its (mutating) values.
 vm.runInContext('globalThis.__GDP = SAUDI_GDP_BY_YEAR;', ctx);
 const { _num, deriveMetricsFromStatements, scorePEG, gdpAt, applyGdpFromSnapshot, __GDP,
-        _cycleMetrics, scoreFundamental, scoreBuffett, _computeOverallScore } = ctx;
+        _cycleMetrics, scoreFundamental, scoreBuffett, _computeOverallScore, _pctileVerdict } = ctx;
 
 // ── tiny assertion harness ──
 let passed = 0, failed = 0;
@@ -300,6 +300,20 @@ eq(scorePEG(15, null).score, 50, 'missing growth → neutral score 50');
   eq(s, 38, 'full signal set blends to 38/100 with recalibrated P/B & P/S anchors');
   // Valuation present (P/E) + 2 breadth → 3 parts, valid even without DY/PB/PS.
   eq(typeof _computeOverallScore({ wtdAvg:18, breadth:0.6, breadth200:0.55 }), 'number', 'P/E + 2 breadth → a number');
+}
+
+// ════════ _pctileVerdict — relative-to-history valuation labels ════════
+{
+  // richHigh: a low percentile = cheap (e.g. P/S near its multi-year low).
+  eq(_pctileVerdict(0.12, 'richHigh').label, 'Cheap',  'P/S at 12th %ile of its history → Cheap');
+  eq(_pctileVerdict(0.90, 'richHigh').label, 'Rich',   'P/S at 90th %ile → Rich');
+  eq(_pctileVerdict(0.50, 'richHigh').label, 'Near avg','mid percentile → Near avg');
+  // richLow: a HIGH yield (high percentile) = cheap, so the scale inverts.
+  eq(_pctileVerdict(0.90, 'richLow').label,  'Cheap',  'dividend/earnings yield at 90th %ile → Cheap');
+  eq(_pctileVerdict(0.10, 'richLow').label,  'Rich',   'yield at 10th %ile → Rich');
+  // Colours track the verdict (green cheap, red rich).
+  eq(_pctileVerdict(0.05, 'richHigh').col, '#2ed573', 'cheap → green');
+  eq(_pctileVerdict(0.95, 'richHigh').col, '#e74c3c', 'rich → red');
 }
 
 // ── result ──
