@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260618d'; // bump this string on every deploy that matters
+  var V='20260618e'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -439,7 +439,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260618c · Buffett Indicator now divides by time-varying nominal GDP (annual series 2019-2026, World Bank/IMF × 3.75 peg, mid-year interpolated) instead of a flat SAR 4.83T — history and the Market Cap vs GDP breakdown use the GDP of each date · v20260618b · breakdown P/E (Market Cap/Earnings/Revenue) now built from the SAME reconstruction as the P/E line above — identical basket & date span (was using the 50%-coverage builder, so earnings/revenue started years later than the P/E line) · v20260618a · breakdown chart below the valuation chart: P/E shows Market Cap vs Earnings vs Revenue (indexed); Buffett shows Market Cap vs GDP · curve + range selectors moved directly above the chart · v20260617h · market P/E history (Wtd/Median/Mean) now uses the same universe as the headline tiles — REITs & delisted excluded, Aramco out of the cap-weighted curve only (was inflating it ~1.6x); even-count median fixed; removed dead estimation code · v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260618e · breakdown charts now plot actual SAR on dual y-axes (Market Cap in trillions left, Revenue/Earnings in billions right) instead of a confusing indexed-to-100 scale; added a Market Cap vs Revenue breakdown under the P/S chart (cap ÷ revenue = the P/S line) · v20260618d · Saudi GDP now auto-updates from the World Bank (NY.GDP.MKTP.CN) via the nightly Action — Buffett denominator tracks official figures each year without manual edits · v20260618c · Buffett Indicator now divides by time-varying nominal GDP (annual series 2019-2026, World Bank/IMF × 3.75 peg, mid-year interpolated) instead of a flat SAR 4.83T — history and the Market Cap vs GDP breakdown use the GDP of each date · v20260618b · breakdown P/E (Market Cap/Earnings/Revenue) now built from the SAME reconstruction as the P/E line above — identical basket & date span (was using the 50%-coverage builder, so earnings/revenue started years later than the P/E line) · v20260618a · breakdown chart below the valuation chart: P/E shows Market Cap vs Earnings vs Revenue (indexed); Buffett shows Market Cap vs GDP · curve + range selectors moved directly above the chart · v20260617h · market P/E history (Wtd/Median/Mean) now uses the same universe as the headline tiles — REITs & delisted excluded, Aramco out of the cap-weighted curve only (was inflating it ~1.6x); even-count median fixed; removed dead estimation code · v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -10956,7 +10956,10 @@ function _buildMktValHistory() {
     const mcap = A.capExA > 0 ? A.capExA : null;
     const earn = covOK && A.niSum  > 0 ? A.niSum  : null;
     const rev  = covOK && A.revSum > 0 ? A.revSum : null;
-    out.set(d, { t: A.t, pe: wtdPE, buffett, ey, erp, dy, pb, ps, br50, br200, hl52, overall, mcap, earn, rev });
+    // mcapPS = the cap of just the revenue-reporting stocks (the P/S numerator), so the
+    // P/S breakdown's Market Cap ÷ Revenue equals the P/S line exactly.
+    const mcapPS = covOK && A.psMC > 0 ? A.psMC : null;
+    out.set(d, { t: A.t, pe: wtdPE, buffett, ey, erp, dy, pb, ps, br50, br200, hl52, overall, mcap, earn, rev, mcapPS });
   }
   return out;
 }
@@ -11499,18 +11502,19 @@ function _renderMPEChart() {
   });
 }
 
-// Component breakdown beneath the main valuation chart. Shown only for the two
+// Component breakdown beneath the main valuation chart. Shown only for the
 // indicators whose value is a ratio of two aggregates the user may want to see
-// separately: P/E (Market Cap vs Earnings vs Revenue) and the Buffett Indicator
-// (Market Cap vs GDP). Hidden for every other indicator. Reads the same
-// _buildMktValHistory cache and the active range, so it stays in sync with the
-// chart above. Data is real (ex-Aramco, statement-measured) — no estimates.
+// separately: P/E (Market Cap vs Earnings vs Revenue), P/S (Market Cap vs Revenue)
+// and the Buffett Indicator (Market Cap vs GDP). Hidden for every other indicator.
+// Each magnitude gets its OWN y-axis (Market Cap in SAR trillions on the left,
+// Revenue/Earnings in SAR billions on the right) so the lines show real values
+// instead of a shared, confusing scale. Data is real (ex-Aramco, statement-measured).
 function _renderBreakdownChart() {
   const wrap = document.getElementById('mpe-breakdown-wrap');
   if (!wrap) return;
   const ind = _mktValIndicator;
-  const isPE = ind === 'pe', isBuf = ind === 'buffett';
-  if (!isPE && !isBuf) {
+  const isPE = ind === 'pe', isBuf = ind === 'buffett', isPS = ind === 'ps';
+  if (!isPE && !isBuf && !isPS) {
     wrap.style.display = 'none';
     if (_mpeBreakdownInst) { try { _mpeBreakdownInst.destroy(); } catch(e){} _mpeBreakdownInst = null; }
     return;
@@ -11525,14 +11529,14 @@ function _renderBreakdownChart() {
   const win = rangeDays <= 200 ? 3 : rangeDays <= 800 ? 7 : 15;
 
   // Source: the P/E view reuses _renderMPEChart's OWN reconstruction (_mpePeBreakdown) so the
-  // breakdown shares the exact basket and date span as the P/E line above it. The Buffett view
-  // uses _buildMktValHistory (its market-cap series is the same one the Buffett line is built from).
+  // breakdown shares the exact basket and date span as the P/E line above it. The Buffett and
+  // P/S views use _buildMktValHistory — the same series their lines above are built from.
   let src;
-  if (isBuf) {
+  if (isPE) {
+    src = _mpePeBreakdown || new Map();
+  } else {
     if (!_mktValHistCache) _mktValHistCache = { data: _buildMktValHistory() };
     src = _mktValHistCache.data;
-  } else {
-    src = _mpePeBreakdown || new Map();
   }
 
   const titleEl  = document.getElementById('mpe-breakdown-title');
@@ -11559,7 +11563,11 @@ function _renderBreakdownChart() {
   const labels = rows.map(r => r[0]);
   const last = arr => { for (let i=arr.length-1;i>=0;i--) if (arr[i]!=null) return arr[i]; return null; };
 
-  let datasets, yTitle, tooltipLabel;
+  // Each magnitude gets its own axis: Market Cap (SAR trillions) on the left, the
+  // billions-scale aggregates (Revenue / Earnings) on the right — so a 2.5T cap and a
+  // ~170B earnings figure are each readable instead of squashed onto one shared scale.
+  const axTitle = t => ({ display:true, text:t, color:'#4a5568', font:fontOpts });
+  let datasets, tooltipLabel, yScales;
   if (isBuf) {
     // Absolute trillions: total Market Cap (ex-Aramco) against GDP. GDP is the date-appropriate
     // nominal figure (rising over time), so the gap between the lines IS the Buffett Indicator.
@@ -11569,8 +11577,9 @@ function _renderBreakdownChart() {
       { label:'Market Cap (ex-Aramco)', data:mcT, borderColor:'#4f9cf9', backgroundColor:'rgba(79,156,249,0.07)', fill:true, pointRadius:0, borderWidth:2, tension:0.2, spanGaps:true },
       { label:'Saudi GDP', data:gdpT, borderColor:'#f59e0b', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
     ];
-    yTitle = 'SAR (trillions)';
     tooltipLabel = c => c.raw != null ? `${c.dataset.label}: ${c.raw}T` : null;
+    yScales = { y:{ title:axTitle('SAR (trillions)'), ticks:{font:fontOpts, color:'#4a5568', callback:v=>v+'T'},
+                    grid:{color:'rgba(255,255,255,0.03)'}, border:{color:'#232830'} } };
     if (titleEl) titleEl.textContent = 'Market Cap vs GDP (nominal, by year) — the Buffett Indicator is their ratio';
     const lMC = last(mcT), lGDP = gdpT.length ? gdpT[gdpT.length-1] : (SAUDI_GDP_SAR/1e12);
     if (legendEl) legendEl.innerHTML =
@@ -11578,27 +11587,42 @@ function _renderBreakdownChart() {
       + `<span style="color:#f59e0b">■ Saudi GDP: ${lGDP.toFixed(2)}T SAR</span>`
       + `<span style="color:var(--tx3)">▸ Ratio: ${lMC!=null?((lMC/lGDP)*100).toFixed(0)+'%':'—'}</span>`;
   } else {
-    // P/E: index Market Cap, Earnings and Revenue to 100 at the first date all three
-    // exist, so their relative growth is comparable on one axis (P/E rises when cap
-    // outpaces earnings). Legend shows the latest absolute totals.
-    const rawMc = _rollingMedian(rows.map(r => r[1].mcap ?? null), win);
-    const rawEa = _rollingMedian(rows.map(r => r[1].earn ?? null), win);
+    // P/E and P/S both decompose into Market Cap (left, trillions) over a billions-scale
+    // aggregate (right). Real SAR values — no indexing. P/S uses the revenue-matched cap
+    // (mcapPS) so cap ÷ revenue equals the P/S line; P/E uses _mpePeBreakdown's own basket.
+    const rawMc = _rollingMedian(rows.map(r => (isPS ? r[1].mcapPS : r[1].mcap) ?? null), win);
     const rawRv = _rollingMedian(rows.map(r => r[1].rev  ?? null), win);
-    let baseI = -1;
-    for (let i=0;i<labels.length;i++){ if (rawMc[i]>0 && rawEa[i]>0 && rawRv[i]>0){ baseI=i; break; } }
-    const idx = arr => { const base = baseI>=0 ? arr[baseI] : arr.find(v=>v>0); return arr.map(v => (v>0 && base>0) ? +(v/base*100).toFixed(1) : null); };
-    datasets = [
-      { label:'Market Cap', data:idx(rawMc), borderColor:'#4f9cf9', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:2, tension:0.2, spanGaps:true },
-      { label:'Earnings',   data:idx(rawEa), borderColor:'#22c55e', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:2, tension:0.2, spanGaps:true },
-      { label:'Revenue',    data:idx(rawRv), borderColor:'#f59e0b', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:2, tension:0.2, spanGaps:true },
-    ];
-    yTitle = 'Indexed (start = 100)';
-    tooltipLabel = c => c.raw != null ? `${c.dataset.label}: ${c.raw}` : null;
-    if (titleEl) titleEl.textContent = 'Total Market Cap vs Earnings vs Revenue (indexed to 100 at period start)';
-    if (legendEl) legendEl.innerHTML =
-        `<span style="color:#4f9cf9">■ Market Cap: ${_fmtSAR(last(rawMc))} SAR</span>`
-      + `<span style="color:#22c55e">■ Earnings: ${_fmtSAR(last(rawEa))} SAR</span>`
-      + `<span style="color:#f59e0b">■ Revenue: ${_fmtSAR(last(rawRv))} SAR</span>`;
+    const mcT = rawMc.map(v => v!=null ? +(v/1e12).toFixed(3) : null);
+    const rvB = rawRv.map(v => v!=null ? +(v/1e9).toFixed(1)  : null);
+    datasets = [ { label:'Market Cap', data:mcT, yAxisID:'y', borderColor:'#4f9cf9', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:2, tension:0.2, spanGaps:true } ];
+    if (isPE) {
+      const rawEa = _rollingMedian(rows.map(r => r[1].earn ?? null), win);
+      const eaB   = rawEa.map(v => v!=null ? +(v/1e9).toFixed(1) : null);
+      datasets.push(
+        { label:'Revenue',  data:rvB, yAxisID:'y1', borderColor:'#f59e0b', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:2, tension:0.2, spanGaps:true },
+        { label:'Earnings', data:eaB, yAxisID:'y1', borderColor:'#22c55e', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:2, tension:0.2, spanGaps:true },
+      );
+      if (titleEl) titleEl.textContent = 'Total Market Cap vs Earnings vs Revenue (actual SAR — cap on left axis, rev/earn on right)';
+      if (legendEl) legendEl.innerHTML =
+          `<span style="color:#4f9cf9">■ Market Cap: ${_fmtSAR(last(rawMc))} SAR</span>`
+        + `<span style="color:#22c55e">■ Earnings: ${_fmtSAR(last(rawEa))} SAR</span>`
+        + `<span style="color:#f59e0b">■ Revenue: ${_fmtSAR(last(rawRv))} SAR</span>`;
+    } else { // P/S
+      datasets.push({ label:'Revenue', data:rvB, yAxisID:'y1', borderColor:'#f59e0b', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:2, tension:0.2, spanGaps:true });
+      if (titleEl) titleEl.textContent = 'Total Market Cap vs Revenue — P/S is their ratio (actual SAR — cap on left axis, rev on right)';
+      const lMC = last(rawMc), lRv = last(rawRv);
+      if (legendEl) legendEl.innerHTML =
+          `<span style="color:#4f9cf9">■ Market Cap: ${_fmtSAR(lMC)} SAR</span>`
+        + `<span style="color:#f59e0b">■ Revenue: ${_fmtSAR(lRv)} SAR</span>`
+        + `<span style="color:var(--tx3)">▸ P/S: ${(lMC>0&&lRv>0)?(lMC/lRv).toFixed(2)+'x':'—'}</span>`;
+    }
+    tooltipLabel = c => c.raw==null ? null : `${c.dataset.label}: ${c.raw}${c.dataset.yAxisID==='y1'?'B':'T'} SAR`;
+    yScales = {
+      y:  { type:'linear', position:'left',  title:axTitle('Market Cap (SAR T)'),
+            ticks:{font:fontOpts, color:'#4f9cf9', callback:v=>v+'T'}, grid:{color:'rgba(255,255,255,0.03)'}, border:{color:'#232830'} },
+      y1: { type:'linear', position:'right', title:axTitle(isPE ? 'Revenue / Earnings (SAR B)' : 'Revenue (SAR B)'),
+            ticks:{font:fontOpts, color:'#f59e0b', callback:v=>v+'B'}, grid:{drawOnChartArea:false}, border:{color:'#232830'} },
+    };
   }
 
   _mpeBreakdownInst = new Chart(canvas, {
@@ -11614,11 +11638,9 @@ function _renderBreakdownChart() {
           titleFont:{family:"'IBM Plex Mono'",size:9}, bodyFont:{family:"'IBM Plex Mono'",size:9},
           callbacks:{ label: tooltipLabel } }
       },
-      scales: {
-        x:{ ticks:{font:fontOpts, color:'#4a5568', ..._axDateTicks(labels)}, grid:{display:false}, border:{color:'#232830'} },
-        y:{ title:{display:true, text:yTitle, color:'#4a5568', font:fontOpts},
-            ticks:{font:fontOpts, color:'#4a5568'}, grid:{color:'rgba(255,255,255,0.03)'}, border:{color:'#232830'} }
-      }
+      scales: Object.assign({
+        x:{ ticks:{font:fontOpts, color:'#4a5568', ..._axDateTicks(labels)}, grid:{display:false}, border:{color:'#232830'} }
+      }, yScales)
     }
   });
 }
