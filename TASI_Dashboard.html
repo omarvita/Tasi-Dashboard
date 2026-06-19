@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260618e'; // bump this string on every deploy that matters
+  var V='20260619a'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -439,7 +439,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260618e · breakdown charts now plot actual SAR on dual y-axes (Market Cap in trillions left, Revenue/Earnings in billions right) instead of a confusing indexed-to-100 scale; added a Market Cap vs Revenue breakdown under the P/S chart (cap ÷ revenue = the P/S line) · v20260618d · Saudi GDP now auto-updates from the World Bank (NY.GDP.MKTP.CN) via the nightly Action — Buffett denominator tracks official figures each year without manual edits · v20260618c · Buffett Indicator now divides by time-varying nominal GDP (annual series 2019-2026, World Bank/IMF × 3.75 peg, mid-year interpolated) instead of a flat SAR 4.83T — history and the Market Cap vs GDP breakdown use the GDP of each date · v20260618b · breakdown P/E (Market Cap/Earnings/Revenue) now built from the SAME reconstruction as the P/E line above — identical basket & date span (was using the 50%-coverage builder, so earnings/revenue started years later than the P/E line) · v20260618a · breakdown chart below the valuation chart: P/E shows Market Cap vs Earnings vs Revenue (indexed); Buffett shows Market Cap vs GDP · curve + range selectors moved directly above the chart · v20260617h · market P/E history (Wtd/Median/Mean) now uses the same universe as the headline tiles — REITs & delisted excluded, Aramco out of the cap-weighted curve only (was inflating it ~1.6x); even-count median fixed; removed dead estimation code · v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260619a · Saudi-tuned scoring: Fundamental D/E thresholds now widen for regulated/capital-intensive sectors (utilities, telecom, real estate, transport, energy), and ROE & margins for commodity-cyclical sectors (petrochem, chemicals, materials, building materials, energy) are scored on a multi-year through-cycle median — Buffett score applies both too · breakdown Revenue is now the complete market total on both the P/E and P/S charts (was understated on P/E, which only counted the earnings basket) · guide updated · v20260618e · breakdown charts now plot actual SAR on dual y-axes (Market Cap in trillions left, Revenue/Earnings in billions right) instead of a confusing indexed-to-100 scale; added a Market Cap vs Revenue breakdown under the P/S chart (cap ÷ revenue = the P/S line) · v20260618d · Saudi GDP now auto-updates from the World Bank (NY.GDP.MKTP.CN) via the nightly Action — Buffett denominator tracks official figures each year without manual edits · v20260618c · Buffett Indicator now divides by time-varying nominal GDP (annual series 2019-2026, World Bank/IMF × 3.75 peg, mid-year interpolated) instead of a flat SAR 4.83T — history and the Market Cap vs GDP breakdown use the GDP of each date · v20260618b · breakdown P/E (Market Cap/Earnings/Revenue) now built from the SAME reconstruction as the P/E line above — identical basket & date span (was using the 50%-coverage builder, so earnings/revenue started years later than the P/E line) · v20260618a · breakdown chart below the valuation chart: P/E shows Market Cap vs Earnings vs Revenue (indexed); Buffett shows Market Cap vs GDP · curve + range selectors moved directly above the chart · v20260617h · market P/E history (Wtd/Median/Mean) now uses the same universe as the headline tiles — REITs & delisted excluded, Aramco out of the cap-weighted curve only (was inflating it ~1.6x); even-count median fixed; removed dead estimation code · v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -3893,9 +3893,9 @@ const TIPS = {
   dps:            'Dividends Per Share — estimated annual cash dividend paid per ordinary share. Formula: Dividend Yield × Share Price.',
   rev_momentum:   'Whether the most recent year\'s revenue growth rate is accelerating (above) or decelerating (below) the prior-year average.',
   price:          'Last traded share price on Tadawul (Saudi Exchange) in Saudi Riyals (SAR). Updated live when Yahoo Finance data is available.',
-  fundamental:    'Composite score (0–100) measuring valuation, profitability, growth, and balance sheet strength. Higher = stronger financial fundamentals.',
+  fundamental:    'Composite score (0–100) measuring valuation, profitability, growth, and balance sheet strength. D/E thresholds are widened for regulated/capital-intensive sectors, and ROE & margins for commodity-cyclical sectors are scored on a multi-year through-cycle average. Higher = stronger financial fundamentals.',
   technical_score:'Composite score (0–100) based on price momentum, RSI, moving average crossovers, and 52-week high/low position. Higher = stronger price trend.',
-  buffett_score:  'Score (0–100) based on Warren Buffett\'s criteria from "The Interpretation of Financial Statements": sustained ROE above 15%, low debt, wide margins, and consistent earnings growth.',
+  buffett_score:  'Score (0–100) based on Warren Buffett\'s criteria from "The Interpretation of Financial Statements": sustained ROE above 15%, low debt, wide margins, and consistent earnings growth. Saudi-tuned: sector-specific ROE thresholds, sector-aware D/E limits, and through-cycle ROE/margins for cyclical (petrochem, materials, energy) names.',
   combined:       'Weighted blend of Fundamental, Technical, Buffett, PEG, and DCF/DDM scores. The overall ranking signal used to sort the dashboard.',
   signal:         'Buy/Hold/Sell recommendation derived from the Combined Score. Buy ≥ 65, Hold 45–64, Sell < 45. Quantitative model output — not financial advice.',
   atr:            'Average True Range (14-day) — measures daily price volatility. Calculated as the greatest of: current High−Low, |High−prev Close|, |Low−prev Close|. Higher ATR = wider daily swings. Use for stop-loss sizing: a stop 2×ATR below entry gives room for normal noise.',
@@ -3962,12 +3962,47 @@ let chartInst=null;
 // ═══════════════════════════════════════
 // SCORING WITH FULL BREAKDOWN
 // ═══════════════════════════════════════
+
+// Sectors whose business model tolerates structurally higher leverage (regulated or
+// capital-intensive infrastructure with stable/contracted revenue). Their D/E band edges
+// are MULTIPLIED by this factor so they aren't penalised on the same scale as an
+// asset-light consumer business — a 90% D/E utility is normal, for a retailer it is not.
+const _DE_TOLERANCE = {
+  'Utilities':2.5, 'REITs':2.5, 'Real Estate':1.8, 'Telecom':1.8,
+  'Transportation':1.6, 'Energy':1.5, 'Industrial':1.3, 'Building Materials':1.3,
+};
+// Cyclical (commodity-price-driven) sectors. Point-in-time ROE/margins mislead at cycle
+// peaks and troughs, so for these we score on a THROUGH-CYCLE median of the last few
+// annual years where statement history allows. Kept in sync with the DCF cyclical set.
+const _CYCLICAL_SCORE = new Set(['Petrochemicals','Chemicals','Materials','Building Materials','Energy']);
+
+// Through-cycle ROE / net margin from up to 5 annual statements (median across the years).
+// Returns {roe, npm, years} or null. No estimates — every input is a reported annual figure.
+function _cycleMetrics(d){
+  const aIS = d.rawTwelveData?.annual?.is, aBS = d.rawTwelveData?.annual?.bs;
+  if (!Array.isArray(aIS) || aIS.length < 2) return null;
+  const eqByYear = {};
+  (aBS || []).forEach(r => { const y=(r.fiscal_date||r.date||'').slice(0,4); const eq=parseFloat(r.total_equity); if (y && eq>0) eqByYear[y]=eq; });
+  const roes=[], npms=[];
+  for (const r of aIS.slice(0,5)) {
+    const y=(r.fiscal_date||r.date||'').slice(0,4);
+    const ni=parseFloat(r.net_income), rev=parseFloat(r.revenue), eq=eqByYear[y];
+    if (isFinite(ni) && rev>0) npms.push(ni/rev);
+    if (isFinite(ni) && eq>0)  roes.push(ni/eq);
+  }
+  const med = arr => { if (!arr.length) return null; const s=[...arr].sort((a,b)=>a-b); const m=s.length>>1; return s.length%2 ? s[m] : (s[m-1]+s[m])/2; };
+  const roe = roes.length>=2 ? med(roes) : null, npm = npms.length>=2 ? med(npms) : null;
+  return (roe==null && npm==null) ? null : { roe, npm, years: Math.max(roes.length, npms.length) };
+}
+
 function scoreFundamental(d){
   const steps=[];
   let p=50;
   function add(label,raw,delta,why,detail){p+=delta;steps.push({label,raw,delta,why,detail:detail||""});}
 
   const pe=d.pe,pb=d.pb,roe=d.roe,npm=d.npm,de=d.de,dy=d.dy,fcf=d.fcf,rg=d.rg,eg=d.eg;
+  // Through-cycle ROE/margin for commodity-cyclical sectors (else null → use latest TTM).
+  const _cyc = _CYCLICAL_SCORE.has(d.sector) ? _cycleMetrics(d) : null;
 
   if(pe!=null){
     const secMed = (d.sector && sectorMedianPE[d.sector] && pe > 0 && pe < 200) ? sectorMedianPE[d.sector] : null;
@@ -4000,28 +4035,44 @@ function scoreFundamental(d){
   }
 
   if(roe!=null){
-    if(roe>0.25)add("ROE",(roe*100).toFixed(1)+"%",+20,"Outstanding ROE above 25%","Top 5% of TASI companies. Generates exceptional returns on every riyal of equity. This level of ROE compounds dramatically: SAR 100,000 invested and compounded at 25% ROE for 10 years becomes SAR 931,000. Verify it is not inflated by excessive leverage — calculate: ROE ÷ (1 + D/E) to get underlying asset return.");
-    else if(roe>0.18)add("ROE",(roe*100).toFixed(1)+"%",+14,"Excellent ROE 18–25%","Buffett's favourite range. The company earns 18–25 halalas for every riyal of shareholder equity — well above the TASI median of ~11%. This strongly indicates a competitive moat protecting the business. Check consistency: has ROE stayed in this range for 3+ years through different market conditions?");
-    else if(roe>0.12)add("ROE",(roe*100).toFixed(1)+"%",+9,"Good ROE 12–18%","Above the TASI median. The company creates real value for shareholders above what they could earn in bank deposits or bonds. Solid but not exceptional. Watch the trend — improving ROE over 3 years is more valuable than a single good year.");
-    else if(roe>0.06)add("ROE",(roe*100).toFixed(1)+"%",+3,"Average ROE 6–12%","Earns roughly at or slightly above the cost of equity. The company is barely creating value above the opportunity cost of the capital. Needs to be compensated by a low P/E or clearly improving trend. Not a business Buffett would get excited about.");
-    else if(roe>0)add("ROE",(roe*100).toFixed(1)+"%",-5,"Low ROE below 6%","Earns less than the cost of equity. Management is not generating adequate returns on shareholder capital. Shareholders would be better off if the company paid out more dividends and let them invest elsewhere. Unless there is a clear structural turnaround, this is value-destroying.");
-    else add("ROE",(roe*100).toFixed(1)+"%",-18,"Negative ROE — destroying value","Net losses actively erode equity. Each quarter without a turnaround the book value shrinks further. Combined with high debt this is a distress signal. Requires a specific, credible recovery plan — new management, restructuring, or a major industry tailwind — before considering any position.");
+    // Cyclical sectors are scored on the through-cycle median ROE so a trough/peak year
+    // doesn't misrate them; everyone else on the latest TTM ROE.
+    const roeEff = (_cyc && _cyc.roe!=null) ? _cyc.roe : roe;
+    const _rt = (_cyc && _cyc.roe!=null) ? ` (${_cyc.years}y avg)` : '';
+    const _rc = (_cyc && _cyc.roe!=null) ? ` Scored on the ${_cyc.years}-year through-cycle average (${(roeEff*100).toFixed(1)}%), not the latest year, because ${d.sector} returns swing with the commodity cycle.` : '';
+    const R=(roeEff*100).toFixed(1)+"%"+_rt;
+    if(roeEff>0.25)add("ROE",R,+20,"Outstanding ROE above 25%","Top 5% of TASI companies. Generates exceptional returns on every riyal of equity. This level of ROE compounds dramatically: SAR 100,000 invested and compounded at 25% ROE for 10 years becomes SAR 931,000. Verify it is not inflated by excessive leverage — calculate: ROE ÷ (1 + D/E) to get underlying asset return."+_rc);
+    else if(roeEff>0.18)add("ROE",R,+14,"Excellent ROE 18–25%","Buffett's favourite range. The company earns 18–25 halalas for every riyal of shareholder equity — well above the TASI median of ~11%. This strongly indicates a competitive moat protecting the business. Check consistency: has ROE stayed in this range for 3+ years through different market conditions?"+_rc);
+    else if(roeEff>0.12)add("ROE",R,+9,"Good ROE 12–18%","Above the TASI median. The company creates real value for shareholders above what they could earn in bank deposits or bonds. Solid but not exceptional. Watch the trend — improving ROE over 3 years is more valuable than a single good year."+_rc);
+    else if(roeEff>0.06)add("ROE",R,+3,"Average ROE 6–12%","Earns roughly at or slightly above the cost of equity. The company is barely creating value above the opportunity cost of the capital. Needs to be compensated by a low P/E or clearly improving trend. Not a business Buffett would get excited about."+_rc);
+    else if(roeEff>0)add("ROE",R,-5,"Low ROE below 6%","Earns less than the cost of equity. Management is not generating adequate returns on shareholder capital. Shareholders would be better off if the company paid out more dividends and let them invest elsewhere. Unless there is a clear structural turnaround, this is value-destroying."+_rc);
+    else add("ROE",R,-18,"Negative ROE — destroying value","Net losses actively erode equity. Each quarter without a turnaround the book value shrinks further. Combined with high debt this is a distress signal. Requires a specific, credible recovery plan — new management, restructuring, or a major industry tailwind — before considering any position."+_rc);
   }
 
   if(npm!=null){
-    if(npm>0.25)add("Net Margin",(npm*100).toFixed(1)+"%",+14,"Very high net margins above 25%","Near-monopoly pricing power. Converts 25+ halalas of every riyal of revenue into profit. Rare and valuable — this is the fingerprint of a genuine economic moat. Saudi Aramco, dominant banks, regulated utilities achieve this. Very difficult for competitors to replicate without the same structural advantage.");
-    else if(npm>0.15)add("Net Margin",(npm*100).toFixed(1)+"%",+9,"Healthy net margins 15–25%","Significant competitive protection. The company has either a cost advantage, strong brand, or captive customers. Watch 5-year trend: expanding margins = moat widening. Contracting margins = competition intensifying. Even 2–3% annual margin contraction over 5 years can cut earnings by 30%.");
-    else if(npm>0.08)add("Net Margin",(npm*100).toFixed(1)+"%",+5,"Adequate net margins 8–15%","Solid profitability with some competitive protection. A 15% revenue decline in a bad year would cut profits by roughly half but the business survives. Healthcare, consumer, and industrial companies often operate here. Monitor for cost creep — energy, labor, and materials costs are the main margin risks.");
-    else if(npm>0)add("Net Margin",(npm*100).toFixed(1)+"%",-3,"Thin net margins below 8%","Low pricing power. Small revenue declines or cost increases wipe out most profit. Only acceptable if compensated by high asset turnover (revenue/assets above 1.5x). Supermarkets, distributors, and commodity processors often operate here — the business model depends on volume, not margin.");
-    else add("Net Margin",(npm*100).toFixed(1)+"%",-14,"Negative net margins — operating at a loss","Revenue does not cover operating costs. The business model is broken at current scale or pricing. Before writing it off check: is this a temporary commodity cycle downturn (will recover when petrochem or cement prices recover) or a permanent structural problem (pricing power permanently lost to competition)?");
+    const npmEff = (_cyc && _cyc.npm!=null) ? _cyc.npm : npm;
+    const _nt = (_cyc && _cyc.npm!=null) ? ` (${_cyc.years}y avg)` : '';
+    const _nc = (_cyc && _cyc.npm!=null) ? ` Scored on the ${_cyc.years}-year through-cycle average (${(npmEff*100).toFixed(1)}%) so a trough or peak year doesn't distort a commodity-cyclical ${d.sector} name.` : '';
+    const N=(npmEff*100).toFixed(1)+"%"+_nt;
+    if(npmEff>0.25)add("Net Margin",N,+14,"Very high net margins above 25%","Near-monopoly pricing power. Converts 25+ halalas of every riyal of revenue into profit. Rare and valuable — this is the fingerprint of a genuine economic moat. Saudi Aramco, dominant banks, regulated utilities achieve this. Very difficult for competitors to replicate without the same structural advantage."+_nc);
+    else if(npmEff>0.15)add("Net Margin",N,+9,"Healthy net margins 15–25%","Significant competitive protection. The company has either a cost advantage, strong brand, or captive customers. Watch 5-year trend: expanding margins = moat widening. Contracting margins = competition intensifying. Even 2–3% annual margin contraction over 5 years can cut earnings by 30%."+_nc);
+    else if(npmEff>0.08)add("Net Margin",N,+5,"Adequate net margins 8–15%","Solid profitability with some competitive protection. A 15% revenue decline in a bad year would cut profits by roughly half but the business survives. Healthcare, consumer, and industrial companies often operate here. Monitor for cost creep — energy, labor, and materials costs are the main margin risks."+_nc);
+    else if(npmEff>0)add("Net Margin",N,-3,"Thin net margins below 8%","Low pricing power. Small revenue declines or cost increases wipe out most profit. Only acceptable if compensated by high asset turnover (revenue/assets above 1.5x). Supermarkets, distributors, and commodity processors often operate here — the business model depends on volume, not margin."+_nc);
+    else add("Net Margin",N,-14,"Negative net margins — operating at a loss","Revenue does not cover operating costs. The business model is broken at current scale or pricing. Before writing it off check: is this a temporary commodity cycle downturn (will recover when petrochem or cement prices recover) or a permanent structural problem (pricing power permanently lost to competition)?"+_nc);
   }
 
   if(de!=null){
-    if(de<20)add("Debt/Equity",de.toFixed(0)+"%",+12,"Very conservative debt below 20%","Fortress balance sheet. Could repay all debt from a few years of earnings. Maximum financial flexibility — can invest through downturns, make acquisitions, or increase dividends without worrying about covenants or refinancing. In a market crash this company becomes a buyer while leveraged peers struggle to survive.");
-    else if(de<50)add("Debt/Equity",de.toFixed(0)+"%",+7,"Moderate debt 20–50%","Prudent leverage. Uses debt to enhance returns without becoming dependent on cheap credit. Can weather 2–3 years of difficulty without refinancing risk. Interest coverage is likely comfortable. Buffett: good businesses should not need heavy debt to sustain competitive position — and this one does not.");
-    else if(de<100)add("Debt/Equity",de.toFixed(0)+"%",+2,"Elevated debt 50–100%","Manageable for stable regulated businesses (utilities, telecoms, REITs with long-term leases). Dangerous for cyclical businesses during downturns. Key metric: interest coverage ratio (EBIT ÷ interest expense). If it falls below 3x during a revenue decline, refinancing risk becomes real.");
-    else if(de<200)add("Debt/Equity",de.toFixed(0)+"%",-8,"High debt 100–200%","Interest payments consume a significant portion of operating profit. One credit rating downgrade and refinancing costs spike — potentially creating a vicious cycle. Particularly dangerous in rising rate environments. Monitor quarterly cash flow and upcoming debt maturities carefully.");
-    else add("Debt/Equity",de.toFixed(0)+"%",-14,"Very high debt above 200%","Red flag. Heavy leverage that magnifies losses in bad years. Even a small revenue decline can trigger covenant breaches, forced asset sales, or equity dilution. Acceptable only for regulated utilities with fully contracted, guaranteed revenue — and even then requires careful scrutiny of debt maturity schedule.");
+    // Regulated/capital-intensive sectors carry higher debt by design (contracted or
+    // regulated revenue services it), so widen their band edges instead of penalising
+    // them on the same scale as an asset-light business.
+    const _tol = _DE_TOLERANCE[d.sector] || 1;
+    const b1=20*_tol, b2=50*_tol, b3=100*_tol, b4=200*_tol;
+    const _ds = _tol>1 ? ` Thresholds widened ${_tol}× for ${d.sector}, whose regulated/contracted revenue supports structurally higher leverage.` : '';
+    if(de<b1)add("Debt/Equity",de.toFixed(0)+"%",+12,"Very conservative debt","Fortress balance sheet. Could repay all debt from a few years of earnings. Maximum financial flexibility — can invest through downturns, make acquisitions, or increase dividends without worrying about covenants or refinancing. In a market crash this company becomes a buyer while leveraged peers struggle to survive."+_ds);
+    else if(de<b2)add("Debt/Equity",de.toFixed(0)+"%",+7,"Moderate debt","Prudent leverage. Uses debt to enhance returns without becoming dependent on cheap credit. Can weather 2–3 years of difficulty without refinancing risk. Interest coverage is likely comfortable. Buffett: good businesses should not need heavy debt to sustain competitive position — and this one does not."+_ds);
+    else if(de<b3)add("Debt/Equity",de.toFixed(0)+"%",+2,"Elevated debt","Manageable for stable regulated businesses (utilities, telecoms, REITs with long-term leases). Dangerous for cyclical businesses during downturns. Key metric: interest coverage ratio (EBIT ÷ interest expense). If it falls below 3x during a revenue decline, refinancing risk becomes real."+_ds);
+    else if(de<b4)add("Debt/Equity",de.toFixed(0)+"%",-8,"High debt","Interest payments consume a significant portion of operating profit. One credit rating downgrade and refinancing costs spike — potentially creating a vicious cycle. Particularly dangerous in rising rate environments. Monitor quarterly cash flow and upcoming debt maturities carefully."+_ds);
+    else add("Debt/Equity",de.toFixed(0)+"%",-14,"Very high debt","Red flag. Heavy leverage that magnifies losses in bad years. Even a small revenue decline can trigger covenant breaches, forced asset sales, or equity dilution. Acceptable only for regulated utilities with fully contracted, guaranteed revenue — and even then requires careful scrutiny of debt maturity schedule."+_ds);
   } else add("Debt/Equity","N/A (bank)",+3,"Bank — assessed on capital ratios","Banks operate with structural leverage by design. SAMA regulates under Basel III. Look at: Tier 1 Capital Ratio (strong if above 14%), Non-Performing Loan ratio (excellent if below 1.5%), Net Interest Margin (good above 3%), and Return on Assets (strong above 1.5%). These replace D/E for banks.");
 
   if(dy!=null){
@@ -4092,67 +4143,77 @@ function scoreBuffett(d){
   // so these companies are not unfairly penalised vs higher-margin service businesses.
   const _roeThreshBF = {'Utilities':0.08,'Energy':0.10,'Petrochemicals':0.10,'Chemicals':0.10,'Building Materials':0.10,'Transportation':0.10,'Materials':0.10};
   const roeT = isReit ? 0.06 : (_roeThreshBF[d.sector] ?? 0.15);
-  const npmT=isReit?0.35:0.12,deT=isReit?120:70,dyT=isReit?0.045:0.025,pbT=isReit?1.3:2.5;
+  // D/E threshold widened for regulated/capital-intensive sectors (same tolerance table as
+  // the Fundamental score), so a leveraged utility isn't flagged like a leveraged retailer.
+  const npmT=isReit?0.35:0.12,deT=(isReit?120:70)*(_DE_TOLERANCE[d.sector]||1),dyT=isReit?0.045:0.025,pbT=isReit?1.3:2.5;
+  // Through-cycle ROE/margin for commodity-cyclical sectors (else null → latest TTM).
+  const _cycB = _CYCLICAL_SCORE.has(d.sector) ? _cycleMetrics(d) : null;
+  const roeEff = (_cycB && _cycB.roe!=null) ? _cycB.roe : roe;
+  const npmEff = (_cycB && _cycB.npm!=null) ? _cycB.npm : npm;
+  const _rcB = (_cycB && _cycB.roe!=null) ? ` Through-cycle ${_cycB.years}-year median ROE used (${(roeEff*100).toFixed(1)}%) — Buffett judges cyclical businesses across the whole cycle, not at a single peak or trough.` : '';
+  const _ncB = (_cycB && _cycB.npm!=null) ? ` Through-cycle ${_cycB.years}-year median margin used (${(npmEff*100).toFixed(1)}%).` : '';
+  const _rtB = (_cycB && _cycB.roe!=null) ? ` (${_cycB.years}y avg)` : '';
+  const _ntB = (_cycB && _cycB.npm!=null) ? ` (${_cycB.years}y avg)` : '';
 
   // ── ROE: most important criterion ──
-  crit.highROE=roe!=null&&roe>=roeT;
-  if(roe==null){
+  crit.highROE=roeEff!=null&&roeEff>=roeT;
+  if(roeEff==null){
     add("ROE (Return on Equity)","Missing",-5,"No ROE data — cannot assess capital efficiency.",
       "Buffett's Book Chapter 4: 'We look for companies with consistently high returns on equity.' Without ROE data we cannot determine if management is a skilled allocator of capital. Treat as significant data gap and investigate company filings directly.",null);
-  } else if(roe>0.30){
-    add("ROE (Return on Equity)",(roe*100).toFixed(1)+"%",+22,"Outstanding ROE > 30%. Buffett's dream: a company printing money on equity.",
-      "Buffett Chapter 4 key quote: 'The primary test of managerial economic performance is the achievement of a high earnings rate on equity capital employed.' ROE above 30% sustained for 5+ years is extraordinary — it means $1 of retained earnings creates $1.30+ of future earnings annually. Verify it's not leveraged artificially (high D/E can inflate ROE).",
+  } else if(roeEff>0.30){
+    add("ROE (Return on Equity)",(roeEff*100).toFixed(1)+"%"+_rtB,+22,"Outstanding ROE > 30%. Buffett's dream: a company printing money on equity.",
+      "Buffett Chapter 4 key quote: 'The primary test of managerial economic performance is the achievement of a high earnings rate on equity capital employed.' ROE above 30% sustained for 5+ years is extraordinary — it means $1 of retained earnings creates $1.30+ of future earnings annually. Verify it's not leveraged artificially (high D/E can inflate ROE)."+_rcB,
       "highROE");
-  } else if(roe>0.20){
-    add("ROE (Return on Equity)",(roe*100).toFixed(1)+"%",+16,"Excellent ROE 20–30%. Strong competitive advantage evident.",
-      "ROE 20–30% consistently indicates a durable advantage — the company earns significantly more than its cost of equity (~10–12% for Saudi stocks). Buffett's Berkshire targets 15%+ ROE. Companies sustaining 20%+ ROE typically have pricing power, switching costs, or network effects protecting them.",
+  } else if(roeEff>0.20){
+    add("ROE (Return on Equity)",(roeEff*100).toFixed(1)+"%"+_rtB,+16,"Excellent ROE 20–30%. Strong competitive advantage evident.",
+      "ROE 20–30% consistently indicates a durable advantage — the company earns significantly more than its cost of equity (~10–12% for Saudi stocks). Buffett's Berkshire targets 15%+ ROE. Companies sustaining 20%+ ROE typically have pricing power, switching costs, or network effects protecting them."+_rcB,
       "highROE");
-  } else if(roe>roeT){
-    add("ROE (Return on Equity)",(roe*100).toFixed(1)+"%",+10,`Good ROE ${(roeT*100).toFixed(0)}–20%. Above Buffett minimum threshold.`,
-      `Buffett's minimum threshold in his early letters was 15% ROE for non-financial companies. ROE of ${(roe*100).toFixed(1)}% clears this bar but isn't exceptional. It earns 'adequate' in Buffett's framework. Monitor consistency — a single year above threshold doesn't confirm a moat.`,
+  } else if(roeEff>roeT){
+    add("ROE (Return on Equity)",(roeEff*100).toFixed(1)+"%"+_rtB,+10,`Good ROE ${(roeT*100).toFixed(0)}–20%. Above Buffett minimum threshold.`,
+      `Buffett's minimum threshold in his early letters was 15% ROE for non-financial companies. ROE of ${(roeEff*100).toFixed(1)}% clears this bar but isn't exceptional. It earns 'adequate' in Buffett's framework. Monitor consistency — a single year above threshold doesn't confirm a moat.`+_rcB,
       "highROE");
-  } else if(roe>roeT*0.5){
-    add("ROE (Return on Equity)",(roe*100).toFixed(1)+"%",-5,`Marginal ROE ${(roeT*50).toFixed(0)}–${(roeT*100).toFixed(0)}%. Below Buffett's required minimum.`,
-      "Buffett would say this ROE is 'adequate' but not indicative of a durable advantage. At this level the company barely earns above its cost of equity. Management needs to improve capital efficiency or return cash to shareholders rather than reinvesting at low rates.",
+  } else if(roeEff>roeT*0.5){
+    add("ROE (Return on Equity)",(roeEff*100).toFixed(1)+"%"+_rtB,-5,`Marginal ROE ${(roeT*50).toFixed(0)}–${(roeT*100).toFixed(0)}%. Below Buffett's required minimum.`,
+      "Buffett would say this ROE is 'adequate' but not indicative of a durable advantage. At this level the company barely earns above its cost of equity. Management needs to improve capital efficiency or return cash to shareholders rather than reinvesting at low rates."+_rcB,
       null);
-  } else if(roe>0){
-    add("ROE (Return on Equity)",(roe*100).toFixed(1)+"%",-12,"Weak ROE. Management is poor steward of equity capital.",
-      "Buffett avoids companies with chronically low ROE. 'Management's economic performance is simply measured by the return on equity.' Low ROE means $1 reinvested generates less than $1 of value. Better to pay dividends and let shareholders redeploy capital.",
+  } else if(roeEff>0){
+    add("ROE (Return on Equity)",(roeEff*100).toFixed(1)+"%"+_rtB,-12,"Weak ROE. Management is poor steward of equity capital.",
+      "Buffett avoids companies with chronically low ROE. 'Management's economic performance is simply measured by the return on equity.' Low ROE means $1 reinvested generates less than $1 of value. Better to pay dividends and let shareholders redeploy capital."+_rcB,
       "highROE");
   } else {
-    add("ROE (Return on Equity)",(roe*100).toFixed(1)+"%",-22,"Negative ROE: destroying shareholder value. Buffett's biggest red flag.",
-      "Buffett Book Chapter 8: 'Poor managers... are frequently wrong, they compound their errors.' Negative ROE means equity is shrinking. Each year of losses makes recovery harder. Buffett has never bought a loss-making company expecting a turnaround — he waits for demonstrated earnings recovery.",
+    add("ROE (Return on Equity)",(roeEff*100).toFixed(1)+"%"+_rtB,-22,"Negative ROE: destroying shareholder value. Buffett's biggest red flag.",
+      "Buffett Book Chapter 8: 'Poor managers... are frequently wrong, they compound their errors.' Negative ROE means equity is shrinking. Each year of losses makes recovery harder. Buffett has never bought a loss-making company expecting a turnaround — he waits for demonstrated earnings recovery."+_rcB,
       "highROE");
   }
 
   // ── Net Margin: durable advantage test ──
-  crit.goodMargins=npm!=null&&npm>=npmT;
-  if(npm==null){
+  crit.goodMargins=npmEff!=null&&npmEff>=npmT;
+  if(npmEff==null){
     add("Net Profit Margin","Missing",-5,"No margin data available.",
       "Net margin reveals whether a company has pricing power. Buffett looks for margins that are consistently high — not just in one good year. A company that cannot consistently earn a high net margin likely lacks a durable competitive advantage.",null);
-  } else if(npm>0.35){
-    add("Net Profit Margin",(npm*100).toFixed(1)+"%",+18,"Exceptional margins > 35%. Near-monopoly pricing power.",
-      "Buffett Book Chapter 12: 'A company with a durable competitive advantage... tends to have high profit margins.' Margins above 35% are monopoly-like. Think about Saudi Aramco's production costs vs. oil price — the structural margin advantage is permanent. This is what Buffett calls 'the economic moat.'",
+  } else if(npmEff>0.35){
+    add("Net Profit Margin",(npmEff*100).toFixed(1)+"%"+_ntB,+18,"Exceptional margins > 35%. Near-monopoly pricing power.",
+      "Buffett Book Chapter 12: 'A company with a durable competitive advantage... tends to have high profit margins.' Margins above 35% are monopoly-like. Think about Saudi Aramco's production costs vs. oil price — the structural margin advantage is permanent. This is what Buffett calls 'the economic moat.'"+_ncB,
       "goodMargins");
-  } else if(npm>0.20){
-    add("Net Profit Margin",(npm*100).toFixed(1)+"%",+13,"Strong margins 20–35%. Significant competitive advantage.",
-      "Margins of 20–35% signal that competitors cannot easily undercut prices. The company has either a cost advantage (proprietary tech, scale, cheap inputs) or pricing power (brand, regulation, switching costs). Buffett: 'Price is what you pay, value is what you get' — and high margins mean the company captures most of the value.",
+  } else if(npmEff>0.20){
+    add("Net Profit Margin",(npmEff*100).toFixed(1)+"%"+_ntB,+13,"Strong margins 20–35%. Significant competitive advantage.",
+      "Margins of 20–35% signal that competitors cannot easily undercut prices. The company has either a cost advantage (proprietary tech, scale, cheap inputs) or pricing power (brand, regulation, switching costs). Buffett: 'Price is what you pay, value is what you get' — and high margins mean the company captures most of the value."+_ncB,
       "goodMargins");
-  } else if(npm>=npmT){
-    add("Net Profit Margin",(npm*100).toFixed(1)+"%",+7,`Adequate margins ${(npmT*100).toFixed(0)}–20%. Some competitive protection.`,
-      `Buffett's minimum comfort zone for non-commodity businesses is roughly 10–12% net margins. At ${(npm*100).toFixed(1)}% this company is generating real profit but isn't dominant. Competition may be eroding margins. Watch 5-year trend: are margins expanding or contracting?`,
+  } else if(npmEff>=npmT){
+    add("Net Profit Margin",(npmEff*100).toFixed(1)+"%"+_ntB,+7,`Adequate margins ${(npmT*100).toFixed(0)}–20%. Some competitive protection.`,
+      `Buffett's minimum comfort zone for non-commodity businesses is roughly 10–12% net margins. At ${(npmEff*100).toFixed(1)}% this company is generating real profit but isn't dominant. Competition may be eroding margins. Watch 5-year trend: are margins expanding or contracting?`+_ncB,
       "goodMargins");
-  } else if(npm>0.05){
-    add("Net Profit Margin",(npm*100).toFixed(1)+"%",-6,"Thin margins 5–12%. Commodity-like business — Buffett avoids.",
-      "Buffett Book: 'Businesses in industries with fierce competition... tend to have low profit margins.' At these margins the company is a price-taker, not a price-maker. Airlines, distributors, and commodity producers often sit here. A 10% revenue decline wipes out most of the profit.",
+  } else if(npmEff>0.05){
+    add("Net Profit Margin",(npmEff*100).toFixed(1)+"%"+_ntB,-6,"Thin margins 5–12%. Commodity-like business — Buffett avoids.",
+      "Buffett Book: 'Businesses in industries with fierce competition... tend to have low profit margins.' At these margins the company is a price-taker, not a price-maker. Airlines, distributors, and commodity producers often sit here. A 10% revenue decline wipes out most of the profit."+_ncB,
       null);
-  } else if(npm>0){
-    add("Net Profit Margin",(npm*100).toFixed(1)+"%",-12,"Very thin margins < 5%. Highly vulnerable business model.",
-      "Margins below 5% mean the company earns almost nothing from each riyal of sales. One bad year — higher costs, competition, FX — turns it loss-making. Buffett would say: 'I have no edge in predicting commodity prices or managing near-zero margin businesses.'",
+  } else if(npmEff>0){
+    add("Net Profit Margin",(npmEff*100).toFixed(1)+"%"+_ntB,-12,"Very thin margins < 5%. Highly vulnerable business model.",
+      "Margins below 5% mean the company earns almost nothing from each riyal of sales. One bad year — higher costs, competition, FX — turns it loss-making. Buffett would say: 'I have no edge in predicting commodity prices or managing near-zero margin businesses.'"+_ncB,
       "goodMargins");
   } else {
-    add("Net Profit Margin",(npm*100).toFixed(1)+"%",-18,"Negative margins: loss-making. Complete absence of competitive advantage.",
-      "Buffett has never invested in a company with negative margins hoping for a turnaround. He says 'when a management with a reputation for brilliance tackles a business with a reputation for poor economics, the business's reputation remains intact.' A structurally loss-making business rarely recovers.",
+    add("Net Profit Margin",(npmEff*100).toFixed(1)+"%"+_ntB,-18,"Negative margins: loss-making. Complete absence of competitive advantage.",
+      "Buffett has never invested in a company with negative margins hoping for a turnaround. He says 'when a management with a reputation for brilliance tackles a business with a reputation for poor economics, the business's reputation remains intact.' A structurally loss-making business rarely recovers."+_ncB,
       "goodMargins");
   }
 
@@ -11591,7 +11652,18 @@ function _renderBreakdownChart() {
     // aggregate (right). Real SAR values — no indexing. P/S uses the revenue-matched cap
     // (mcapPS) so cap ÷ revenue equals the P/S line; P/E uses _mpePeBreakdown's own basket.
     const rawMc = _rollingMedian(rows.map(r => (isPS ? r[1].mcapPS : r[1].mcap) ?? null), win);
-    const rawRv = _rollingMedian(rows.map(r => r[1].rev  ?? null), win);
+    // Revenue is the COMPLETE market total (every revenue-reporting non-Aramco name) on BOTH
+    // charts, so the "Revenue" figure is identical on the P/E and P/S views. The P/S rows
+    // already carry that total; for P/E we pull it from _buildMktValHistory via an as-of
+    // lookup (its earnings basket excludes loss-makers/REITs, which would understate revenue).
+    let revAsOf = null;
+    if (isPE) {
+      if (!_mktValHistCache) _mktValHistCache = { data: _buildMktValHistory() };
+      const mvRev = [...(_mktValHistCache.data?.values() || [])]
+        .filter(v => v.rev > 0).map(v => ({ t:v.t, rev:v.rev })).sort((a,b) => a.t - b.t);
+      revAsOf = tMs => { let best=null; for (const p of mvRev) { if (p.t<=tMs) best=p.rev; else break; } return best; };
+    }
+    const rawRv = _rollingMedian(rows.map(r => (isPE ? revAsOf(r[1].t) : r[1].rev) ?? null), win);
     const mcT = rawMc.map(v => v!=null ? +(v/1e12).toFixed(3) : null);
     const rvB = rawRv.map(v => v!=null ? +(v/1e9).toFixed(1)  : null);
     datasets = [ { label:'Market Cap', data:mcT, yAxisID:'y', borderColor:'#4f9cf9', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:2, tension:0.2, spanGaps:true } ];

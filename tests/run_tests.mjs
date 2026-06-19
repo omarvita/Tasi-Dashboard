@@ -37,14 +37,21 @@ const ctx = vm.createContext({ console });
   const tbl = html.match(/const SAUDI_GDP_BY_YEAR = \{[\s\S]*?\};/);
   if (tbl) vm.runInContext(tbl[0], ctx);
 }
-for (const fn of ['_num', 'deriveMetricsFromStatements', 'scorePEG', 'gdpAt', 'applyGdpFromSnapshot']) {
+// Scoring helpers depend on the _DE_TOLERANCE / _CYCLICAL_SCORE consts and on
+// sectorMedianPE (a mutable global) — eval those before the functions that use them.
+for (const re of [/const _DE_TOLERANCE = \{[\s\S]*?\};/, /const _CYCLICAL_SCORE = new Set\([\s\S]*?\);/]) {
+  const m = html.match(re); if (m) vm.runInContext(m[0], ctx);
+}
+vm.runInContext('let sectorMedianPE = {};', ctx);
+for (const fn of ['_num', 'deriveMetricsFromStatements', 'scorePEG', 'gdpAt', 'applyGdpFromSnapshot', '_cycleMetrics', 'scoreFundamental', 'scoreBuffett']) {
   vm.runInContext(extractFunction(fn), ctx);
 }
 vm.runInContext('let SAUDI_GDP_SAR = gdpAt(Date.now());', ctx);
 // `const` declarations aren't exposed on the context object — re-export the table by
 // reference so tests can read its (mutating) values.
 vm.runInContext('globalThis.__GDP = SAUDI_GDP_BY_YEAR;', ctx);
-const { _num, deriveMetricsFromStatements, scorePEG, gdpAt, applyGdpFromSnapshot, __GDP } = ctx;
+const { _num, deriveMetricsFromStatements, scorePEG, gdpAt, applyGdpFromSnapshot, __GDP,
+        _cycleMetrics, scoreFundamental, scoreBuffett } = ctx;
 
 // ── tiny assertion harness ──
 let passed = 0, failed = 0;
@@ -223,6 +230,59 @@ eq(scorePEG(15, null).score, 50, 'missing growth → neutral score 50');
   eq(applyGdpFromSnapshot({ 2024: before2024 + 5e9 }), 0, 'unchanged value is not re-counted');
   eq(applyGdpFromSnapshot({ 2028: -1, 2029: 0 }), 0, 'non-positive values are ignored');
   eq(applyGdpFromSnapshot(null), 0, 'null payload → 0 changes');
+}
+
+// ════════ _cycleMetrics — through-cycle median from annual statements ════════
+{
+  const annual = {
+    is: [
+      { fiscal_date:'2024-12-31', revenue:100, net_income:10 },
+      { fiscal_date:'2023-12-31', revenue:100, net_income:20 },
+      { fiscal_date:'2022-12-31', revenue:100, net_income:30 },
+    ],
+    bs: [
+      { fiscal_date:'2024-12-31', total_equity:100 },
+      { fiscal_date:'2023-12-31', total_equity:100 },
+      { fiscal_date:'2022-12-31', total_equity:100 },
+    ],
+  };
+  const m = _cycleMetrics({ rawTwelveData:{ annual } });
+  eq(m.roe, 0.20, '_cycleMetrics ROE = median of [0.10,0.20,0.30]');
+  eq(m.npm, 0.20, '_cycleMetrics net margin = median of yearly margins');
+  eq(m.years, 3, '_cycleMetrics reports the number of years used');
+  eq(_cycleMetrics({ rawTwelveData:{ annual:{ is:[annual.is[0]] } } }), null, 'single annual row → null (need ≥2)');
+  eq(_cycleMetrics({}), null, 'no annual statements → null');
+}
+
+// ════════ scoreFundamental — sector-aware D/E ════════
+{
+  const base = { pe:null, pb:null, roe:null, npm:null, dy:null, fcf:null, rg:null, eg:null, de:90 };
+  const deStep = stock => scoreFundamental(stock).steps.find(s => s.label === 'Debt/Equity');
+  // 90% D/E is "elevated" (+2) for an asset-light consumer business …
+  eq(deStep({ ...base, sector:'Consumer' }).delta, 2, 'D/E 90% → +2 for Consumer (base bands)');
+  // … but "moderate" (+7) for a utility, whose bands are widened ×2.5 (50→125).
+  eq(deStep({ ...base, sector:'Utilities' }).delta, 7, 'D/E 90% → +7 for Utilities (widened bands)');
+}
+
+// ════════ scoreFundamental / scoreBuffett — through-cycle ROE for cyclicals ════════
+{
+  // Energy name: latest TTM ROE is a trough 4%, but the 3-year median is a healthy 15%.
+  const annual = {
+    is: [ { fiscal_date:'2024-12-31', revenue:100, net_income:15 },
+          { fiscal_date:'2023-12-31', revenue:100, net_income:15 },
+          { fiscal_date:'2022-12-31', revenue:100, net_income:15 } ],
+    bs: [ { fiscal_date:'2024-12-31', total_equity:100 },
+          { fiscal_date:'2023-12-31', total_equity:100 },
+          { fiscal_date:'2022-12-31', total_equity:100 } ],
+  };
+  const cyc = { pe:null, pb:null, npm:null, de:null, dy:null, fcf:null, rg:null, eg:null,
+                roe:0.04, sector:'Energy', rawTwelveData:{ annual } };
+  const fStep = scoreFundamental(cyc).steps.find(s => s.label === 'ROE');
+  eq(fStep.delta, 9, 'cyclical ROE scored on 15% through-cycle median (+9), not the 4% trough (−5)');
+  eq(/avg/.test(fStep.raw), true, 'through-cycle ROE is tagged "(Ny avg)" in the breakdown');
+  // Non-cyclical sector with the same 4% TTM ROE stays on the trough value.
+  const non = { ...cyc, sector:'Consumer' };
+  eq(scoreFundamental(non).steps.find(s => s.label === 'ROE').delta, -5, 'non-cyclical sector uses latest 4% ROE (−5)');
 }
 
 // ── result ──
