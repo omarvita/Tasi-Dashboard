@@ -287,6 +287,17 @@ eq(scorePEG(15, null).score, 50, 'missing growth → neutral score 50');
   eq(scoreFundamental(non).steps.find(s => s.label === 'ROE').delta, -5, 'non-cyclical sector uses latest 4% ROE (−5)');
 }
 
+// ════════ NaN metric must not fall through to the most-negative band ════════
+{
+  const base = { pe:null, pb:null, npm:null, de:null, dy:null, fcf:null, rg:null, eg:null, sector:'Consumer' };
+  // Fundamental: a NaN ROE is skipped entirely (no ROE step), not scored as −18.
+  eq(scoreFundamental({ ...base, roe:NaN }).steps.find(s=>s.label==='ROE'), undefined, 'fundamental: NaN ROE adds no ROE step');
+  // Buffett: a NaN ROE is reported as "Missing" (−5), not "Negative ROE" (−22).
+  const bStep = scoreBuffett({ ...base, roe:NaN }).steps.find(s=>s.label==='ROE (Return on Equity)');
+  eq(bStep.raw, 'Missing', 'buffett: NaN ROE → Missing, not the −22 negative band');
+  eq(bStep.delta, -5, 'buffett: NaN ROE delta is −5 (data gap), not −22');
+}
+
 // ════════ _computeOverallScore — no spurious zero on thin-data days ════════
 {
   // Only breadth signals available (no valuation) in a weak tape → null, NOT 0.

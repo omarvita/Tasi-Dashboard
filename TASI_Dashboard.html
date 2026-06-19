@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260619d'; // bump this string on every deploy that matters
+  var V='20260619e'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -439,7 +439,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260619d · renamed the panel "Market Valuation" (it covers every indicator, not just P/E) · the valuation gauge under the big number now reflects the CLICKED criterion — the pointer shows where that indicator sits within its own reconstructed history (cheap ← → expensive), instead of a static P/E scale stuck at 50% · v20260619c · Wtd-Avg P/E end-spike fixed (the reconstruction is now authoritative; stored daily snapshots from partial-data days no longer override or append to recent dates) · breakdown market-cap axis no longer shows float-garbage ticks (e.g. 2.4000000000004T → 2.4T) · market-valuation tile verdicts (P/E, P/B, P/S, Buffett, yields) are now RELATIVE to each indicator's own reconstructed history (percentile) instead of fixed absolute cutoffs — so a P/S near its multi-year low reads "Cheap" rather than "Expensive" · v20260619b · market-valuation chart fixes: Overall Score no longer pins to a false 0 on thin-data days (now needs a real valuation signal, else the chart simply gaps) · live Market P/B switched to the aggregate basis (Σcap ÷ Σbook) and Market P/S now excludes Aramco — both now match their reconstructed history, removing the vertical end-spike where the chart met the live tile · reconstruction is now the single source for every indicator (stored daily snapshots used only for CAPE) · breakdown charts trim the early low-coverage cap ramp · v20260619a · Saudi-tuned scoring: Fundamental D/E thresholds now widen for regulated/capital-intensive sectors (utilities, telecom, real estate, transport, energy), and ROE & margins for commodity-cyclical sectors (petrochem, chemicals, materials, building materials, energy) are scored on a multi-year through-cycle median — Buffett score applies both too · breakdown Revenue is now the complete market total on both the P/E and P/S charts (was understated on P/E, which only counted the earnings basket) · guide updated · v20260618e · breakdown charts now plot actual SAR on dual y-axes (Market Cap in trillions left, Revenue/Earnings in billions right) instead of a confusing indexed-to-100 scale; added a Market Cap vs Revenue breakdown under the P/S chart (cap ÷ revenue = the P/S line) · v20260618d · Saudi GDP now auto-updates from the World Bank (NY.GDP.MKTP.CN) via the nightly Action — Buffett denominator tracks official figures each year without manual edits · v20260618c · Buffett Indicator now divides by time-varying nominal GDP (annual series 2019-2026, World Bank/IMF × 3.75 peg, mid-year interpolated) instead of a flat SAR 4.83T — history and the Market Cap vs GDP breakdown use the GDP of each date · v20260618b · breakdown P/E (Market Cap/Earnings/Revenue) now built from the SAME reconstruction as the P/E line above — identical basket & date span (was using the 50%-coverage builder, so earnings/revenue started years later than the P/E line) · v20260618a · breakdown chart below the valuation chart: P/E shows Market Cap vs Earnings vs Revenue (indexed); Buffett shows Market Cap vs GDP · curve + range selectors moved directly above the chart · v20260617h · market P/E history (Wtd/Median/Mean) now uses the same universe as the headline tiles — REITs & delisted excluded, Aramco out of the cap-weighted curve only (was inflating it ~1.6x); even-count median fixed; removed dead estimation code · v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260619e · code-review hardening: scoring functions guard against a NaN ROE/margin (was falling through to the worst band); the Action's fetch helper now surfaces a persistent rate-limit as an error instead of silently returning undefined; removed dead code · v20260619d · renamed the panel "Market Valuation" (it covers every indicator, not just P/E) · the valuation gauge under the big number now reflects the CLICKED criterion — the pointer shows where that indicator sits within its own reconstructed history (cheap ← → expensive), instead of a static P/E scale stuck at 50% · v20260619c · Wtd-Avg P/E end-spike fixed (the reconstruction is now authoritative; stored daily snapshots from partial-data days no longer override or append to recent dates) · breakdown market-cap axis no longer shows float-garbage ticks (e.g. 2.4000000000004T → 2.4T) · market-valuation tile verdicts (P/E, P/B, P/S, Buffett, yields) are now RELATIVE to each indicator's own reconstructed history (percentile) instead of fixed absolute cutoffs — so a P/S near its multi-year low reads "Cheap" rather than "Expensive" · v20260619b · market-valuation chart fixes: Overall Score no longer pins to a false 0 on thin-data days (now needs a real valuation signal, else the chart simply gaps) · live Market P/B switched to the aggregate basis (Σcap ÷ Σbook) and Market P/S now excludes Aramco — both now match their reconstructed history, removing the vertical end-spike where the chart met the live tile · reconstruction is now the single source for every indicator (stored daily snapshots used only for CAPE) · breakdown charts trim the early low-coverage cap ramp · v20260619a · Saudi-tuned scoring: Fundamental D/E thresholds now widen for regulated/capital-intensive sectors (utilities, telecom, real estate, transport, energy), and ROE & margins for commodity-cyclical sectors (petrochem, chemicals, materials, building materials, energy) are scored on a multi-year through-cycle median — Buffett score applies both too · breakdown Revenue is now the complete market total on both the P/E and P/S charts (was understated on P/E, which only counted the earnings basket) · guide updated · v20260618e · breakdown charts now plot actual SAR on dual y-axes (Market Cap in trillions left, Revenue/Earnings in billions right) instead of a confusing indexed-to-100 scale; added a Market Cap vs Revenue breakdown under the P/S chart (cap ÷ revenue = the P/S line) · v20260618d · Saudi GDP now auto-updates from the World Bank (NY.GDP.MKTP.CN) via the nightly Action — Buffett denominator tracks official figures each year without manual edits · v20260618c · Buffett Indicator now divides by time-varying nominal GDP (annual series 2019-2026, World Bank/IMF × 3.75 peg, mid-year interpolated) instead of a flat SAR 4.83T — history and the Market Cap vs GDP breakdown use the GDP of each date · v20260618b · breakdown P/E (Market Cap/Earnings/Revenue) now built from the SAME reconstruction as the P/E line above — identical basket & date span (was using the 50%-coverage builder, so earnings/revenue started years later than the P/E line) · v20260618a · breakdown chart below the valuation chart: P/E shows Market Cap vs Earnings vs Revenue (indexed); Buffett shows Market Cap vs GDP · curve + range selectors moved directly above the chart · v20260617h · market P/E history (Wtd/Median/Mean) now uses the same universe as the headline tiles — REITs & delisted excluded, Aramco out of the cap-weighted curve only (was inflating it ~1.6x); even-count median fixed; removed dead estimation code · v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -535,7 +535,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
             <div id="mpe-gauge-ptr" style="position:absolute;top:-3px;width:2px;height:14px;background:var(--tx);border-radius:1px;transition:left 0.4s;left:50%"></div>
           </div>
           <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--tx3);margin-top:2px">
-            <span>Cheap</span><span id="mpe-gauge-mid">vs 5-yr range</span><span>Expensive</span>
+            <span>Cheap</span><span id="mpe-gauge-mid">vs history</span><span>Expensive</span>
           </div>
         </div>
       </div>
@@ -4035,10 +4035,11 @@ function scoreFundamental(d){
     else add("P/B Ratio",pb.toFixed(2),-12,"Very high book premium above 6x","Extreme intangible premium. Over 80% of what you pay is goodwill or intangible assets. Sustainable only for world-class franchises with 20%+ ROE that have demonstrated it for 5+ years. One regulatory change or competitive disruption and the premium evaporates rapidly.");
   }
 
-  if(roe!=null){
-    // Cyclical sectors are scored on the through-cycle median ROE so a trough/peak year
-    // doesn't misrate them; everyone else on the latest TTM ROE.
-    const roeEff = (_cyc && _cyc.roe!=null) ? _cyc.roe : roe;
+  // Cyclical sectors are scored on the through-cycle median ROE so a trough/peak year
+  // doesn't misrate them; everyone else on the latest TTM ROE. isFinite guards a NaN ROE
+  // from silently falling through to the most-negative band.
+  const roeEff = (_cyc && _cyc.roe!=null) ? _cyc.roe : roe;
+  if(Number.isFinite(roeEff)){
     const _rt = (_cyc && _cyc.roe!=null) ? ` (${_cyc.years}y avg)` : '';
     const _rc = (_cyc && _cyc.roe!=null) ? ` Scored on the ${_cyc.years}-year through-cycle average (${(roeEff*100).toFixed(1)}%), not the latest year, because ${d.sector} returns swing with the commodity cycle.` : '';
     const R=(roeEff*100).toFixed(1)+"%"+_rt;
@@ -4050,8 +4051,8 @@ function scoreFundamental(d){
     else add("ROE",R,-18,"Negative ROE — destroying value","Net losses actively erode equity. Each quarter without a turnaround the book value shrinks further. Combined with high debt this is a distress signal. Requires a specific, credible recovery plan — new management, restructuring, or a major industry tailwind — before considering any position."+_rc);
   }
 
-  if(npm!=null){
-    const npmEff = (_cyc && _cyc.npm!=null) ? _cyc.npm : npm;
+  const npmEff = (_cyc && _cyc.npm!=null) ? _cyc.npm : npm;
+  if(Number.isFinite(npmEff)){
     const _nt = (_cyc && _cyc.npm!=null) ? ` (${_cyc.years}y avg)` : '';
     const _nc = (_cyc && _cyc.npm!=null) ? ` Scored on the ${_cyc.years}-year through-cycle average (${(npmEff*100).toFixed(1)}%) so a trough or peak year doesn't distort a commodity-cyclical ${d.sector} name.` : '';
     const N=(npmEff*100).toFixed(1)+"%"+_nt;
@@ -4156,9 +4157,9 @@ function scoreBuffett(d){
   const _rtB = (_cycB && _cycB.roe!=null) ? ` (${_cycB.years}y avg)` : '';
   const _ntB = (_cycB && _cycB.npm!=null) ? ` (${_cycB.years}y avg)` : '';
 
-  // ── ROE: most important criterion ──
-  crit.highROE=roeEff!=null&&roeEff>=roeT;
-  if(roeEff==null){
+  // ── ROE: most important criterion ── (isFinite guards a NaN from falling through to −22)
+  crit.highROE=Number.isFinite(roeEff)&&roeEff>=roeT;
+  if(!Number.isFinite(roeEff)){
     add("ROE (Return on Equity)","Missing",-5,"No ROE data — cannot assess capital efficiency.",
       "Buffett's Book Chapter 4: 'We look for companies with consistently high returns on equity.' Without ROE data we cannot determine if management is a skilled allocator of capital. Treat as significant data gap and investigate company filings directly.",null);
   } else if(roeEff>0.30){
@@ -4187,9 +4188,9 @@ function scoreBuffett(d){
       "highROE");
   }
 
-  // ── Net Margin: durable advantage test ──
-  crit.goodMargins=npmEff!=null&&npmEff>=npmT;
-  if(npmEff==null){
+  // ── Net Margin: durable advantage test ── (isFinite guards a NaN from falling through to −18)
+  crit.goodMargins=Number.isFinite(npmEff)&&npmEff>=npmT;
+  if(!Number.isFinite(npmEff)){
     add("Net Profit Margin","Missing",-5,"No margin data available.",
       "Net margin reveals whether a company has pricing power. Buffett looks for margins that are consistently high — not just in one good year. A company that cannot consistently earn a high net margin likely lacks a durable competitive advantage.",null);
   } else if(npmEff>0.35){
@@ -11092,7 +11093,7 @@ function _updateValGauge(key, val) {
     if (pct != null) exp = _RICH_LOW_INDICATORS.has(key) ? 1 - pct : pct;
   }
   if (exp == null) { ptr.style.left = '50%'; ptr.style.opacity = '0.35'; if (mid) mid.textContent = 'no history yet'; }
-  else { ptr.style.left = (exp*100).toFixed(1) + '%'; ptr.style.opacity = '1'; if (mid) mid.textContent = key === 'cape' ? 'vs fair value' : 'vs 5-yr range'; }
+  else { ptr.style.left = (exp*100).toFixed(1) + '%'; ptr.style.opacity = '1'; if (mid) mid.textContent = key === 'cape' ? 'vs fair value' : 'vs history'; }
 }
 
 function _renderMarketConditions() {
@@ -11413,7 +11414,6 @@ function _renderMPEChart() {
   // Filter out pre-REIT-exclusion data (inflated entries with pe > 40)
   const rawHist   = _loadMpeHist();
   const validHist = rawHist.filter(e => e.pe > 0 && e.pe < 40);
-  const storedMap = new Map(validHist.map(e=>[e.d, e]));
 
   // Three separate point maps — one per curve
   const wtdMap = new Map(), medMap = new Map(), meanMap = new Map();
