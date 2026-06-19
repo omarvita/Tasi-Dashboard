@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260619b'; // bump this string on every deploy that matters
+  var V='20260619c'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -439,7 +439,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260619b · market-valuation chart fixes: Overall Score no longer pins to a false 0 on thin-data days (now needs a real valuation signal, else the chart simply gaps) · live Market P/B switched to the aggregate basis (Σcap ÷ Σbook) and Market P/S now excludes Aramco — both now match their reconstructed history, removing the vertical end-spike where the chart met the live tile · reconstruction is now the single source for every indicator (stored daily snapshots used only for CAPE) · breakdown charts trim the early low-coverage cap ramp · v20260619a · Saudi-tuned scoring: Fundamental D/E thresholds now widen for regulated/capital-intensive sectors (utilities, telecom, real estate, transport, energy), and ROE & margins for commodity-cyclical sectors (petrochem, chemicals, materials, building materials, energy) are scored on a multi-year through-cycle median — Buffett score applies both too · breakdown Revenue is now the complete market total on both the P/E and P/S charts (was understated on P/E, which only counted the earnings basket) · guide updated · v20260618e · breakdown charts now plot actual SAR on dual y-axes (Market Cap in trillions left, Revenue/Earnings in billions right) instead of a confusing indexed-to-100 scale; added a Market Cap vs Revenue breakdown under the P/S chart (cap ÷ revenue = the P/S line) · v20260618d · Saudi GDP now auto-updates from the World Bank (NY.GDP.MKTP.CN) via the nightly Action — Buffett denominator tracks official figures each year without manual edits · v20260618c · Buffett Indicator now divides by time-varying nominal GDP (annual series 2019-2026, World Bank/IMF × 3.75 peg, mid-year interpolated) instead of a flat SAR 4.83T — history and the Market Cap vs GDP breakdown use the GDP of each date · v20260618b · breakdown P/E (Market Cap/Earnings/Revenue) now built from the SAME reconstruction as the P/E line above — identical basket & date span (was using the 50%-coverage builder, so earnings/revenue started years later than the P/E line) · v20260618a · breakdown chart below the valuation chart: P/E shows Market Cap vs Earnings vs Revenue (indexed); Buffett shows Market Cap vs GDP · curve + range selectors moved directly above the chart · v20260617h · market P/E history (Wtd/Median/Mean) now uses the same universe as the headline tiles — REITs & delisted excluded, Aramco out of the cap-weighted curve only (was inflating it ~1.6x); even-count median fixed; removed dead estimation code · v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260619c · Wtd-Avg P/E end-spike fixed (the reconstruction is now authoritative; stored daily snapshots from partial-data days no longer override or append to recent dates) · breakdown market-cap axis no longer shows float-garbage ticks (e.g. 2.4000000000004T → 2.4T) · market-valuation tile verdicts (P/E, P/B, P/S, Buffett, yields) are now RELATIVE to each indicator's own reconstructed history (percentile) instead of fixed absolute cutoffs — so a P/S near its multi-year low reads "Cheap" rather than "Expensive" · v20260619b · market-valuation chart fixes: Overall Score no longer pins to a false 0 on thin-data days (now needs a real valuation signal, else the chart simply gaps) · live Market P/B switched to the aggregate basis (Σcap ÷ Σbook) and Market P/S now excludes Aramco — both now match their reconstructed history, removing the vertical end-spike where the chart met the live tile · reconstruction is now the single source for every indicator (stored daily snapshots used only for CAPE) · breakdown charts trim the early low-coverage cap ramp · v20260619a · Saudi-tuned scoring: Fundamental D/E thresholds now widen for regulated/capital-intensive sectors (utilities, telecom, real estate, transport, energy), and ROE & margins for commodity-cyclical sectors (petrochem, chemicals, materials, building materials, energy) are scored on a multi-year through-cycle median — Buffett score applies both too · breakdown Revenue is now the complete market total on both the P/E and P/S charts (was understated on P/E, which only counted the earnings basket) · guide updated · v20260618e · breakdown charts now plot actual SAR on dual y-axes (Market Cap in trillions left, Revenue/Earnings in billions right) instead of a confusing indexed-to-100 scale; added a Market Cap vs Revenue breakdown under the P/S chart (cap ÷ revenue = the P/S line) · v20260618d · Saudi GDP now auto-updates from the World Bank (NY.GDP.MKTP.CN) via the nightly Action — Buffett denominator tracks official figures each year without manual edits · v20260618c · Buffett Indicator now divides by time-varying nominal GDP (annual series 2019-2026, World Bank/IMF × 3.75 peg, mid-year interpolated) instead of a flat SAR 4.83T — history and the Market Cap vs GDP breakdown use the GDP of each date · v20260618b · breakdown P/E (Market Cap/Earnings/Revenue) now built from the SAME reconstruction as the P/E line above — identical basket & date span (was using the 50%-coverage builder, so earnings/revenue started years later than the P/E line) · v20260618a · breakdown chart below the valuation chart: P/E shows Market Cap vs Earnings vs Revenue (indexed); Buffett shows Market Cap vs GDP · curve + range selectors moved directly above the chart · v20260617h · market P/E history (Wtd/Median/Mean) now uses the same universe as the headline tiles — REITs & delisted excluded, Aramco out of the cap-weighted curve only (was inflating it ~1.6x); even-count median fixed; removed dead estimation code · v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -11042,6 +11042,36 @@ function _buildMktValHistory() {
   return out;
 }
 
+// Historical percentile of `cur` within the reconstructed series for `histKey` (a field of
+// _buildMktValHistory's output: 'pe','pb','ps','dy','ey','erp','buffett'). Returns the
+// fraction of history at or below the current value (0 = cheapest ever seen, 1 = richest),
+// or null when there isn't enough reconstructed history (<~3 months) to be meaningful. This
+// is where the dashboard's "is the market cheap or rich" verdicts now come from — the
+// market's OWN history — rather than fixed absolute cutoffs that may not fit TASI.
+function _indHistPctile(histKey, cur) {
+  if (cur == null || !isFinite(cur)) return null;
+  if (!_mktValHistCache) _mktValHistCache = { data: _buildMktValHistory() };
+  const vals = [];
+  for (const v of _mktValHistCache.data.values()) {
+    const x = v[histKey];
+    if (x != null && isFinite(x)) vals.push(x);
+  }
+  if (vals.length < 60) return null;
+  vals.sort((a,b)=>a-b);
+  let below = 0; for (const x of vals) { if (x <= cur) below++; else break; }
+  return below / vals.length;
+}
+// Map a historical percentile to a {label, col} verdict. dir='richHigh' → a HIGH reading is
+// expensive (P/E, P/S, P/B, Buffett); dir='richLow' → a LOW reading is expensive (yields).
+function _pctileVerdict(pct, dir) {
+  const exp = dir === 'richLow' ? 1 - pct : pct; // "expensiveness" within its own history
+  if (exp < 0.20) return { label:'Cheap',    col:'#2ed573' };
+  if (exp < 0.40) return { label:'Below avg', col:'#7bed9f' };
+  if (exp < 0.60) return { label:'Near avg',  col:'#f5a623' };
+  if (exp < 0.80) return { label:'Above avg', col:'#ff7f50' };
+  return                  { label:'Rich',     col:'#e74c3c' };
+}
+
 function _renderMarketConditions() {
   const m = _marketConditions();
   const tilesEl = document.getElementById('mkt-cond-tiles');
@@ -11088,62 +11118,75 @@ function _renderMarketConditions() {
     </div>`;
   };
 
+  // Verdict relative to the indicator's OWN reconstructed history (percentile), falling back
+  // to the fixed absolute thresholds (absFn) only when there isn't enough history yet. The
+  // sub-label shows the percentile so "Cheap · 12th %ile" reads at a glance.
+  const relVerdict = (histKey, val, dir, absFn) => {
+    const pct = _indHistPctile(histKey, val);
+    if (pct == null) return absFn();
+    const v = _pctileVerdict(pct, dir);
+    return { col: v.col, verdict: `${v.label} · ${Math.round(pct*100)}th %ile` };
+  };
+
   const tiles = [];
 
   // 0. Market P/E tile — reuse m.wtdAvg (already computed by _marketConditions, avoids a second _mpeCalc sort)
   if (m.wtdAvg > 0) {
     const p = m.wtdAvg;
-    const col = p < 15 ? '#2ed573' : p < 25 ? '#f5a623' : '#e74c3c';
-    const verdict = p < 15 ? 'Undervalued' : p < 25 ? 'Fair Value' : 'Expensive';
+    const { col, verdict } = relVerdict('pe', p, 'richHigh', () => p < 15
+      ? { col:'#2ed573', verdict:'Undervalued' } : p < 25 ? { col:'#f5a623', verdict:'Fair Value' } : { col:'#e74c3c', verdict:'Expensive' });
     tiles.push(tile('pe', 'Market P/E', p.toFixed(1)+'x', verdict, col,
-      'Cap-weighted market P/E (ex-Aramco). The primary valuation multiple for the market. <15x historically cheap for TASI, 15–25x fair, >25x expensive.'));
+      'Cap-weighted market P/E (ex-Aramco). Verdict is the current reading\'s percentile within the dashboard\'s reconstructed history — i.e. cheap or rich vs the market\'s OWN range, not a fixed cutoff.'));
   }
 
   // 1. Buffett Indicator (ex-Aramco headline; Aramco's 2% float distorts the total)
   if (m.buffettExAramco != null) {
     const b = m.buffettExAramco;
-    const col = b < 0.80 ? '#2ed573' : b < 1.1 ? '#7bed9f' : b < 1.5 ? '#f5a623' : '#e74c3c';
-    const verdict = b < 0.80 ? 'Undervalued' : b < 1.1 ? 'Fair' : b < 1.5 ? 'Modestly rich' : 'Overvalued';
+    const { col, verdict } = relVerdict('buffett', b, 'richHigh', () => b < 0.80
+      ? { col:'#2ed573', verdict:'Undervalued' } : b < 1.1 ? { col:'#7bed9f', verdict:'Fair' } : b < 1.5 ? { col:'#f5a623', verdict:'Modestly rich' } : { col:'#e74c3c', verdict:'Overvalued' });
     tiles.push(tile('buffett', 'Buffett Indicator', (b*100).toFixed(0)+'%',
       `${verdict} · incl. Aramco ${(m.buffettInd*100).toFixed(0)}%`, col,
-      `Liquid market cap (ex-Aramco) ÷ GDP. Thresholds calibrated for Saudi/EM norms: <80% undervalued, 80–110% fair, 110–150% modestly rich, >150% overvalued. Covers app's ~238 liquid stocks; full TASI has additional micro-caps. Uses contemporaneous nominal GDP (≈ SAR ${(SAUDI_GDP_SAR/1e12).toFixed(2)}T now).`));
+      `Liquid market cap (ex-Aramco) ÷ GDP. Verdict is the current reading's percentile within its reconstructed history. Uses contemporaneous nominal GDP (≈ SAR ${(SAUDI_GDP_SAR/1e12).toFixed(2)}T now).`));
   }
 
-  // 2. Earnings Yield
+  // 2. Earnings Yield (a HIGH yield is cheap → richLow)
   if (m.earningsYield != null) {
     const ey = m.earningsYield;
-    const col = ey > 0.07 ? '#2ed573' : ey > 0.05 ? '#f5a623' : '#e74c3c';
+    const { col, verdict } = relVerdict('ey', ey, 'richLow', () => ey > 0.07
+      ? { col:'#2ed573', verdict:'Cheap' } : ey > 0.05 ? { col:'#f5a623', verdict:'Fair' } : { col:'#e74c3c', verdict:'Rich' });
     tiles.push(tile('ey', 'Earnings Yield', (ey*100).toFixed(1)+'%',
-      `vs risk-free ${(SAUDI_RF*100).toFixed(1)}%`, col,
-      'Inverse of the market P/E (1 ÷ P/E) — the earnings the market generates per riyal invested. Compare to the risk-free rate: higher than bonds = equities attractive.'));
+      `${verdict} · vs RF ${(SAUDI_RF*100).toFixed(1)}%`, col,
+      'Inverse of the market P/E (1 ÷ P/E). Verdict is the percentile within its reconstructed history; compare the level to the risk-free rate — higher than bonds = equities attractive.'));
   }
 
-  // 3. Equity Risk Premium
+  // 3. Equity Risk Premium (a HIGH ERP is cheap → richLow)
   if (m.erp != null) {
     const e = m.erp;
-    const col = e > 0.03 ? '#2ed573' : e > 0.01 ? '#7bed9f' : e > 0 ? '#f5a623' : '#e74c3c';
-    const verdict = e > 0.03 ? 'Stocks cheap vs bonds' : e > 0.01 ? 'Fair' : e > 0 ? 'Slightly rich' : 'Stocks rich vs bonds';
+    const { col, verdict } = relVerdict('erp', e, 'richLow', () => e > 0.03
+      ? { col:'#2ed573', verdict:'Stocks cheap vs bonds' } : e > 0.01 ? { col:'#7bed9f', verdict:'Fair' } : e > 0 ? { col:'#f5a623', verdict:'Slightly rich' } : { col:'#e74c3c', verdict:'Stocks rich vs bonds' });
     tiles.push(tile('erp', 'Equity Risk Premium', (e>=0?'+':'')+(e*100).toFixed(1)+'%',
       verdict, col,
-      'Earnings yield minus the risk-free rate. The extra return equities offer over Saudi government bonds. >3% = equities clearly cheap; negative = equities expensive vs bonds.'));
+      'Earnings yield minus the risk-free rate — the extra return equities offer over Saudi government bonds. Verdict is the percentile within its reconstructed history.'));
   }
 
-  // 4. Market Dividend Yield
+  // 4. Market Dividend Yield (a HIGH yield is cheap → richLow)
   if (m.wtdDY != null) {
     const dy = m.wtdDY;
-    const col = dy > 0.04 ? '#2ed573' : dy > 0.02 ? '#f5a623' : '#e74c3c';
+    const { col, verdict } = relVerdict('dy', dy, 'richLow', () => dy > 0.04
+      ? { col:'#2ed573', verdict:'Cheap' } : dy > 0.02 ? { col:'#f5a623', verdict:'Fair' } : { col:'#e74c3c', verdict:'Rich' });
     tiles.push(tile('dy', 'Market Div Yield', (dy*100).toFixed(2)+'%',
-      'cap-weighted, ex-Aramco', col,
-      'Market-cap weighted dividend yield across dividend-paying stocks (ex-Aramco, to stay consistent with the ex-Aramco earnings yield). Higher yields generally accompany cheaper markets. TASI long-run ≈ 3.5%.'));
+      `${verdict} · ex-Aramco`, col,
+      'Cap-weighted dividend yield across dividend-paying stocks (ex-Aramco). Verdict is the percentile within its reconstructed history — higher yields generally accompany cheaper markets.'));
   }
 
   // 5. Market P/B
   if (m.wtdPB != null) {
     const pb = m.wtdPB;
-    const col = pb < 1.8 ? '#2ed573' : pb < 2.5 ? '#f5a623' : '#e74c3c';
+    const { col, verdict } = relVerdict('pb', pb, 'richHigh', () => pb < 1.8
+      ? { col:'#2ed573', verdict:'Cheap' } : pb < 2.5 ? { col:'#f5a623', verdict:'Fair' } : { col:'#e74c3c', verdict:'Rich' });
     tiles.push(tile('pb', 'Market P/B', pb.toFixed(2)+'x',
-      'cap-weighted, ex-Aramco', col,
-      'Market-cap weighted price-to-book (ex-Aramco). <1.8x is historically cheap for TASI, >2.5x rich. Less distorted by earnings cycles than P/E.'));
+      `${verdict} · ex-Aramco`, col,
+      'Aggregate price-to-book (Σcap ÷ Σbook, ex-Aramco). Verdict is the current reading\'s percentile within its reconstructed history. Less distorted by earnings cycles than P/E.'));
   }
 
   // 6. Breadth (% above SMA-50)
@@ -11181,11 +11224,11 @@ function _renderMarketConditions() {
   // 9. Market P/S — price-to-sales (less earnings-cycle distortion)
   if (m.mktPS != null) {
     const ps = m.mktPS;
-    const col = ps < 1.0 ? '#2ed573' : ps < 2.5 ? '#f5a623' : '#e74c3c';
-    const verdict = ps < 1.0 ? 'Cheap' : ps < 2.5 ? 'Fair' : 'Expensive';
+    const { col, verdict } = relVerdict('ps', ps, 'richHigh', () => ps < 1.0
+      ? { col:'#2ed573', verdict:'Cheap' } : ps < 2.5 ? { col:'#f5a623', verdict:'Fair' } : { col:'#e74c3c', verdict:'Rich' });
     tiles.push(tile('ps', 'Market P/S', ps.toFixed(2)+'x',
       `${verdict} · ${m.psN} stk`, col,
-      `Price-to-Sales: aggregate market cap ÷ aggregate TTM revenue for ${m.psN} stocks with revenue data. Revenue is less volatile than earnings — P/S is immune to earnings-manipulation and useful when many stocks are loss-making. TASI <1x historically cheap, >2.5x expensive.`));
+      `Aggregate market cap ÷ aggregate TTM revenue (ex-Aramco, ${m.psN} stocks). Verdict is the current reading's percentile within the dashboard's reconstructed history — so a P/S near its multi-year low reads "Cheap" even if it is above a generic absolute cutoff. Revenue is steadier than earnings, so P/S stays meaningful when many companies are loss-making.`));
   }
 
   // 10. 52-Week High vs Low ratio — near-term momentum breadth
@@ -11469,18 +11512,18 @@ function _renderMPEChart() {
   for (const [dateStr, agg] of dateAgg) {
     if (agg.t < cutoffMs) continue;        // display range filter (all closes are built, chart slices by range)
     if (agg.peList.length < 5) continue; // need enough stocks for a meaningful market figure
-    const stored = storedMap.get(dateStr);
     const wtd    = agg.earnSum > 0 ? agg.capSum / agg.earnSum : null;
     const sorted = agg.peList.slice().sort((a,b)=>a-b);
     const mid    = Math.floor(sorted.length/2);
     const med    = sorted.length%2 ? sorted[mid] : (sorted[mid-1]+sorted[mid])/2; // matches _mpeCalc
     const mean   = agg.peList.reduce((a,b)=>a+b,0) / agg.peList.length;
-    if (stored?.pe   > 0 && stored.pe   < 40) wtdMap.set(dateStr,  { t:agg.t, pe:stored.pe });
-    else if (wtd > 0 && wtd < 40)             wtdMap.set(dateStr,  { t:agg.t, pe:+wtd.toFixed(2),  estimated:true });
-    if (stored?.med  > 0 && stored.med  < 40) medMap.set(dateStr,  { t:agg.t, pe:stored.med });
-    else if (med > 0 && med < 40)             medMap.set(dateStr,  { t:agg.t, pe:+med.toFixed(2),  estimated:true });
-    if (stored?.mean > 0 && stored.mean < 40) meanMap.set(dateStr, { t:agg.t, pe:stored.mean });
-    else if (mean > 0 && mean < 40)           meanMap.set(dateStr, { t:agg.t, pe:+mean.toFixed(2), estimated:true });
+    // Reconstruction is authoritative — it uses the same basket on every date. Stored daily
+    // snapshots are NOT preferred here: some were recorded on partial-data days (before all
+    // prices loaded) with a smaller basket, and overriding the smooth reconstruction with
+    // those made the most recent point spike. Stored values now only EXTEND older history below.
+    if (wtd  > 0 && wtd  < 40) wtdMap.set(dateStr,  { t:agg.t, pe:+wtd.toFixed(2) });
+    if (med  > 0 && med  < 40) medMap.set(dateStr,  { t:agg.t, pe:+med.toFixed(2) });
+    if (mean > 0 && mean < 40) meanMap.set(dateStr, { t:agg.t, pe:+mean.toFixed(2) });
     // Breakdown components — same basket/date span as the P/E line above (all ex-Aramco, SAR):
     // market cap and earnings are the exact numerator/denominator of the Wtd-Avg line; revenue
     // is the raw reported TTM total of revenue-reporting names.
@@ -11492,10 +11535,14 @@ function _renderMPEChart() {
 
   // No TASI-index back-projection: the P/E line is built only from real reported earnings
   // (per-stock TTM as of each date). It spans exactly the period we have statements for.
-  // Add stored entries not covered by TASI price timestamps
+  // Stored snapshots only EXTEND the line backwards (older than the reconstruction's span);
+  // they never override or append to recent dates, where a partial-data-day snapshot would
+  // appear as a spike.
+  let _reconEarliest = Infinity;
+  for (const mp of [wtdMap, medMap, meanMap]) for (const v of mp.values()) if (v.t < _reconEarliest) _reconEarliest = v.t;
   validHist.forEach(e => {
     const tMs = new Date(e.d).getTime();
-    if (tMs < cutoffMs) return;
+    if (tMs < cutoffMs || tMs >= _reconEarliest) return;
     if (!wtdMap.has(e.d)  && e.pe   > 0) wtdMap.set(e.d,  { t:tMs, pe:e.pe   });
     if (!medMap.has(e.d)  && e.med  > 0) medMap.set(e.d,  { t:tMs, pe:e.med  });
     if (!meanMap.has(e.d) && e.mean > 0) meanMap.set(e.d, { t:tMs, pe:e.mean });
@@ -11670,7 +11717,7 @@ function _renderBreakdownChart() {
       { label:'Saudi GDP', data:gdpT, borderColor:'#f59e0b', backgroundColor:'transparent', fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
     ];
     tooltipLabel = c => c.raw != null ? `${c.dataset.label}: ${c.raw}T` : null;
-    yScales = { y:{ title:axTitle('SAR (trillions)'), ticks:{font:fontOpts, color:'#4a5568', callback:v=>v+'T'},
+    yScales = { y:{ title:axTitle('SAR (trillions)'), ticks:{font:fontOpts, color:'#4a5568', callback:v=>(+(+v).toFixed(2))+'T'},
                     grid:{color:'rgba(255,255,255,0.03)'}, border:{color:'#232830'} } };
     if (titleEl) titleEl.textContent = 'Market Cap vs GDP (nominal, by year) — the Buffett Indicator is their ratio';
     const lMC = last(mcT), lGDP = gdpT.length ? gdpT[gdpT.length-1] : (SAUDI_GDP_SAR/1e12);
@@ -11722,9 +11769,9 @@ function _renderBreakdownChart() {
     tooltipLabel = c => c.raw==null ? null : `${c.dataset.label}: ${c.raw}${c.dataset.yAxisID==='y1'?'B':'T'} SAR`;
     yScales = {
       y:  { type:'linear', position:'left',  title:axTitle('Market Cap (SAR T)'),
-            ticks:{font:fontOpts, color:'#4f9cf9', callback:v=>v+'T'}, grid:{color:'rgba(255,255,255,0.03)'}, border:{color:'#232830'} },
+            ticks:{font:fontOpts, color:'#4f9cf9', callback:v=>(+(+v).toFixed(2))+'T'}, grid:{color:'rgba(255,255,255,0.03)'}, border:{color:'#232830'} },
       y1: { type:'linear', position:'right', title:axTitle(isPE ? 'Revenue / Earnings (SAR B)' : 'Revenue (SAR B)'),
-            ticks:{font:fontOpts, color:'#f59e0b', callback:v=>v+'B'}, grid:{drawOnChartArea:false}, border:{color:'#232830'} },
+            ticks:{font:fontOpts, color:'#f59e0b', callback:v=>(+(+v).toFixed(0))+'B'}, grid:{drawOnChartArea:false}, border:{color:'#232830'} },
     };
   }
 
