@@ -43,7 +43,9 @@ for (const re of [/const _DE_TOLERANCE = \{[\s\S]*?\};/, /const _CYCLICAL_SCORE 
   const m = html.match(re); if (m) vm.runInContext(m[0], ctx);
 }
 vm.runInContext('let sectorMedianPE = {};', ctx);
-for (const fn of ['_num', 'deriveMetricsFromStatements', 'scorePEG', 'gdpAt', 'applyGdpFromSnapshot', '_cycleMetrics', 'scoreFundamental', 'scoreBuffett']) {
+// _computeOverallScore depends on the _clamp01 helper (a const arrow) — eval it first.
+{ const m = html.match(/const _clamp01 = [^;]+;/); if (m) vm.runInContext(m[0], ctx); }
+for (const fn of ['_num', 'deriveMetricsFromStatements', 'scorePEG', 'gdpAt', 'applyGdpFromSnapshot', '_cycleMetrics', 'scoreFundamental', 'scoreBuffett', '_computeOverallScore']) {
   vm.runInContext(extractFunction(fn), ctx);
 }
 vm.runInContext('let SAUDI_GDP_SAR = gdpAt(Date.now());', ctx);
@@ -51,7 +53,7 @@ vm.runInContext('let SAUDI_GDP_SAR = gdpAt(Date.now());', ctx);
 // reference so tests can read its (mutating) values.
 vm.runInContext('globalThis.__GDP = SAUDI_GDP_BY_YEAR;', ctx);
 const { _num, deriveMetricsFromStatements, scorePEG, gdpAt, applyGdpFromSnapshot, __GDP,
-        _cycleMetrics, scoreFundamental, scoreBuffett } = ctx;
+        _cycleMetrics, scoreFundamental, scoreBuffett, _computeOverallScore } = ctx;
 
 // ── tiny assertion harness ──
 let passed = 0, failed = 0;
@@ -283,6 +285,21 @@ eq(scorePEG(15, null).score, 50, 'missing growth → neutral score 50');
   // Non-cyclical sector with the same 4% TTM ROE stays on the trough value.
   const non = { ...cyc, sector:'Consumer' };
   eq(scoreFundamental(non).steps.find(s => s.label === 'ROE').delta, -5, 'non-cyclical sector uses latest 4% ROE (−5)');
+}
+
+// ════════ _computeOverallScore — no spurious zero on thin-data days ════════
+{
+  // Only breadth signals available (no valuation) in a weak tape → null, NOT 0.
+  eq(_computeOverallScore({ breadth:0.10, breadth200:0.10 }), null, 'breadth-only thin day → null (no false 0)');
+  // A single valuation signal isn't enough (need ≥3 components total).
+  eq(_computeOverallScore({ wtdAvg:20 }), null, 'one component → null (needs ≥3)');
+  eq(_computeOverallScore(null), null, 'null market conditions → null');
+  // Full set of signals → a real blended score. sP=.5 sBr=.4 sDY=.5 sPB=(2-1.6)/.8=.5
+  // sPS=(1.5-2.3)/1.2→0 sBr200=.4 → mean 2.3/6 = .3833 → 38.
+  const s = _computeOverallScore({ wtdAvg:20, breadth:0.5, breadth200:0.5, wtdDY:0.03, wtdPB:2, mktPS:1.5 });
+  eq(s, 38, 'full signal set blends to 38/100 with recalibrated P/B & P/S anchors');
+  // Valuation present (P/E) + 2 breadth → 3 parts, valid even without DY/PB/PS.
+  eq(typeof _computeOverallScore({ wtdAvg:18, breadth:0.6, breadth200:0.55 }), 'number', 'P/E + 2 breadth → a number');
 }
 
 // ── result ──
