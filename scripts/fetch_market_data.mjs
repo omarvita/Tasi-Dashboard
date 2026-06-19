@@ -51,6 +51,9 @@ async function fetchJSON(url, headers = UA, tries = 3) {
       await sleep(1500 * (i + 1));
     }
   }
+  // Every attempt hit 429 (the `continue` path never returned) — surface it as an error so
+  // callers treat it like any other failure instead of silently receiving `undefined`.
+  throw new Error('429 rate-limited — retries exhausted');
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -136,7 +139,7 @@ async function fetchTasi() {
     const timestamps = vi.map(k => ts[k]);
     if (closes.length < 10) return null;
     const price = res.meta?.regularMarketPrice ?? closes[closes.length - 1];
-    // meta.chartPreviousClose is the close before the RANGE START (5y ago here) —
+    // meta.chartPreviousClose is the close before the RANGE START (10y ago here) —
     // regularMarketPreviousClose is yesterday's close, which is what "change" means.
     const prev = res.meta?.regularMarketPreviousClose ?? closes[closes.length - 2];
     const change = prev ? r2((price - prev) / prev * 100) : null;
