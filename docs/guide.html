@@ -837,6 +837,7 @@
 
       <h3>2. Net Profit Margin</h3>
       <p>Net Profit Margin = Net Income ÷ Revenue. It measures how much of every riyal of revenue becomes profit after all costs, interest, and taxes (including Zakat).</p>
+      <p><strong>Through-the-cycle adjustment:</strong> for commodity-cyclical sectors (Petrochemicals, Chemicals, Materials, Building Materials, Energy), the margin is scored on the <strong>median of the last few annual years</strong> rather than the latest twelve months. A petrochemical producer's margin can swing from 25% at the peak of the oil/feedstock cycle to near-zero at the trough; a single-period snapshot would rate it richly at the top and harshly at the bottom — the opposite of what a value investor wants. The through-cycle median smooths this. When applied, the metric is tagged "(Ny avg)" in the score breakdown.</p>
 
       <table class="score-table">
         <thead>
@@ -853,6 +854,7 @@
 
       <h3>3. Return on Equity (ROE)</h3>
       <p>ROE = Net Income ÷ Shareholders' Equity. It measures how effectively management uses shareholder capital to generate profit. High ROE sustained over multiple years is one of the strongest indicators of a quality business.</p>
+      <p><strong>Through-the-cycle adjustment:</strong> exactly as with net margin, ROE for the commodity-cyclical sectors is scored on the <strong>multi-year median</strong> instead of the latest year, so a cyclical name is judged across the whole cycle rather than at a single peak or trough. Banks, consumer, healthcare, telecom and other non-cyclical sectors continue to use the latest TTM ROE.</p>
 
       <table class="score-table">
         <thead>
@@ -872,19 +874,25 @@
 
       <table class="score-table">
         <thead>
-          <tr><th>D/E Ratio</th><th>Score</th></tr>
+          <tr><th>D/E Ratio (base bands)</th><th>Score</th></tr>
         </thead>
         <tbody>
-          <tr><td class="metric">&lt; 0.20 (20%)</td><td class="score-pos">+10</td></tr>
-          <tr><td class="metric">0.20 – 0.50</td><td class="score-pos">+5</td></tr>
-          <tr><td class="metric">0.50 – 1.00</td><td class="score-pos">+2</td></tr>
-          <tr><td class="metric">&gt; 1.00</td><td class="score-neg">−8</td></tr>
+          <tr><td class="metric">&lt; 20%</td><td class="score-pos">+12</td></tr>
+          <tr><td class="metric">20% – 50%</td><td class="score-pos">+7</td></tr>
+          <tr><td class="metric">50% – 100%</td><td class="score-pos">+2</td></tr>
+          <tr><td class="metric">100% – 200%</td><td class="score-neg">−8</td></tr>
+          <tr><td class="metric">&gt; 200%</td><td class="score-neg">−14</td></tr>
         </tbody>
       </table>
 
       <div class="callout">
         <div class="callout-title">Banking &amp; Insurance Exemption</div>
         Banks and insurance companies are <strong>exempt from the D/E scoring penalty</strong>. For these sectors, leverage is the business model — banks borrow (deposits) to lend (loans), and insurers hold float against future claims. Their solvency and safety are regulated by SAMA (capital adequacy ratios under Basel III for banks; solvency margin requirements for insurers), which provides a more appropriate framework than a generic D/E screen.
+      </div>
+
+      <div class="callout">
+        <div class="callout-title">Sector-aware leverage thresholds</div>
+        The base bands above apply to typical asset-light businesses. <strong>Regulated and capital-intensive sectors carry higher debt by design</strong> — their revenue is regulated or contracted, which safely services more leverage — so their band edges are widened by a sector factor: Utilities &amp; REITs ×2.5, Real Estate &amp; Telecom ×1.8, Transportation ×1.6, Energy ×1.5, Industrial &amp; Building Materials ×1.3. For example, a 90% D/E scores as "elevated" for a consumer-goods company but as "moderate" for a utility, because contracted/regulated cash flows comfortably cover the interest. Consumer, healthcare, technology and other sectors use the base bands unchanged.
       </div>
 
       <h3>5. Free Cash Flow (FCF)</h3>
@@ -952,8 +960,8 @@
             <td class="score-pos">Moderate positive/negative</td>
           </tr>
           <tr>
-            <td class="metric">Low D/E</td>
-            <td>Companies with strong competitive advantages rarely need to borrow heavily. Low or declining debt over time is a positive signal.</td>
+            <td class="metric">Low D/E (sector-aware)</td>
+            <td>Companies with strong competitive advantages rarely need to borrow heavily. Low or declining debt over time is a positive signal. The acceptable threshold is widened for regulated/capital-intensive sectors (utilities, telecom, real estate, transport, energy) whose contracted revenue supports more leverage — the same sector-tolerance factors used by the Fundamental Score.</td>
             <td class="score-pos">Moderate positive</td>
           </tr>
           <tr>
@@ -977,6 +985,11 @@
       <div class="callout">
         <div class="callout-title">Saudi application</div>
         In the Saudi market, Buffett-style moat companies include: large commercial banks (Al Rajhi, NCB/SNB) with dominant franchise positions, Telecommunications (STC's network infrastructure), and select consumer staples. Petrochemical companies present a mixed picture — they can generate excellent returns at peak cycle but lack the pricing power of true moat businesses. The Buffett Score reflects this distinction.
+      </div>
+
+      <div class="callout">
+        <div class="callout-title">Through-the-cycle scoring for cyclicals</div>
+        For the commodity-cyclical sectors (Petrochemicals, Chemicals, Materials, Building Materials, Energy), ROE and net margin are scored on the <strong>multi-year median</strong> of the annual statements rather than the latest twelve months — Buffett judges a business across its whole cycle, not at a single peak or trough. These sectors also use lower ROE thresholds (8–10% vs the 15% default), since regulated and capital-intensive businesses have structurally lower returns on equity. Both adjustments prevent the score from flattering a petrochemical name at the top of the cycle or condemning it at the bottom.
       </div>
     </section>
 
