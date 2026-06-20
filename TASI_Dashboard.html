@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260620b'; // bump this string on every deploy that matters
+  var V='20260620c'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -440,7 +440,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260620b · desktop header layout fix: the long version-label text was forcing the logo block to expand on desktop, squeezing the right-side button group (Import / Light / Compare / Portfolio / ⚙) into a wrapped vertical stack over the metric cards — the label now truncates and the button row stays on one line · v20260620a · portfolio v3: multi-asset (TASI stocks, IBIT ETF, Al Rajhi funds, gold), per-asset CAGR (XIRR) from monthly buy/sell history, gold tracked manually in SAR/gram via Al Rajhi · v20260619e · code-review hardening: scoring functions guard against a NaN ROE/margin (was falling through to the worst band); the Action's fetch helper now surfaces a persistent rate-limit as an error instead of silently returning undefined; removed dead code · v20260619d · renamed the panel "Market Valuation" (it covers every indicator, not just P/E) · the valuation gauge under the big number now reflects the CLICKED criterion — the pointer shows where that indicator sits within its own reconstructed history (cheap ← → expensive), instead of a static P/E scale stuck at 50% · v20260619c · Wtd-Avg P/E end-spike fixed (the reconstruction is now authoritative; stored daily snapshots from partial-data days no longer override or append to recent dates) · breakdown market-cap axis no longer shows float-garbage ticks (e.g. 2.4000000000004T → 2.4T) · market-valuation tile verdicts (P/E, P/B, P/S, Buffett, yields) are now RELATIVE to each indicator's own reconstructed history (percentile) instead of fixed absolute cutoffs — so a P/S near its multi-year low reads "Cheap" rather than "Expensive" · v20260619b · market-valuation chart fixes: Overall Score no longer pins to a false 0 on thin-data days (now needs a real valuation signal, else the chart simply gaps) · live Market P/B switched to the aggregate basis (Σcap ÷ Σbook) and Market P/S now excludes Aramco — both now match their reconstructed history, removing the vertical end-spike where the chart met the live tile · reconstruction is now the single source for every indicator (stored daily snapshots used only for CAPE) · breakdown charts trim the early low-coverage cap ramp · v20260619a · Saudi-tuned scoring: Fundamental D/E thresholds now widen for regulated/capital-intensive sectors (utilities, telecom, real estate, transport, energy), and ROE & margins for commodity-cyclical sectors (petrochem, chemicals, materials, building materials, energy) are scored on a multi-year through-cycle median — Buffett score applies both too · breakdown Revenue is now the complete market total on both the P/E and P/S charts (was understated on P/E, which only counted the earnings basket) · guide updated · v20260618e · breakdown charts now plot actual SAR on dual y-axes (Market Cap in trillions left, Revenue/Earnings in billions right) instead of a confusing indexed-to-100 scale; added a Market Cap vs Revenue breakdown under the P/S chart (cap ÷ revenue = the P/S line) · v20260618d · Saudi GDP now auto-updates from the World Bank (NY.GDP.MKTP.CN) via the nightly Action — Buffett denominator tracks official figures each year without manual edits · v20260618c · Buffett Indicator now divides by time-varying nominal GDP (annual series 2019-2026, World Bank/IMF × 3.75 peg, mid-year interpolated) instead of a flat SAR 4.83T — history and the Market Cap vs GDP breakdown use the GDP of each date · v20260618b · breakdown P/E (Market Cap/Earnings/Revenue) now built from the SAME reconstruction as the P/E line above — identical basket & date span (was using the 50%-coverage builder, so earnings/revenue started years later than the P/E line) · v20260618a · breakdown chart below the valuation chart: P/E shows Market Cap vs Earnings vs Revenue (indexed); Buffett shows Market Cap vs GDP · curve + range selectors moved directly above the chart · v20260617h · market P/E history (Wtd/Median/Mean) now uses the same universe as the headline tiles — REITs & delisted excluded, Aramco out of the cap-weighted curve only (was inflating it ~1.6x); even-count median fixed; removed dead estimation code · v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260620c · portfolio v3 — big upgrade: three charts at the top (Portfolio Performance value-vs-cost line over time · Allocation donut by market value · Annualized Return / CAGR bar per asset), richer summary cards (today's % move · best & worst performer), click any holding to open a detail view with its own growth chart + full transaction/monthly history, ➕ Add Asset (TASI stock, ETF, Al Rajhi fund or gold), per-asset Buy/Sell entry that updates units & cost, NAV update and remove · v20260620b · desktop header layout fix: the long version-label text was forcing the logo block to expand on desktop, squeezing the right-side button group (Import / Light / Compare / Portfolio / ⚙) into a wrapped vertical stack over the metric cards — the label now truncates and the button row stays on one line · v20260620a · portfolio v3: multi-asset (TASI stocks, IBIT ETF, Al Rajhi funds, gold), per-asset CAGR (XIRR) from monthly buy/sell history, gold tracked manually in SAR/gram via Al Rajhi · v20260619e · code-review hardening: scoring functions guard against a NaN ROE/margin (was falling through to the worst band); the Action's fetch helper now surfaces a persistent rate-limit as an error instead of silently returning undefined; removed dead code · v20260619d · renamed the panel "Market Valuation" (it covers every indicator, not just P/E) · the valuation gauge under the big number now reflects the CLICKED criterion — the pointer shows where that indicator sits within its own reconstructed history (cheap ← → expensive), instead of a static P/E scale stuck at 50% · v20260619c · Wtd-Avg P/E end-spike fixed (the reconstruction is now authoritative; stored daily snapshots from partial-data days no longer override or append to recent dates) · breakdown market-cap axis no longer shows float-garbage ticks (e.g. 2.4000000000004T → 2.4T) · market-valuation tile verdicts (P/E, P/B, P/S, Buffett, yields) are now RELATIVE to each indicator's own reconstructed history (percentile) instead of fixed absolute cutoffs — so a P/S near its multi-year low reads "Cheap" rather than "Expensive" · v20260619b · market-valuation chart fixes: Overall Score no longer pins to a false 0 on thin-data days (now needs a real valuation signal, else the chart simply gaps) · live Market P/B switched to the aggregate basis (Σcap ÷ Σbook) and Market P/S now excludes Aramco — both now match their reconstructed history, removing the vertical end-spike where the chart met the live tile · reconstruction is now the single source for every indicator (stored daily snapshots used only for CAPE) · breakdown charts trim the early low-coverage cap ramp · v20260619a · Saudi-tuned scoring: Fundamental D/E thresholds now widen for regulated/capital-intensive sectors (utilities, telecom, real estate, transport, energy), and ROE & margins for commodity-cyclical sectors (petrochem, chemicals, materials, building materials, energy) are scored on a multi-year through-cycle median — Buffett score applies both too · breakdown Revenue is now the complete market total on both the P/E and P/S charts (was understated on P/E, which only counted the earnings basket) · guide updated · v20260618e · breakdown charts now plot actual SAR on dual y-axes (Market Cap in trillions left, Revenue/Earnings in billions right) instead of a confusing indexed-to-100 scale; added a Market Cap vs Revenue breakdown under the P/S chart (cap ÷ revenue = the P/S line) · v20260618d · Saudi GDP now auto-updates from the World Bank (NY.GDP.MKTP.CN) via the nightly Action — Buffett denominator tracks official figures each year without manual edits · v20260618c · Buffett Indicator now divides by time-varying nominal GDP (annual series 2019-2026, World Bank/IMF × 3.75 peg, mid-year interpolated) instead of a flat SAR 4.83T — history and the Market Cap vs GDP breakdown use the GDP of each date · v20260618b · breakdown P/E (Market Cap/Earnings/Revenue) now built from the SAME reconstruction as the P/E line above — identical basket & date span (was using the 50%-coverage builder, so earnings/revenue started years later than the P/E line) · v20260618a · breakdown chart below the valuation chart: P/E shows Market Cap vs Earnings vs Revenue (indexed); Buffett shows Market Cap vs GDP · curve + range selectors moved directly above the chart · v20260617h · market P/E history (Wtd/Median/Mean) now uses the same universe as the headline tiles — REITs & delisted excluded, Aramco out of the cap-weighted curve only (was inflating it ~1.6x); even-count median fixed; removed dead estimation code · v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1182,7 +1182,7 @@ function _portV3TotalCAGR() {
 
 function _portV3Render() {
   const el = document.getElementById('portfolio-panel');
-  if (el) el.innerHTML = renderPortfolioV3HTML();
+  if (el) { el.innerHTML = renderPortfolioV3HTML(); _portV3DrawCharts(); }
 }
 
 function _portV3ImportFile() {
@@ -1215,21 +1215,6 @@ function _portV3UpdateNav(assetId, price, date) {
   showToast('✓ NAV updated for ' + (portfolioV3.assets[assetId].name || assetId));
 }
 
-function _portV3ToggleHist(id) {
-  const safe = id.replace(/[^a-zA-Z0-9]/g,'_');
-  const tr = document.getElementById('portv3-hist-' + safe);
-  if (!tr) return;
-  tr.style.display = tr.style.display === 'none' ? 'table-row' : 'none';
-}
-
-function _portV3ShowNavForm(id) {
-  const safe = id.replace(/[^a-zA-Z0-9]/g,'_');
-  const histTr = document.getElementById('portv3-hist-' + safe);
-  if (histTr) histTr.style.display = 'table-row';
-  const form = document.getElementById('navform-' + safe);
-  if (form) form.style.display = form.style.display === 'none' ? 'flex' : 'none';
-}
-
 function _portV3ExportCSV() {
   if (!portfolioV3?.assets) return;
   const esc = v => { const s = String(v??''); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
@@ -1251,6 +1236,358 @@ function _portV3ExportCSV() {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url), 1000);
   showToast('✓ Portfolio exported to CSV');
+}
+
+// ── Portfolio v3: shared row/totals computation (used by table + charts) ──
+function _portV3ComputeRows() {
+  const assets = portfolioV3?.assets || {};
+  let totalMV = 0, totalCost = 0, totalDayChange = 0, dayChangeable = 0;
+  const rows = Object.entries(assets).map(([id, a]) => {
+    const pi = _portV3Price(a);
+    const qty = a.holding?.qty || 0;
+    const cost = a.holding?.cost || 0;
+    const mv = pi && qty > 0 ? pi.sarPrice * qty : (a.history?.[a.history.length-1]?.mv || 0);
+    const pnl = mv - cost;
+    const pnlPct = cost > 0 ? pnl / cost * 100 : 0;
+    const cagr = _portV3AssetCAGR(a, mv);
+    totalMV += mv; totalCost += cost;
+    if (pi?.dayChangePct != null && qty > 0) { totalDayChange += (pi.dayChangePct / 100) * mv; dayChangeable++; }
+    return { id, a, pi, qty, cost, mv, pnl, pnlPct, cagr };
+  }).filter(r => r.mv > 0 || r.cost > 0).sort((a,b) => b.mv - a.mv);
+  return { rows, totalMV, totalCost, totalDayChange, dayChangeable };
+}
+
+// Aggregate monthly cost & market value across all assets (cumulative, carry-forward)
+function _portV3TimeSeries() {
+  const assets = Object.values(portfolioV3?.assets || {});
+  const monthsSet = new Set();
+  assets.forEach(a => (a.history||[]).forEach(h => h.d && monthsSet.add(h.d.slice(0,7))));
+  const months = [...monthsSet].sort();
+  const perAsset = assets.map(a => (a.history||[]).slice()
+    .sort((x,y) => (x.d||'').localeCompare(y.d||''))
+    .map(h => ({ m: (h.d||'').slice(0,7), cost: h.cost||0, mv: h.mv||0 })));
+  const cost = [], mv = [];
+  for (const m of months) {
+    let c = 0, v = 0;
+    for (const hs of perAsset) {
+      let last = null;
+      for (const h of hs) { if (h.m <= m) last = h; else break; }
+      if (last) { c += last.cost; v += last.mv; }
+    }
+    cost.push(Math.round(c)); mv.push(Math.round(v));
+  }
+  return { months, cost, mv };
+}
+
+const _PV3_PALETTE = ['#5b9bd5','#f5a623','#ffd700','#a78bfa','#4caf50','#e91e63','#00bcd4','#ff7043','#9ccc65','#ba68c8','#4dd0e1','#ffb74d','#90a4ae','#7986cb','#4db6ac'];
+let _portV3Charts = {};
+
+function _portV3ChartTheme() {
+  const light = document.body.classList.contains('light');
+  return { tick: light ? '#555' : '#9aa', grid: light ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.06)', green:'#4caf50', red:'#e05260', blue:'#5b9bd5', amber:'#f5a623' };
+}
+
+function _portV3DrawCharts() {
+  if (!document.getElementById('pv3-perf')) return;
+  if (typeof Chart === 'undefined') { setTimeout(_portV3DrawCharts, 200); return; }
+  ['perf','alloc','apr'].forEach(k => { if (_portV3Charts[k]) { try { _portV3Charts[k].destroy(); } catch(e){} delete _portV3Charts[k]; } });
+  const th = _portV3ChartTheme();
+  const { rows, totalMV, totalCost } = _portV3ComputeRows();
+  const shortName = a => (a.type === 'tasi' ? (a.ticker||'').replace('.SR','')+' ' : '') + (a.name||'').split(' ').slice(0,2).join(' ');
+
+  // 1 ── Portfolio Performance: value vs cost over time ──
+  const ts = _portV3TimeSeries();
+  if (ts.months.length) { ts.mv[ts.mv.length-1] = Math.round(totalMV); ts.cost[ts.cost.length-1] = Math.round(totalCost); }
+  const perf = document.getElementById('pv3-perf');
+  if (perf && ts.months.length) {
+    _portV3Charts.perf = new Chart(perf, {
+      type: 'line',
+      data: { labels: ts.months, datasets: [
+        { label: 'Value', data: ts.mv, borderColor: th.blue, backgroundColor: 'rgba(91,155,213,0.14)', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2 },
+        { label: 'Cost', data: ts.cost, borderColor: th.amber, fill: false, tension: 0.25, pointRadius: 0, borderWidth: 1.5, borderDash: [4,3] }
+      ]},
+      options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: true, labels: { color: th.tick, font: { size: 9 }, boxWidth: 10 } },
+          tooltip: { callbacks: { label: c => c.dataset.label + ': ' + Math.round(c.parsed.y).toLocaleString() + ' SAR' } } },
+        scales: { x: { ticks: { color: th.tick, font: { size: 8 }, maxTicksLimit: 8 }, grid: { display: false } },
+          y: { ticks: { color: th.tick, font: { size: 8 }, callback: v => v>=1e6?(v/1e6).toFixed(1)+'M':(v/1e3).toFixed(0)+'k' }, grid: { color: th.grid } } } }
+    });
+  }
+
+  // 2 ── Allocation donut by market value ──
+  const alloc = document.getElementById('pv3-alloc');
+  const allocRows = rows.filter(r => r.mv > 0);
+  if (alloc && allocRows.length) {
+    _portV3Charts.alloc = new Chart(alloc, {
+      type: 'doughnut',
+      data: { labels: allocRows.map(r => shortName(r.a)),
+        datasets: [{ data: allocRows.map(r => Math.round(r.mv)), backgroundColor: allocRows.map((_,i) => _PV3_PALETTE[i % _PV3_PALETTE.length]), borderWidth: 1, borderColor: document.body.classList.contains('light') ? '#fff' : '#1a1a2e' }] },
+      options: { responsive: true, maintainAspectRatio: false, cutout: '58%',
+        plugins: { legend: { position: 'right', labels: { color: th.tick, font: { size: 8 }, boxWidth: 9, padding: 5 } },
+          tooltip: { callbacks: { label: c => { const pct = totalMV>0 ? (c.parsed/totalMV*100).toFixed(1) : 0; return c.label + ': ' + Math.round(c.parsed).toLocaleString() + ' SAR (' + pct + '%)'; } } } } }
+    });
+  }
+
+  // 3 ── Annualized return (CAGR) by asset ──
+  const aprEl = document.getElementById('pv3-apr');
+  const aprRows = rows.filter(r => r.cagr != null).sort((a,b) => b.cagr - a.cagr);
+  if (aprEl && aprRows.length) {
+    _portV3Charts.apr = new Chart(aprEl, {
+      type: 'bar',
+      data: { labels: aprRows.map(r => shortName(r.a)),
+        datasets: [{ data: aprRows.map(r => +(r.cagr*100).toFixed(1)), backgroundColor: aprRows.map(r => r.cagr >= 0 ? th.green : th.red), borderRadius: 3 }] },
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.y + '%/yr' } } },
+        scales: { x: { ticks: { color: th.tick, font: { size: 8 }, maxRotation: 55, minRotation: 0 }, grid: { display: false } },
+          y: { ticks: { color: th.tick, font: { size: 8 }, callback: v => v+'%' }, grid: { color: th.grid }, title: { display: true, text: 'CAGR %/yr', color: th.tick, font: { size: 8 } } } } }
+    });
+  }
+}
+
+// ── Per-asset detail modal: growth chart + stats + management ──
+function _portV3AssetDetail(id) {
+  const a = portfolioV3?.assets?.[id];
+  if (!a) return;
+  document.getElementById('portv3-asset-modal')?.remove();
+  const pi = _portV3Price(a);
+  const qty = a.holding?.qty || 0;
+  const cost = a.holding?.cost || 0;
+  const mv = pi && qty > 0 ? pi.sarPrice * qty : (a.history?.[a.history.length-1]?.mv || 0);
+  const pnl = mv - cost, pnlPct = cost > 0 ? pnl/cost*100 : 0;
+  const cagr = _portV3AssetCAGR(a, mv);
+  const hist = (a.history || []).slice().sort((x,y)=>(x.d||'').localeCompare(y.d||''));
+  const first = hist[0]?.d, isManual = a.type === 'manual' || a.unit === 'gram';
+  const pnlC = pnl>=0?'var(--green)':'var(--red)', cagrC = cagr==null?'var(--tx3)':cagr>=0?'var(--green)':'var(--red)';
+  const fmt = v => v>=1e6?(v/1e6).toFixed(2)+'M':Math.round(v).toLocaleString();
+  const stat = (l,v,c) => `<div class="mi" style="padding:8px"><div class="mil">${l}</div><div class="miv" style="font-size:12px;${c?'color:'+c:''}">${v}</div></div>`;
+  const html = `<div class="mo" id="portv3-asset-modal" onclick="if(event.target===this)this.remove()" style="z-index:1200">
+    <div class="modal" style="width:680px;max-width:94vw;max-height:92vh">
+      <div class="mhead"><div class="mhtop">
+        <div><div class="mtitle" style="font-size:14px">${escapeHTML(a.name||id)}</div>
+          <div class="msub">${a.type==='tasi'?'TASI '+(a.ticker||'').replace('.SR',''):a.type==='yahoo'?(a.ticker||'ETF')+' · USD':isManual?(a.unit==='gram'?'Gold · SAR/gram':'Fund · NAV'):a.type} · ${qty.toLocaleString()} ${a.unit==='gram'?'g':'units'}${first?' · since '+first.slice(0,7):''}</div></div>
+        <div class="mclose" onclick="this.closest('.mo').remove()">×</div>
+      </div></div>
+      <div class="mbody">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(95px,1fr));gap:7px;margin-bottom:12px">
+          ${stat('Market Value', fmt(mv)+' SAR')}
+          ${stat('Invested', fmt(cost)+' SAR')}
+          ${stat('Total P&amp;L', (pnl>=0?'+':'')+fmt(pnl)+'<br><span style="font-size:9px">'+(pnlPct>=0?'+':'')+pnlPct.toFixed(1)+'%</span>', pnlC)}
+          ${stat('CAGR', cagr!=null?(cagr*100).toFixed(1)+'%/yr':'—', cagrC)}
+          ${stat('Avg Cost', (a.holding?.avg||0).toFixed(2))}
+          ${stat('Price', pi?pi.sarPrice.toFixed(2):'—')}
+        </div>
+        <div style="height:220px;margin-bottom:14px"><canvas id="pv3-detail-chart"></canvas></div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px">
+          <button onclick="_portV3TxnForm('${id}')" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">＋ Add Buy / Sell</button>
+          ${isManual?`<button onclick="_portV3ShowNavForm2('${id}')" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">↻ Update ${a.unit==='gram'?'SAR/gram':'NAV'}</button>`:''}
+          <button onclick="_portV3RemoveAsset('${id}')" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:var(--rdim);color:var(--red);border:1px solid var(--red);border-radius:4px;cursor:pointer;margin-left:auto">🗑 Remove</button>
+        </div>
+        <div id="pv3-detail-forms"></div>
+        <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">Transaction / Monthly History</div>
+        <div style="overflow-x:auto;max-height:230px;overflow-y:auto"><table style="width:100%;border-collapse:collapse">
+          <thead><tr style="border-bottom:1px solid var(--b2)">
+            ${['Date','Units','Price','Cost','Mkt Value','P&L%'].map(h=>`<th style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-align:right;padding:3px 6px;font-weight:400;position:sticky;top:0;background:var(--bg3)">${h}</th>`).join('')}
+          </tr></thead><tbody>
+          ${hist.slice().reverse().map(h=>{
+            const hp = h.cost>0&&h.mv>0?((h.mv-h.cost)/h.cost*100):null;
+            const hc = hp==null?'var(--tx3)':hp>=0?'var(--green)':'var(--red)';
+            return `<tr style="border-bottom:1px solid var(--b1)">
+              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:left;color:var(--tx2)">${(h.d||'').slice(0,7)}</td>
+              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right">${h.qty??'—'}</td>
+              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right">${h.price!=null?h.price.toFixed(2):'—'}</td>
+              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right">${h.cost!=null?Math.round(h.cost).toLocaleString():'—'}</td>
+              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right">${h.mv!=null?Math.round(h.mv).toLocaleString():'—'}</td>
+              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right;color:${hc}">${hp!=null?(hp>=0?'+':'')+hp.toFixed(1)+'%':'—'}</td>
+            </tr>`;
+          }).join('')}
+          </tbody></table></div>
+      </div>
+    </div></div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  _portV3DrawDetailChart(id);
+}
+
+function _portV3DrawDetailChart(id) {
+  const a = portfolioV3?.assets?.[id];
+  const el = document.getElementById('pv3-detail-chart');
+  if (!a || !el) return;
+  if (typeof Chart === 'undefined') { setTimeout(()=>_portV3DrawDetailChart(id), 200); return; }
+  if (_portV3Charts.detail) { try { _portV3Charts.detail.destroy(); } catch(e){} }
+  const th = _portV3ChartTheme();
+  const hist = (a.history || []).slice().sort((x,y)=>(x.d||'').localeCompare(y.d||''));
+  const labels = hist.map(h => (h.d||'').slice(0,7));
+  const mvArr = hist.map(h => h.mv!=null?Math.round(h.mv):null);
+  const costArr = hist.map(h => h.cost!=null?Math.round(h.cost):null);
+  // refresh terminal point with live value
+  const pi = _portV3Price(a), qty = a.holding?.qty||0;
+  if (pi && qty>0 && mvArr.length) mvArr[mvArr.length-1] = Math.round(pi.sarPrice*qty);
+  _portV3Charts.detail = new Chart(el, {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'Market Value', data: mvArr, borderColor: th.blue, backgroundColor: 'rgba(91,155,213,0.14)', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2, spanGaps: true },
+      { label: 'Invested (cost)', data: costArr, borderColor: th.amber, fill: false, tension: 0.25, pointRadius: 0, borderWidth: 1.5, borderDash: [4,3], spanGaps: true }
+    ]},
+    options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: true, labels: { color: th.tick, font: { size: 9 }, boxWidth: 10 } },
+        tooltip: { callbacks: { label: c => c.dataset.label + ': ' + (c.parsed.y!=null?Math.round(c.parsed.y).toLocaleString():'—') + ' SAR' } } },
+      scales: { x: { ticks: { color: th.tick, font: { size: 8 }, maxTicksLimit: 8 }, grid: { display: false } },
+        y: { ticks: { color: th.tick, font: { size: 8 }, callback: v => v>=1e6?(v/1e6).toFixed(1)+'M':(v/1e3).toFixed(0)+'k' }, grid: { color: th.grid } } } }
+  });
+}
+
+function _portV3ShowNavForm2(id) {
+  const a = portfolioV3?.assets?.[id]; if (!a) return;
+  const c = document.getElementById('pv3-detail-forms'); if (!c) return;
+  const unit = a.unit === 'gram' ? 'SAR/gram' : 'NAV price';
+  c.innerHTML = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:9px;background:var(--adm);border-radius:5px;border:1px solid var(--acc)">
+    <span style="font-family:var(--mono);font-size:9px;color:var(--tx2)">New ${unit}:</span>
+    <input type="number" id="pv3-nav2-price" placeholder="${unit}" step="0.01" value="${a.navPrice||''}" style="width:120px;background:var(--bg2);border:1px solid var(--acc);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
+    <input type="date" id="pv3-nav2-date" value="${a.navDate||new Date().toISOString().slice(0,10)}" style="background:var(--bg2);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
+    <button onclick="_portV3UpdateNav('${id}',document.getElementById('pv3-nav2-price').value,document.getElementById('pv3-nav2-date').value);_portV3AssetDetail('${id}')" style="font-family:var(--mono);font-size:10px;padding:5px 12px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">Save</button>
+  </div>`;
+  document.getElementById('pv3-nav2-price')?.focus();
+}
+
+function _portV3TxnForm(id) {
+  const a = portfolioV3?.assets?.[id]; if (!a) return;
+  const c = document.getElementById('pv3-detail-forms'); if (!c) return;
+  const unitLbl = a.unit === 'gram' ? 'grams' : 'units';
+  c.innerHTML = `<div style="margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:5px;border:1px solid var(--b2)">
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <select id="pv3-txn-side" style="background:var(--bg3);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 7px;outline:none">
+        <option value="buy">Buy</option><option value="sell">Sell</option></select>
+      <input type="number" id="pv3-txn-units" placeholder="${unitLbl}" step="any" style="width:90px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
+      <span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">@</span>
+      <input type="number" id="pv3-txn-price" placeholder="price/unit (SAR)" step="any" style="width:120px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
+      <input type="date" id="pv3-txn-date" value="${new Date().toISOString().slice(0,10)}" style="background:var(--bg3);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
+      <button onclick="_portV3SaveTxn('${id}')" style="font-family:var(--mono);font-size:10px;padding:5px 12px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">Save</button>
+    </div>
+    <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-top:6px">For TASI/ETF the price is informational — live price drives current value. Sells reduce units at average cost.</div>
+  </div>`;
+  document.getElementById('pv3-txn-units')?.focus();
+}
+
+function _portV3SaveTxn(id) {
+  const a = portfolioV3?.assets?.[id]; if (!a) return;
+  const side = document.getElementById('pv3-txn-side').value;
+  const units = parseFloat(document.getElementById('pv3-txn-units').value);
+  const price = parseFloat(document.getElementById('pv3-txn-price').value);
+  const date = document.getElementById('pv3-txn-date').value || new Date().toISOString().slice(0,10);
+  if (!(units > 0) || !(price > 0)) { showToast('Enter units and price'); return; }
+  a.holding = a.holding || { qty: 0, cost: 0, avg: 0 };
+  let qty = a.holding.qty || 0, cost = a.holding.cost || 0;
+  if (side === 'sell') {
+    if (units > qty + 1e-9) { showToast('Cannot sell more than held'); return; }
+    const avg = qty > 0 ? cost / qty : 0;
+    qty -= units; cost -= avg * units;
+  } else { qty += units; cost += units * price; }
+  a.holding.qty = +qty.toFixed(6); a.holding.cost = +Math.max(0,cost).toFixed(2);
+  a.holding.avg = qty > 0 ? +(a.holding.cost / qty).toFixed(4) : 0;
+  const curPrice = _portV3Price(a)?.sarPrice || price;
+  a.history = a.history || [];
+  a.history.push({ d: date, qty: a.holding.qty, price: +price.toFixed(4), cost: a.holding.cost, mv: +(a.holding.qty * curPrice).toFixed(2) });
+  a.history.sort((x,y) => (x.d||'').localeCompare(y.d||''));
+  _portV3PersistLS(); _portV3Render(); _portV3AssetDetail(id);
+  showToast('✓ ' + (side === 'sell' ? 'Sold ' : 'Bought ') + units + ' @ ' + price);
+}
+
+function _portV3RemoveAsset(id) {
+  const a = portfolioV3?.assets?.[id]; if (!a) return;
+  if (!confirm('Remove "' + (a.name||id) + '" from your portfolio? This cannot be undone.')) return;
+  delete portfolioV3.assets[id];
+  _portV3PersistLS();
+  document.getElementById('portv3-asset-modal')?.remove();
+  _portV3Render();
+  showToast('✓ Removed ' + (a.name||id));
+}
+
+// ── Add a new asset ──
+function _portV3AddAssetForm() {
+  document.getElementById('portv3-add-modal')?.remove();
+  const tasiTickers = (typeof allData !== 'undefined' ? allData : []).map(s => (s.ticker||'').replace('.SR','')).filter(Boolean).sort();
+  const html = `<div class="mo" id="portv3-add-modal" onclick="if(event.target===this)this.remove()" style="z-index:1200">
+    <div class="modal" style="width:480px;max-width:94vw">
+      <div class="mhead"><div class="mhtop">
+        <div><div class="mtitle" style="font-size:14px">➕ Add Asset</div><div class="msub">Stock, ETF, fund or gold</div></div>
+        <div class="mclose" onclick="this.closest('.mo').remove()">×</div>
+      </div></div>
+      <div class="mbody" style="display:flex;flex-direction:column;gap:10px">
+        ${_pv3Field('Type', `<select id="pv3-na-type" onchange="_portV3AddTypeChange()" style="${_PV3_INP}">
+          <option value="tasi">TASI stock (auto-priced)</option>
+          <option value="yahoo">ETF / Yahoo (USD, auto-priced)</option>
+          <option value="manual">Fund / manual NAV (SAR)</option>
+          <option value="gold">Gold (SAR per gram)</option></select>`)}
+        ${_pv3Field('Name', `<input id="pv3-na-name" placeholder="e.g. Al Rajhi REIT" style="${_PV3_INP}">`)}
+        <div id="pv3-na-ticker-wrap">${_pv3Field('Ticker', `<input id="pv3-na-ticker" list="pv3-na-tickers" placeholder="e.g. 4347 or IBIT" style="${_PV3_INP}"><datalist id="pv3-na-tickers">${tasiTickers.map(t=>`<option value="${t}">`).join('')}</datalist>`)}</div>
+        <div style="display:flex;gap:8px">
+          <div style="flex:1">${_pv3Field('<span id="pv3-na-qtylbl">Units held</span>', `<input id="pv3-na-qty" type="number" step="any" placeholder="0" style="${_PV3_INP}">`)}</div>
+          <div style="flex:1">${_pv3Field('Avg cost / unit (SAR)', `<input id="pv3-na-avg" type="number" step="any" placeholder="0.00" style="${_PV3_INP}">`)}</div>
+        </div>
+        <div id="pv3-na-nav-wrap" style="display:none">${_pv3Field('<span id="pv3-na-navlbl">Current NAV (SAR)</span>', `<input id="pv3-na-nav" type="number" step="any" placeholder="current price" style="${_PV3_INP}">`)}</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
+          <button onclick="_portV3SaveNewAsset()" style="font-family:var(--mono);font-size:11px;padding:8px 18px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:5px;cursor:pointer">Add to Portfolio</button>
+          <button onclick="document.getElementById('portv3-add-modal').remove()" style="font-family:var(--mono);font-size:11px;padding:8px 14px;background:var(--bg2);color:var(--tx3);border:1px solid var(--b2);border-radius:5px;cursor:pointer">Cancel</button>
+        </div>
+      </div>
+    </div></div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  _portV3AddTypeChange();
+}
+const _PV3_INP = 'width:100%;background:var(--bg2);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:11px;padding:7px 9px;outline:none;box-sizing:border-box';
+function _pv3Field(label, inner) {
+  return `<div><div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em">${label}</div>${inner}</div>`;
+}
+function _portV3AddTypeChange() {
+  const t = document.getElementById('pv3-na-type')?.value;
+  const tickerWrap = document.getElementById('pv3-na-ticker-wrap');
+  const navWrap = document.getElementById('pv3-na-nav-wrap');
+  const qtyLbl = document.getElementById('pv3-na-qtylbl');
+  const navLbl = document.getElementById('pv3-na-navlbl');
+  const isAuto = t === 'tasi' || t === 'yahoo';
+  if (tickerWrap) tickerWrap.style.display = isAuto ? '' : 'none';
+  if (navWrap) navWrap.style.display = isAuto ? 'none' : '';
+  if (qtyLbl) qtyLbl.textContent = t === 'gold' ? 'Grams held' : 'Units held';
+  if (navLbl) navLbl.textContent = t === 'gold' ? 'Current SAR / gram' : 'Current NAV (SAR)';
+}
+function _portV3SaveNewAsset() {
+  if (!portfolioV3) portfolioV3 = { schema: 3, fx: { USDSAR: 3.75 }, assets: {} };
+  portfolioV3.assets = portfolioV3.assets || {};
+  const type = document.getElementById('pv3-na-type').value;
+  const name = document.getElementById('pv3-na-name').value.trim();
+  let ticker = document.getElementById('pv3-na-ticker').value.trim().toUpperCase();
+  const qty = parseFloat(document.getElementById('pv3-na-qty').value) || 0;
+  const avg = parseFloat(document.getElementById('pv3-na-avg').value) || 0;
+  const nav = parseFloat(document.getElementById('pv3-na-nav').value) || 0;
+  const isAuto = type === 'tasi' || type === 'yahoo';
+  if (!name) { showToast('Enter a name'); return; }
+  if (isAuto && !ticker) { showToast('Enter a ticker'); return; }
+  if (!isAuto && !(nav > 0)) { showToast('Enter the current price/NAV'); return; }
+  let id, asset = { name, history: [] };
+  const today = new Date().toISOString().slice(0,10);
+  const cost = +(qty * avg).toFixed(2);
+  if (type === 'tasi') {
+    if (!ticker.endsWith('.SR')) ticker += '.SR';
+    id = ticker.replace('.SR','');
+    const live = _portV3Price({ type: 'tasi', ticker })?.sarPrice;
+    asset = { ...asset, type: 'tasi', ccy: 'SAR', ticker, unit: 'share', holding: { qty, cost, avg } };
+    asset.history.push({ d: today, qty, price: avg, cost, mv: +(qty * (live || avg)).toFixed(2) });
+  } else if (type === 'yahoo') {
+    id = ticker;
+    asset = { ...asset, type: 'yahoo', ccy: 'USD', ticker, unit: 'share', holding: { qty, cost, avg } };
+    const live = _portV3Price({ type: 'yahoo', ticker })?.sarPrice;
+    asset.history.push({ d: today, qty, price: avg, cost, mv: +(qty * (live || avg)).toFixed(2) });
+  } else {
+    const isGold = type === 'gold';
+    id = (name.replace(/[^a-zA-Z0-9]/g,'_').slice(0,20) || 'ASSET').toUpperCase();
+    asset = { ...asset, type: 'manual', ccy: 'SAR', unit: isGold ? 'gram' : 'unit', navPrice: nav, navDate: today, holding: { qty, cost, avg } };
+    asset.history.push({ d: today, qty, price: avg, cost, mv: +(qty * nav).toFixed(2) });
+  }
+  if (portfolioV3.assets[id]) id = id + '_' + Date.now().toString(36).slice(-4);
+  portfolioV3.assets[id] = asset;
+  _portV3PersistLS();
+  document.getElementById('portv3-add-modal')?.remove();
+  _portV3Render();
+  showToast('✓ Added ' + name);
 }
 
 // Returns next TASI earnings reporting deadline (45 days after quarter end)
@@ -3289,6 +3626,7 @@ function showPortfolioPanel() {
     </div>
   </div></div>`;
   document.body.insertAdjacentHTML('beforeend', html);
+  if (useV3) _portV3DrawCharts();
 }
 
 function renderPortfolioV3HTML() {
@@ -3302,36 +3640,36 @@ function renderPortfolioV3HTML() {
   }
   const assets = portfolioV3.assets;
 
-  // ── Compute per-asset stats ──
-  let totalMV = 0, totalCost = 0, totalDayChange = 0, dayChangeable = 0;
-  const rows = Object.entries(assets).map(([id, a]) => {
-    const pi = _portV3Price(a);
-    const qty = a.holding?.qty || 0;
-    const cost = a.holding?.cost || 0;
-    const mv = pi && qty > 0 ? pi.sarPrice * qty : (a.history?.[a.history.length-1]?.mv || 0);
-    const pnl = mv - cost;
-    const pnlPct = cost > 0 ? pnl / cost * 100 : 0;
-    const cagr = _portV3AssetCAGR(a, mv);
-    totalMV += mv;
-    totalCost += cost;
-    if (pi?.dayChangePct != null && qty > 0) { totalDayChange += (pi.dayChangePct / 100) * mv; dayChangeable++; }
-    return { id, a, pi, qty, cost, mv, pnl, pnlPct, cagr };
-  }).filter(r => r.mv > 0 || r.cost > 0).sort((a,b) => b.mv - a.mv);
-
+  // ── Compute per-asset stats (shared with charts) ──
+  const { rows, totalMV, totalCost, totalDayChange, dayChangeable } = _portV3ComputeRows();
   const totalPnL = totalMV - totalCost;
   const totalPnLPct = totalCost > 0 ? totalPnL / totalCost * 100 : 0;
+  const totalDayPct = totalMV > 0 ? totalDayChange / (totalMV - totalDayChange) * 100 : 0;
   const portCAGR = _portV3TotalCAGR();
   const pnlC = totalPnL >= 0 ? 'var(--green)' : 'var(--red)';
   const cagrC = portCAGR == null ? 'var(--tx3)' : portCAGR >= 0 ? 'var(--green)' : 'var(--red)';
+  const shortNm = a => (a.type==='tasi'?(a.ticker||'').replace('.SR','')+' ':'') + (a.name||'').split(' ').slice(0,2).join(' ');
+  const ranked = rows.filter(r => r.cost > 0).slice().sort((a,b) => b.pnlPct - a.pnlPct);
+  const best = ranked[0], worst = ranked[ranked.length-1];
 
   // ── Summary cards ──
-  let html = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:14px">
+  let html = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(108px,1fr));gap:8px;margin-bottom:14px">
     <div class="mi"><div class="mil">Total Value</div><div class="miv" style="font-size:13px;font-weight:700">${totalMV>=1e6?(totalMV/1e6).toFixed(2)+'M':totalMV.toFixed(0)} SAR</div></div>
     <div class="mi"><div class="mil">Total Cost</div><div class="miv">${totalCost>=1e6?(totalCost/1e6).toFixed(2)+'M':totalCost.toFixed(0)} SAR</div></div>
     <div class="mi"><div class="mil">P&amp;L</div><div class="miv" style="color:${pnlC}">${totalPnL>=0?'+':''}${totalPnL.toFixed(0)} SAR<br><span style="font-size:9px">${totalPnL>=0?'+':''}${totalPnLPct.toFixed(1)}%</span></div></div>
     <div class="mi"><div class="mil" data-tip="Money-weighted annualized return (XIRR) across all assets since first purchase.">Portfolio CAGR</div><div class="miv" style="color:${cagrC}">${portCAGR!=null?(portCAGR*100).toFixed(1)+'%/yr':'—'}</div></div>
-    ${dayChangeable>0?`<div class="mi"><div class="mil">Today (Live)</div><div class="miv" style="color:${totalDayChange>=0?'var(--green)':'var(--red)'}">${totalDayChange>=0?'+':''}${totalDayChange.toFixed(0)} SAR</div></div>`:''}
+    ${dayChangeable>0?`<div class="mi"><div class="mil">Today (Live)</div><div class="miv" style="color:${totalDayChange>=0?'var(--green)':'var(--red)'}">${totalDayChange>=0?'+':''}${totalDayChange.toFixed(0)} SAR<br><span style="font-size:9px">${totalDayPct>=0?'+':''}${totalDayPct.toFixed(2)}%</span></div></div>`:''}
+    ${best?`<div class="mi" style="cursor:pointer" onclick="_portV3AssetDetail('${best.id}')"><div class="mil">Best Performer</div><div class="miv" style="font-size:11px;color:var(--green)">${escapeHTML(shortNm(best.a))}<br><span style="font-size:9px">+${best.pnlPct.toFixed(1)}%</span></div></div>`:''}
+    ${worst&&worst!==best?`<div class="mi" style="cursor:pointer" onclick="_portV3AssetDetail('${worst.id}')"><div class="mil">Worst Performer</div><div class="miv" style="font-size:11px;color:${worst.pnlPct>=0?'var(--green)':'var(--red)'}">${escapeHTML(shortNm(worst.a))}<br><span style="font-size:9px">${worst.pnlPct>=0?'+':''}${worst.pnlPct.toFixed(1)}%</span></div></div>`:''}
   </div>`;
+
+  // ── Charts: performance over time, allocation, return-by-asset ──
+  html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:14px">
+    <div class="mi" style="padding:10px"><div class="mil" style="margin-bottom:6px">📈 Portfolio Performance (Value vs Cost)</div><div style="height:200px"><canvas id="pv3-perf"></canvas></div></div>
+    <div class="mi" style="padding:10px"><div class="mil" style="margin-bottom:6px">🥧 Allocation</div><div style="height:200px"><canvas id="pv3-alloc"></canvas></div></div>
+    <div class="mi" style="padding:10px;grid-column:1/-1"><div class="mil" style="margin-bottom:6px">📊 Annualized Return by Asset (CAGR)</div><div style="height:170px"><canvas id="pv3-apr"></canvas></div></div>
+  </div>
+  <div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button onclick="_portV3AddAssetForm()" style="font-family:var(--mono);font-size:10px;padding:6px 14px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:5px;cursor:pointer">➕ Add Asset</button></div>`;
 
   // ── Asset table ──
   const typeBadge = a => {
@@ -3350,7 +3688,6 @@ function renderPortfolioV3HTML() {
 
   for (const r of rows) {
     const { id, a, pi, qty, cost, mv, pnl, pnlPct, cagr } = r;
-    const safe = id.replace(/[^a-zA-Z0-9]/g,'_');
     const pnlC2 = pnl >= 0 ? 'var(--green)' : 'var(--red)';
     const cagrC2 = cagr == null ? 'var(--tx3)' : cagr >= 0 ? 'var(--green)' : 'var(--red)';
     const liveDot = pi?.live ? '<span style="color:var(--green);font-size:8px"> ●</span>' : pi?.stale ? '<span style="color:var(--amb);font-size:8px"> ⚠</span>' : '<span style="color:var(--tx3);font-size:8px"> NAV</span>';
@@ -3358,12 +3695,10 @@ function renderPortfolioV3HTML() {
     const avgCostStr = (a.holding?.avg || 0) > 0 ? a.holding.avg.toFixed(2) : '—';
     const unitStr = a.unit === 'gram' ? qty + 'g' : qty.toLocaleString();
     const cagrStr = cagr != null ? (cagr*100).toFixed(1)+'%' : '—';
-    const nameCell = a.type === 'tasi'
-      ? `<span class="tk" style="cursor:pointer;font-size:10px" onclick="document.getElementById('portfolio-modal').remove();openModal(window._fd?.findIndex(f=>f.ticker==='${escapeHTML(a.ticker||'')}'))">${(a.ticker||'').replace('.SR','')}</span> <span style="font-size:9px;color:var(--tx3)">${escapeHTML((a.name||'').split(' ').slice(0,2).join(' '))}</span>`
-      : `<span style="font-size:10px">${escapeHTML(a.name||id)}</span>`;
-    const isManual = a.type === 'manual' || a.unit === 'gram';
-    html += `<tr>
-      <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHTML(a.name||id)}">${nameCell}</td>
+    const tkBadge = a.type === 'tasi' ? `<span class="tk" style="font-size:10px">${(a.ticker||'').replace('.SR','')}</span> ` : '';
+    const nameCell = `${tkBadge}<span style="font-size:${a.type==='tasi'?9:10}px;color:${a.type==='tasi'?'var(--tx3)':'var(--tx)'}">${escapeHTML((a.name||id).split(' ').slice(0,3).join(' '))}</span>`;
+    html += `<tr style="cursor:pointer" onclick="_portV3AssetDetail('${id}')" title="Click for chart, history &amp; transactions">
+      <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHTML(a.name||id)}">${nameCell} <span style="font-size:8px;color:var(--tx3)">📈</span></td>
       <td>${typeBadge(a)}</td>
       <td style="font-family:var(--mono);font-size:10px">${unitStr}</td>
       <td style="font-family:var(--mono);font-size:10px">${avgCostStr}</td>
@@ -3371,40 +3706,8 @@ function renderPortfolioV3HTML() {
       <td style="font-family:var(--mono);font-size:10px;font-weight:600">${mv>=1e6?(mv/1e6).toFixed(2)+'M':mv.toFixed(0)}</td>
       <td style="font-family:var(--mono);font-size:10px;color:${pnlC2}">${pnl>=0?'+':''}${pnl.toFixed(0)}<br><span style="font-size:8px">${pnlPct>=0?'+':''}${pnlPct.toFixed(1)}%</span></td>
       <td style="font-family:var(--mono);font-size:11px;font-weight:600;color:${cagrC2}">${cagrStr}</td>
-      <td style="white-space:nowrap">
-        <button onclick="_portV3ToggleHist('${id}')" style="font-size:8px;font-family:var(--mono);padding:2px 6px;background:var(--bg2);color:var(--tx3);border:1px solid var(--b2);border-radius:3px;cursor:pointer" title="Show monthly history">▾ Hist</button>
-        ${isManual?`<button onclick="_portV3ShowNavForm('${id}')" style="font-size:8px;font-family:var(--mono);padding:2px 6px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:3px;cursor:pointer;margin-left:3px" title="Update NAV price">NAV</button>`:''}
-      </td>
-    </tr>
-    <tr id="portv3-hist-${safe}" style="display:none"><td colspan="9" style="padding:0;border-bottom:1px solid var(--b1)">
-      <div style="padding:8px 14px;background:var(--bg3)">
-        <div id="navform-${safe}" style="display:none;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding:8px;background:var(--adm);border-radius:5px;border:1px solid var(--acc)">
-          <span style="font-family:var(--mono);font-size:9px;color:var(--tx2)">Update ${a.unit==='gram'?'SAR/gram':'NAV'} for ${escapeHTML(a.name||id)}:</span>
-          <input type="number" id="navprice-${safe}" placeholder="${a.unit==='gram'?'SAR/gram':'NAV price'}" step="0.01" style="width:110px;background:var(--bg2);border:1px solid var(--acc);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:4px 7px;outline:none">
-          <input type="date" id="navdate-${safe}" value="${a.navDate||new Date().toISOString().slice(0,10)}" style="background:var(--bg2);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:4px 7px;outline:none">
-          <button onclick="_portV3UpdateNav('${id}',document.getElementById('navprice-${safe}').value,document.getElementById('navdate-${safe}').value)" style="font-family:var(--mono);font-size:10px;padding:4px 10px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">Save</button>
-        </div>
-        <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">${escapeHTML(a.name||id)} — Monthly History</div>
-        <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
-          <thead><tr style="border-bottom:1px solid var(--b2)">
-            ${['Date','Units','Price','Cost Basis','Mkt Value','P&L%'].map(h=>`<th style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-align:right;padding:3px 6px;font-weight:400">${h}</th>`).join('')}
-          </tr></thead><tbody>
-          ${(a.history||[]).slice().reverse().map(h=>{
-            const hpnl = h.cost>0&&h.mv>0 ? ((h.mv-h.cost)/h.cost*100) : null;
-            const hpnlC = hpnl==null?'var(--tx3)':hpnl>=0?'var(--green)':'var(--red)';
-            return `<tr style="border-bottom:1px solid var(--b1)">
-              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:left;color:var(--tx2)">${h.d.slice(0,7)}</td>
-              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right">${h.qty}</td>
-              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right">${h.price!=null?h.price.toFixed(2):'—'}</td>
-              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right">${h.cost!=null?h.cost.toFixed(0):'—'}</td>
-              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right">${h.mv!=null?h.mv.toFixed(0):'—'}</td>
-              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right;color:${hpnlC}">${hpnl!=null?(hpnl>=0?'+':'')+hpnl.toFixed(1)+'%':'—'}</td>
-            </tr>`;
-          }).join('')}
-          </tbody>
-        </table></div>
-      </div>
-    </td></tr>`;
+      <td style="white-space:nowrap;text-align:right;color:var(--tx3);font-size:11px">›</td>
+    </tr>`;
   }
 
   html += `</tbody></table></div>`;
@@ -3412,6 +3715,7 @@ function renderPortfolioV3HTML() {
   // ── Footer actions ──
   const gdConnected = typeof GD_TOKEN !== 'undefined' && GD_TOKEN;
   html += `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:8px;border-top:1px solid var(--b1)">
+    <button onclick="_portV3AddAssetForm()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">➕ Add Asset</button>
     <button onclick="_portV3ImportFile()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer" title="Replace with a newer portfolio.json file">📂 Import File</button>
     ${gdConnected?`<button onclick="_portV3GdSave().then(()=>showToast('✓ Saved to Google Drive'))" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">☁ Save to Drive</button>`:''}
     <button onclick="_portV3ExportCSV()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">⬇ Export CSV</button>
