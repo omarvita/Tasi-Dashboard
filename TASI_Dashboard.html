@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260620d'; // bump this string on every deploy that matters
+  var V='20260620e'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -1608,6 +1608,201 @@ function _portV3RemoveAsset(id) {
   showToast('✓ Removed ' + (a.name||id));
 }
 
+function _portV3AddDivForm(id) {
+  const a = portfolioV3?.assets?.[id]; if (!a) return;
+  const c = document.getElementById('pv3-detail-forms'); if (!c) return;
+  const qty = a.holding?.qty || 0;
+  c.innerHTML = `<div style="margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:5px;border:1px solid var(--b2)">
+    <div style="font-family:var(--mono);font-size:9px;color:var(--tx3);margin-bottom:7px;text-transform:uppercase;letter-spacing:.05em">Add Dividend</div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <input type="date" id="pv3-div-date" value="${new Date().toISOString().slice(0,10)}" style="${_PV3_INP};width:130px;padding:5px 7px">
+      <input type="number" id="pv3-div-punit" placeholder="SAR per unit" step="any" style="${_PV3_INP};width:120px;padding:5px 7px" oninput="const pu=parseFloat(this.value)||0;const tot=document.getElementById('pv3-div-total');if(tot&&pu>0)tot.value=(pu*${qty}).toFixed(2)">
+      <span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">× ${qty} =</span>
+      <input type="number" id="pv3-div-total" placeholder="Total SAR" step="any" style="${_PV3_INP};width:100px;padding:5px 7px">
+      <input id="pv3-div-note" placeholder="Note (e.g. Q4 2024)" style="${_PV3_INP};width:130px;padding:5px 7px">
+      <button onclick="_portV3SaveDiv('${id}')" style="font-family:var(--mono);font-size:10px;padding:5px 12px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">Save</button>
+    </div>
+  </div>`;
+  document.getElementById('pv3-div-punit')?.focus();
+}
+
+function _portV3SaveDiv(id) {
+  const a = portfolioV3?.assets?.[id]; if (!a) return;
+  const d = document.getElementById('pv3-div-date')?.value;
+  const total = parseFloat(document.getElementById('pv3-div-total')?.value);
+  const perUnit = parseFloat(document.getElementById('pv3-div-punit')?.value);
+  const note = document.getElementById('pv3-div-note')?.value.trim();
+  if (!(total > 0)) { showToast('Enter the total dividend amount (SAR)'); return; }
+  a.dividends = a.dividends || [];
+  const entry = { d: d || new Date().toISOString().slice(0,10), amount: +total.toFixed(2) };
+  if (perUnit > 0) entry.perUnit = +perUnit.toFixed(4);
+  if (note) entry.note = note;
+  a.dividends.push(entry);
+  a.dividends.sort((x,y) => (x.d||'').localeCompare(y.d||''));
+  _portV3PersistLS();
+  _portV3AssetDetail(id);
+  showToast('✓ Dividend added — +' + total.toFixed(0) + ' SAR');
+}
+
+function _portV3DeleteDiv(id, idx) {
+  const a = portfolioV3?.assets?.[id]; if (!a?.dividends?.[idx]) return;
+  const amt = (a.dividends[idx].amount||0).toFixed(0);
+  if (!confirm('Delete dividend of ' + amt + ' SAR?')) return;
+  a.dividends.splice(idx, 1);
+  _portV3PersistLS();
+  _portV3AssetDetail(id);
+}
+
+function _portV3DeleteHistRow(id, idx) {
+  const a = portfolioV3?.assets?.[id]; if (!a?.history?.[idx]) return;
+  const label = (a.history[idx].d||'').slice(0,7);
+  if (!confirm('Delete history entry for ' + label + '? This cannot be undone.')) return;
+  a.history.splice(idx, 1);
+  if (a.history.length) {
+    const last = a.history[a.history.length-1];
+    a.holding = { qty: last.qty||0, cost: last.cost||0, avg: (last.qty||0)>0?+((last.cost||0)/(last.qty||1)).toFixed(4):0 };
+  }
+  _portV3PersistLS();
+  _portV3AssetDetail(id);
+}
+
+function _portV3EditHistRow(id, idx) {
+  const a = portfolioV3?.assets?.[id]; if (!a?.history?.[idx]) return;
+  const h = a.history[idx];
+  const tr = document.getElementById('pv3-hist-row-' + idx); if (!tr) return;
+  tr.innerHTML = `<td colspan="7" style="padding:4px">
+    <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;background:var(--adm);padding:7px;border-radius:4px;border:1px solid var(--acc)">
+      <input type="date" id="pv3-he-d" value="${h.d||''}" style="${_PV3_INP};width:120px;padding:4px 6px;font-size:9px">
+      <input type="number" id="pv3-he-qty" placeholder="units" value="${h.qty??''}" step="any" style="${_PV3_INP};width:75px;padding:4px 6px;font-size:9px">
+      <input type="number" id="pv3-he-price" placeholder="price" value="${h.price??''}" step="any" style="${_PV3_INP};width:78px;padding:4px 6px;font-size:9px">
+      <input type="number" id="pv3-he-cost" placeholder="cost" value="${h.cost??''}" step="any" style="${_PV3_INP};width:80px;padding:4px 6px;font-size:9px">
+      <input type="number" id="pv3-he-mv" placeholder="mkt val" value="${h.mv??''}" step="any" style="${_PV3_INP};width:80px;padding:4px 6px;font-size:9px">
+      <button onclick="_portV3SaveHistEdit('${id}',${idx})" style="font-family:var(--mono);font-size:9px;padding:4px 9px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">✓ Save</button>
+      <button onclick="_portV3AssetDetail('${id}')" style="font-family:var(--mono);font-size:9px;padding:4px 7px;background:var(--bg2);color:var(--tx3);border:1px solid var(--b2);border-radius:4px;cursor:pointer">Cancel</button>
+    </div>
+  </td>`;
+}
+
+function _portV3SaveHistEdit(id, idx) {
+  const a = portfolioV3?.assets?.[id]; if (!a?.history) return;
+  const h = a.history[idx] || {};
+  const d     = document.getElementById('pv3-he-d')?.value || h.d;
+  const qty   = parseFloat(document.getElementById('pv3-he-qty')?.value);
+  const price = parseFloat(document.getElementById('pv3-he-price')?.value);
+  const cost  = parseFloat(document.getElementById('pv3-he-cost')?.value);
+  const mv    = parseFloat(document.getElementById('pv3-he-mv')?.value);
+  a.history[idx] = {
+    d,
+    qty:   isNaN(qty)   ? h.qty   : +qty.toFixed(6),
+    price: isNaN(price) ? h.price : +price.toFixed(4),
+    cost:  isNaN(cost)  ? h.cost  : +cost.toFixed(2),
+    mv:    isNaN(mv)    ? h.mv    : +mv.toFixed(2)
+  };
+  a.history.sort((x,y) => (x.d||'').localeCompare(y.d||''));
+  const last = a.history[a.history.length-1];
+  if (last) { a.holding = { qty: last.qty||0, cost: last.cost||0, avg: (last.qty||0)>0?+((last.cost||0)/(last.qty||1)).toFixed(4):0 }; }
+  _portV3PersistLS();
+  _portV3AssetDetail(id);
+  showToast('✓ History row updated');
+}
+
+function _portV3CalcPeriodReturn(id) {
+  const a = portfolioV3?.assets?.[id];
+  const resultEl = document.getElementById('pv3-pr-result'); if (!resultEl) return;
+  const hist = (a?.history||[]).slice().sort((x,y)=>(x.d||'').localeCompare(y.d||''));
+  if (!hist.length) { resultEl.textContent = 'No history data'; return; }
+  const fromD = document.getElementById('pv3-pr-from')?.value || hist[0]?.d;
+  const toD   = document.getElementById('pv3-pr-to')?.value || new Date().toISOString().slice(0,10);
+  const today = new Date().toISOString().slice(0,10);
+  const nearest = (date) => {
+    const before = hist.filter(h=>(h.d||'')<=date);
+    return before.length ? before[before.length-1] : hist[0];
+  };
+  const fromEntry = nearest(fromD);
+  const fromMV = fromEntry?.mv || 0;
+  let toMV;
+  if (toD >= today) {
+    const pi = _portV3Price(a), qty = a.holding?.qty||0;
+    toMV = pi && qty > 0 ? pi.sarPrice * qty : (hist[hist.length-1]?.mv || 0);
+  } else {
+    toMV = nearest(toD)?.mv || 0;
+  }
+  if (!(fromMV > 0) || !(toMV > 0)) { resultEl.innerHTML = '<span style="color:var(--tx3)">Insufficient data for this range</span>'; return; }
+  const years = Math.max((new Date(toD>=today?today:toD) - new Date(fromEntry.d)) / 31557600000, 1/365);
+  const totalRet = (toMV - fromMV) / fromMV * 100;
+  const annualRet = (Math.pow(toMV / fromMV, 1 / years) - 1) * 100;
+  const c = totalRet >= 0 ? 'var(--green)' : 'var(--red)';
+  resultEl.innerHTML = `<span style="color:${c};font-weight:600">${totalRet>=0?'+':''}${totalRet.toFixed(1)}% total</span>&ensp;<span style="color:var(--tx3)">·</span>&ensp;<span style="color:${c}">${annualRet>=0?'+':''}${annualRet.toFixed(1)}%/yr</span>&ensp;<span style="color:var(--tx3);font-size:9px">(${years.toFixed(1)} yr)</span>`;
+}
+
+function _portV3ExpandChart(type, id) {
+  document.getElementById('portv3-expand-modal')?.remove();
+  const title = type==='detail'?(document.getElementById('portv3-asset-title')?.textContent||'Asset'):type==='perf'?'Portfolio Performance':type==='alloc'?'Allocation':'Annualized Return (CAGR)';
+  const html = `<div class="mo" id="portv3-expand-modal" onclick="if(event.target===this)this.remove()" style="z-index:1300">
+    <div class="modal" style="width:960px;max-width:96vw;max-height:92vh">
+      <div class="mhead"><div class="mhtop">
+        <div class="mtitle" style="font-size:13px">📈 ${escapeHTML(title)}</div>
+        <div class="mclose" onclick="this.closest('.mo').remove()">×</div>
+      </div></div>
+      <div class="mbody" style="height:68vh"><canvas id="pv3-expand-canvas"></canvas></div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  if (typeof Chart === 'undefined') return;
+  const th = _portV3ChartTheme();
+  const el = document.getElementById('pv3-expand-canvas'); if (!el) return;
+  if (type === 'detail' && id) {
+    const a = portfolioV3?.assets?.[id]; if (!a) return;
+    const hist = (a.history||[]).slice().sort((x,y)=>(x.d||'').localeCompare(y.d||''));
+    const mvArr = hist.map(h=>h.mv!=null?Math.round(h.mv):null);
+    const costArr = hist.map(h=>h.cost!=null?Math.round(h.cost):null);
+    const pi = _portV3Price(a), qty = a.holding?.qty||0;
+    if (pi&&qty>0&&mvArr.length) mvArr[mvArr.length-1]=Math.round(pi.sarPrice*qty);
+    new Chart(el, { type:'line', data:{ labels:hist.map(h=>(h.d||'').slice(0,7)),
+      datasets:[{ label:'Market Value', data:mvArr, borderColor:th.blue, backgroundColor:'rgba(91,155,213,0.14)', fill:true, tension:0.25, pointRadius:0, borderWidth:2, spanGaps:true },
+                 { label:'Invested (cost)', data:costArr, borderColor:th.amber, fill:false, tension:0.25, pointRadius:0, borderWidth:1.5, borderDash:[4,3], spanGaps:true }]},
+      options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+        plugins:{ legend:{labels:{color:th.tick,font:{size:10},boxWidth:12}}, tooltip:{callbacks:{label:c=>c.dataset.label+': '+Math.round(c.parsed.y||0).toLocaleString()+' SAR'}} },
+        scales:{ x:{ticks:{color:th.tick,maxTicksLimit:12},grid:{display:false}}, y:{ticks:{color:th.tick,callback:v=>v>=1e6?(v/1e6).toFixed(1)+'M':(v/1e3).toFixed(0)+'k'},grid:{color:th.grid}} } } });
+  } else if (type === 'perf') {
+    const ts = _portV3TimeSeries(); const { totalMV, totalCost } = _portV3ComputeRows();
+    if (ts.months.length) { ts.mv[ts.mv.length-1]=Math.round(totalMV); ts.cost[ts.cost.length-1]=Math.round(totalCost); }
+    new Chart(el, { type:'line', data:{ labels:ts.months,
+      datasets:[{ label:'Value', data:ts.mv, borderColor:th.blue, backgroundColor:'rgba(91,155,213,0.14)', fill:true, tension:0.25, pointRadius:0, borderWidth:2 },
+                 { label:'Cost', data:ts.cost, borderColor:th.amber, fill:false, tension:0.25, pointRadius:0, borderWidth:1.5, borderDash:[4,3] }]},
+      options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+        plugins:{ legend:{labels:{color:th.tick,font:{size:10}}}, tooltip:{callbacks:{label:c=>c.dataset.label+': '+Math.round(c.parsed.y).toLocaleString()+' SAR'}} },
+        scales:{ x:{ticks:{color:th.tick,maxTicksLimit:12},grid:{display:false}}, y:{ticks:{color:th.tick,callback:v=>v>=1e6?(v/1e6).toFixed(1)+'M':(v/1e3).toFixed(0)+'k'},grid:{color:th.grid}} } } });
+  } else if (type === 'alloc') {
+    const { rows, totalMV } = _portV3ComputeRows(); const ar = rows.filter(r=>r.mv>0);
+    new Chart(el, { type:'doughnut', data:{ labels:ar.map(r=>r.a.name||r.id),
+      datasets:[{ data:ar.map(r=>Math.round(r.mv)), backgroundColor:ar.map((_,i)=>_PV3_PALETTE[i%_PV3_PALETTE.length]), borderWidth:1, borderColor:document.body.classList.contains('light')?'#fff':'#1a1a2e' }]},
+      options:{ responsive:true, maintainAspectRatio:false, cutout:'52%',
+        plugins:{ legend:{position:'right',labels:{color:th.tick,font:{size:10},boxWidth:11,padding:6}},
+          tooltip:{callbacks:{label:c=>c.label+': '+Math.round(c.parsed).toLocaleString()+' SAR ('+(totalMV>0?(c.parsed/totalMV*100).toFixed(1):0)+'%)'}} } } });
+  } else if (type === 'apr') {
+    const { rows } = _portV3ComputeRows(); const ar = rows.filter(r=>r.cagr!=null).sort((a,b)=>b.cagr-a.cagr);
+    new Chart(el, { type:'bar', data:{ labels:ar.map(r=>r.a.name||r.id),
+      datasets:[{ data:ar.map(r=>+(r.cagr*100).toFixed(1)), backgroundColor:ar.map(r=>r.cagr>=0?th.green:th.red), borderRadius:4 }]},
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>c.parsed.y+'%/yr'}} },
+        scales:{ x:{ticks:{color:th.tick,maxRotation:45},grid:{display:false}}, y:{ticks:{color:th.tick,callback:v=>v+'%'},grid:{color:th.grid}} } } });
+  }
+}
+
+function _portV3TickerAutoFill() {
+  const type = document.getElementById('pv3-na-type')?.value;
+  if (type !== 'tasi') return;
+  const rawTicker = document.getElementById('pv3-na-ticker')?.value.trim().toUpperCase();
+  if (!rawTicker) return;
+  const full = rawTicker.endsWith('.SR') ? rawTicker : rawTicker + '.SR';
+  const d = (typeof allData !== 'undefined' ? allData : []).find(s => s.ticker === full);
+  if (d?.name) {
+    const nameEl = document.getElementById('pv3-na-name');
+    if (nameEl && !nameEl._userEdited) nameEl.value = d.name;
+  }
+}
+
 // ── Add a new asset ──
 function _portV3AddAssetForm() {
   document.getElementById('portv3-add-modal')?.remove();
@@ -1624,8 +1819,8 @@ function _portV3AddAssetForm() {
           <option value="yahoo">ETF / Yahoo (USD, auto-priced)</option>
           <option value="manual">Fund / manual NAV (SAR)</option>
           <option value="gold">Gold (SAR per gram)</option></select>`)}
-        ${_pv3Field('Name', `<input id="pv3-na-name" placeholder="e.g. Al Rajhi REIT" style="${_PV3_INP}">`)}
-        <div id="pv3-na-ticker-wrap">${_pv3Field('Ticker', `<input id="pv3-na-ticker" list="pv3-na-tickers" placeholder="e.g. 4347 or IBIT" style="${_PV3_INP}"><datalist id="pv3-na-tickers">${tasiTickers.map(t=>`<option value="${t}">`).join('')}</datalist>`)}</div>
+        ${_pv3Field('Name', `<input id="pv3-na-name" placeholder="e.g. Al Rajhi REIT" style="${_PV3_INP}" oninput="this._userEdited=true">`)}
+        <div id="pv3-na-ticker-wrap">${_pv3Field('Ticker', `<input id="pv3-na-ticker" list="pv3-na-tickers" placeholder="e.g. 4347 or IBIT" style="${_PV3_INP}" oninput="_portV3TickerAutoFill()"><datalist id="pv3-na-tickers">${tasiTickers.map(t=>`<option value="${t}">`).join('')}</datalist>`)}</div>
         <div style="display:flex;gap:8px">
           <div style="flex:1">${_pv3Field('<span id="pv3-na-qtylbl">Units held</span>', `<input id="pv3-na-qty" type="number" step="any" placeholder="0" style="${_PV3_INP}">`)}</div>
           <div style="flex:1">${_pv3Field('Avg cost / unit (SAR)', `<input id="pv3-na-avg" type="number" step="any" placeholder="0.00" style="${_PV3_INP}">`)}</div>
@@ -3772,9 +3967,9 @@ function renderPortfolioV3HTML() {
 
   // ── Charts: performance over time, allocation, return-by-asset ──
   html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:14px">
-    <div class="mi" style="padding:10px"><div class="mil" style="margin-bottom:6px">📈 Portfolio Performance (Value vs Cost)</div><div style="height:200px"><canvas id="pv3-perf"></canvas></div></div>
-    <div class="mi" style="padding:10px"><div class="mil" style="margin-bottom:6px">🥧 Allocation</div><div style="height:200px"><canvas id="pv3-alloc"></canvas></div></div>
-    <div class="mi" style="padding:10px;grid-column:1/-1"><div class="mil" style="margin-bottom:6px">📊 Annualized Return by Asset (CAGR)</div><div style="height:170px"><canvas id="pv3-apr"></canvas></div></div>
+    <div class="mi" style="padding:10px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="mil">📈 Portfolio Performance</span><button onclick="_portV3ExpandChart('perf')" style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--bg2);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);cursor:pointer">⛶</button></div><div style="height:200px"><canvas id="pv3-perf"></canvas></div></div>
+    <div class="mi" style="padding:10px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="mil">🥧 Allocation</span><button onclick="_portV3ExpandChart('alloc')" style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--bg2);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);cursor:pointer">⛶</button></div><div style="height:200px"><canvas id="pv3-alloc"></canvas></div></div>
+    <div class="mi" style="padding:10px;grid-column:1/-1"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="mil">📊 Annualized Return by Asset (CAGR)</span><button onclick="_portV3ExpandChart('apr')" style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--bg2);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);cursor:pointer">⛶</button></div><div style="height:170px"><canvas id="pv3-apr"></canvas></div></div>
   </div>
   <div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button onclick="_portV3AddAssetForm()" style="font-family:var(--mono);font-size:10px;padding:6px 14px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:5px;cursor:pointer">➕ Add Asset</button></div>`;
 
@@ -3803,9 +3998,9 @@ function renderPortfolioV3HTML() {
     const unitStr = a.unit === 'gram' ? qty + 'g' : qty.toLocaleString();
     const cagrStr = cagr != null ? (cagr*100).toFixed(1)+'%' : '—';
     const tkBadge = a.type === 'tasi' ? `<span class="tk" style="font-size:10px">${(a.ticker||'').replace('.SR','')}</span> ` : '';
-    const nameCell = `${tkBadge}<span style="font-size:${a.type==='tasi'?9:10}px;color:${a.type==='tasi'?'var(--tx3)':'var(--tx)'}">${escapeHTML((a.name||id).split(' ').slice(0,3).join(' '))}</span>`;
+    const nameCell = `${tkBadge}<span style="font-size:${a.type==='tasi'?9:10}px;color:${a.type==='tasi'?'var(--tx3)':'var(--tx)'}">${escapeHTML(a.name||id)}</span>`;
     html += `<tr style="cursor:pointer" onclick="_portV3AssetDetail('${id}')" title="Click for chart, history &amp; transactions">
-      <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHTML(a.name||id)}">${nameCell} <span style="font-size:8px;color:var(--tx3)">📈</span></td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHTML(a.name||id)}">${nameCell} <span style="font-size:8px;color:var(--tx3)">📈</span></td>
       <td>${typeBadge(a)}</td>
       <td style="font-family:var(--mono);font-size:10px">${unitStr}</td>
       <td style="font-family:var(--mono);font-size:10px">${avgCostStr}</td>
