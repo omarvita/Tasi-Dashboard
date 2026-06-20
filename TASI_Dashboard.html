@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260620e'; // bump this string on every deploy that matters
+  var V='20260620f'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -440,7 +440,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260620c · portfolio v3 — big upgrade: three charts at the top (Portfolio Performance value-vs-cost line over time · Allocation donut by market value · Annualized Return / CAGR bar per asset), richer summary cards (today's % move · best & worst performer), click any holding to open a detail view with its own growth chart + full transaction/monthly history, ➕ Add Asset (TASI stock, ETF, Al Rajhi fund or gold), per-asset Buy/Sell entry that updates units & cost, NAV update and remove · v20260620b · desktop header layout fix: the long version-label text was forcing the logo block to expand on desktop, squeezing the right-side button group (Import / Light / Compare / Portfolio / ⚙) into a wrapped vertical stack over the metric cards — the label now truncates and the button row stays on one line · v20260620a · portfolio v3: multi-asset (TASI stocks, IBIT ETF, Al Rajhi funds, gold), per-asset CAGR (XIRR) from monthly buy/sell history, gold tracked manually in SAR/gram via Al Rajhi · v20260619e · code-review hardening: scoring functions guard against a NaN ROE/margin (was falling through to the worst band); the Action's fetch helper now surfaces a persistent rate-limit as an error instead of silently returning undefined; removed dead code · v20260619d · renamed the panel "Market Valuation" (it covers every indicator, not just P/E) · the valuation gauge under the big number now reflects the CLICKED criterion — the pointer shows where that indicator sits within its own reconstructed history (cheap ← → expensive), instead of a static P/E scale stuck at 50% · v20260619c · Wtd-Avg P/E end-spike fixed (the reconstruction is now authoritative; stored daily snapshots from partial-data days no longer override or append to recent dates) · breakdown market-cap axis no longer shows float-garbage ticks (e.g. 2.4000000000004T → 2.4T) · market-valuation tile verdicts (P/E, P/B, P/S, Buffett, yields) are now RELATIVE to each indicator's own reconstructed history (percentile) instead of fixed absolute cutoffs — so a P/S near its multi-year low reads "Cheap" rather than "Expensive" · v20260619b · market-valuation chart fixes: Overall Score no longer pins to a false 0 on thin-data days (now needs a real valuation signal, else the chart simply gaps) · live Market P/B switched to the aggregate basis (Σcap ÷ Σbook) and Market P/S now excludes Aramco — both now match their reconstructed history, removing the vertical end-spike where the chart met the live tile · reconstruction is now the single source for every indicator (stored daily snapshots used only for CAPE) · breakdown charts trim the early low-coverage cap ramp · v20260619a · Saudi-tuned scoring: Fundamental D/E thresholds now widen for regulated/capital-intensive sectors (utilities, telecom, real estate, transport, energy), and ROE & margins for commodity-cyclical sectors (petrochem, chemicals, materials, building materials, energy) are scored on a multi-year through-cycle median — Buffett score applies both too · breakdown Revenue is now the complete market total on both the P/E and P/S charts (was understated on P/E, which only counted the earnings basket) · guide updated · v20260618e · breakdown charts now plot actual SAR on dual y-axes (Market Cap in trillions left, Revenue/Earnings in billions right) instead of a confusing indexed-to-100 scale; added a Market Cap vs Revenue breakdown under the P/S chart (cap ÷ revenue = the P/S line) · v20260618d · Saudi GDP now auto-updates from the World Bank (NY.GDP.MKTP.CN) via the nightly Action — Buffett denominator tracks official figures each year without manual edits · v20260618c · Buffett Indicator now divides by time-varying nominal GDP (annual series 2019-2026, World Bank/IMF × 3.75 peg, mid-year interpolated) instead of a flat SAR 4.83T — history and the Market Cap vs GDP breakdown use the GDP of each date · v20260618b · breakdown P/E (Market Cap/Earnings/Revenue) now built from the SAME reconstruction as the P/E line above — identical basket & date span (was using the 50%-coverage builder, so earnings/revenue started years later than the P/E line) · v20260618a · breakdown chart below the valuation chart: P/E shows Market Cap vs Earnings vs Revenue (indexed); Buffett shows Market Cap vs GDP · curve + range selectors moved directly above the chart · v20260617h · market P/E history (Wtd/Median/Mean) now uses the same universe as the headline tiles — REITs & delisted excluded, Aramco out of the cap-weighted curve only (was inflating it ~1.6x); even-count median fixed; removed dead estimation code · v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260620f · portfolio v3 — dividends & returns: dividends (any date, including old ones) now feed the money-weighted CAGR (XIRR), a new Total Return card (capital + dividends + realized), a Dividends card with yield-on-cost, and the per-asset figures · realized P&L is booked when you sell (derived from history) and shown separately · optional brokerage fee per Buy/Sell, tracked as a return drag (Fees card) · benchmark: a dashed "If TASI" line on the Performance chart shows what your starting value would be worth tracking the index · target allocation per asset with a Rebalance table (current % vs target, drift, SAR to buy/sell) · Export JSON backup button · v20260620e · portfolio v3 detail view — full-size charts, dividends/edit-history/period-return, Drive merge (no overwrite), full names · v20260620c · portfolio v3 — big upgrade: three charts at the top (Portfolio Performance value-vs-cost line over time · Allocation donut by market value · Annualized Return / CAGR bar per asset), richer summary cards (today's % move · best & worst performer), click any holding to open a detail view with its own growth chart + full transaction/monthly history, ➕ Add Asset (TASI stock, ETF, Al Rajhi fund or gold), per-asset Buy/Sell entry that updates units & cost, NAV update and remove · v20260620b · desktop header layout fix: the long version-label text was forcing the logo block to expand on desktop, squeezing the right-side button group (Import / Light / Compare / Portfolio / ⚙) into a wrapped vertical stack over the metric cards — the label now truncates and the button row stays on one line · v20260620a · portfolio v3: multi-asset (TASI stocks, IBIT ETF, Al Rajhi funds, gold), per-asset CAGR (XIRR) from monthly buy/sell history, gold tracked manually in SAR/gram via Al Rajhi · v20260619e · code-review hardening: scoring functions guard against a NaN ROE/margin (was falling through to the worst band); the Action's fetch helper now surfaces a persistent rate-limit as an error instead of silently returning undefined; removed dead code · v20260619d · renamed the panel "Market Valuation" (it covers every indicator, not just P/E) · the valuation gauge under the big number now reflects the CLICKED criterion — the pointer shows where that indicator sits within its own reconstructed history (cheap ← → expensive), instead of a static P/E scale stuck at 50% · v20260619c · Wtd-Avg P/E end-spike fixed (the reconstruction is now authoritative; stored daily snapshots from partial-data days no longer override or append to recent dates) · breakdown market-cap axis no longer shows float-garbage ticks (e.g. 2.4000000000004T → 2.4T) · market-valuation tile verdicts (P/E, P/B, P/S, Buffett, yields) are now RELATIVE to each indicator's own reconstructed history (percentile) instead of fixed absolute cutoffs — so a P/S near its multi-year low reads "Cheap" rather than "Expensive" · v20260619b · market-valuation chart fixes: Overall Score no longer pins to a false 0 on thin-data days (now needs a real valuation signal, else the chart simply gaps) · live Market P/B switched to the aggregate basis (Σcap ÷ Σbook) and Market P/S now excludes Aramco — both now match their reconstructed history, removing the vertical end-spike where the chart met the live tile · reconstruction is now the single source for every indicator (stored daily snapshots used only for CAPE) · breakdown charts trim the early low-coverage cap ramp · v20260619a · Saudi-tuned scoring: Fundamental D/E thresholds now widen for regulated/capital-intensive sectors (utilities, telecom, real estate, transport, energy), and ROE & margins for commodity-cyclical sectors (petrochem, chemicals, materials, building materials, energy) are scored on a multi-year through-cycle median — Buffett score applies both too · breakdown Revenue is now the complete market total on both the P/E and P/S charts (was understated on P/E, which only counted the earnings basket) · guide updated · v20260618e · breakdown charts now plot actual SAR on dual y-axes (Market Cap in trillions left, Revenue/Earnings in billions right) instead of a confusing indexed-to-100 scale; added a Market Cap vs Revenue breakdown under the P/S chart (cap ÷ revenue = the P/S line) · v20260618d · Saudi GDP now auto-updates from the World Bank (NY.GDP.MKTP.CN) via the nightly Action — Buffett denominator tracks official figures each year without manual edits · v20260618c · Buffett Indicator now divides by time-varying nominal GDP (annual series 2019-2026, World Bank/IMF × 3.75 peg, mid-year interpolated) instead of a flat SAR 4.83T — history and the Market Cap vs GDP breakdown use the GDP of each date · v20260618b · breakdown P/E (Market Cap/Earnings/Revenue) now built from the SAME reconstruction as the P/E line above — identical basket & date span (was using the 50%-coverage builder, so earnings/revenue started years later than the P/E line) · v20260618a · breakdown chart below the valuation chart: P/E shows Market Cap vs Earnings vs Revenue (indexed); Buffett shows Market Cap vs GDP · curve + range selectors moved directly above the chart · v20260617h · market P/E history (Wtd/Median/Mean) now uses the same universe as the headline tiles — REITs & delisted excluded, Aramco out of the cap-weighted curve only (was inflating it ~1.6x); even-count median fixed; removed dead estimation code · v20260617g · stock chart "All" range uses 10y daily bars (was range=max → weekly downsampling that broke SMA overlays) · price history enrichment threshold raised to ~8y so 10Y/All keep deep data · local cache keeps 10y closes · snapshot seeds 5y stock / 10y TASI · P/E chart falls back to rawTwelveData when Drive off · v20260617f valuation charts show full statement history (5Y default, annual data fills pre-quarterly dates) · risk badge breakdown on click · 10Y price history · 10Y/All market P/E range · annual tab label · accumulate full statement history (15y quarters / 20y annual) · dividend safety breakdown on click · guide term tooltips · configurable WACC · cyclical PEG fix · FCF dividend cover · Drive sync on connect · statements snapshot · cyclical DCF · delisting tracker · custom tickers · unit tests</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1182,42 +1182,68 @@ function _portV3Price(asset) {
 }
 
 // Per-asset XIRR CAGR from monthly cost history
-function _portV3AssetCAGR(asset, currentMV) {
-  const hist = asset.history;
-  if (!hist?.length || !(currentMV > 0)) return null;
-  const cfs = [];
+// Build dated cash flows for XIRR + derive realized P&L, dividends, fees from history
+function _portV3CashflowsAndStats(asset) {
+  const hist = (asset.history || []).slice().sort((x,y)=>(x.d||'').localeCompare(y.d||''));
+  const cfs = []; let realized = 0, fees = 0;
   for (let i = 0; i < hist.length; i++) {
-    const delta = i === 0 ? hist[i].cost : hist[i].cost - hist[i-1].cost;
-    if (Math.abs(delta) > 0.5) cfs.push({ t: new Date(hist[i].d).getTime(), v: -delta });
+    const h = hist[i], prev = hist[i-1];
+    const t = new Date(h.d).getTime();
+    const dcost = i === 0 ? (h.cost||0) : (h.cost||0) - (prev.cost||0);
+    if (Math.abs(dcost) > 0.5) cfs.push({ t, v: -dcost });            // buys = cash out; cost reductions = cash in
+    if (prev) {
+      const dq = (h.qty||0) - (prev.qty||0);
+      if (dq < -1e-9 && h.price > 0) {                               // a sell — book gain above cost basis as proceeds
+        const avgBefore = (prev.qty||0) > 0 ? (prev.cost||0)/prev.qty : 0;
+        const gain = (h.price - avgBefore) * (-dq);
+        realized += gain;
+        if (Math.abs(gain) > 0.5) cfs.push({ t, v: gain });
+      }
+    }
+    if (h.fee > 0) { fees += h.fee; cfs.push({ t, v: -h.fee }); }     // brokerage fees are a cash drag
   }
+  const divs = asset.dividends || [];
+  let totalDivs = 0, ttmDivs = 0; const yearAgo = Date.now() - 31557600000;
+  for (const d of divs) {
+    const amt = d.amount || 0; totalDivs += amt;
+    cfs.push({ t: new Date(d.d).getTime(), v: amt });
+    if (new Date(d.d).getTime() >= yearAgo) ttmDivs += amt;
+  }
+  cfs.sort((a,b)=>a.t-b.t);
+  return { cfs, realized, fees, totalDivs, ttmDivs };
+}
+
+// Per-asset XIRR — money-weighted, dividend- and fee-inclusive, since first purchase
+function _portV3AssetCAGR(asset, currentMV) {
+  if (!asset?.history?.length || !(currentMV > 0)) return null;
+  const { cfs } = _portV3CashflowsAndStats(asset);
+  if (!cfs.length) return null;
   cfs.push({ t: Date.now(), v: currentMV });
+  cfs.sort((a,b)=>a.t-b.t);
   if (!cfs.some(c=>c.v<0)) return null;
   const firstOut = cfs.find(c=>c.v<0);
   if (firstOut && (Date.now() - firstOut.t) < 90 * 86400000) return null; // need ≥ 3 months
   return _xirr(cfs);
 }
 
-// Portfolio-level XIRR across all assets
+// Portfolio-level XIRR across all assets (dividends + realized + fees included)
 function _portV3TotalCAGR() {
   if (!portfolioV3?.assets) return null;
-  const cfMap = new Map();
-  const addCF = (d, v) => cfMap.set(d, (cfMap.get(d)||0) + v);
-  let totalMV = 0;
+  const allCfs = []; let totalMV = 0;
   for (const asset of Object.values(portfolioV3.assets)) {
     if (!asset.history?.length) continue;
     const pi = _portV3Price(asset);
     const qty = asset.holding?.qty || 0;
     const mv = pi && qty > 0 ? pi.sarPrice * qty : (asset.history[asset.history.length-1]?.mv || 0);
     totalMV += mv;
-    for (let i = 0; i < asset.history.length; i++) {
-      const delta = i === 0 ? asset.history[i].cost : asset.history[i].cost - asset.history[i-1].cost;
-      if (Math.abs(delta) > 0.5) addCF(asset.history[i].d, -delta);
-    }
+    const { cfs } = _portV3CashflowsAndStats(asset);
+    for (const c of cfs) allCfs.push(c);
   }
-  const cfs = [...cfMap.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([d,v])=>({t:new Date(d).getTime(),v}));
-  cfs.push({ t: Date.now(), v: totalMV });
-  if (!cfs.some(c=>c.v<0)) return null;
-  return _xirr(cfs);
+  if (!allCfs.length) return null;
+  allCfs.push({ t: Date.now(), v: totalMV });
+  allCfs.sort((a,b)=>a.t-b.t);
+  if (!allCfs.some(c=>c.v<0)) return null;
+  return _xirr(allCfs);
 }
 
 function _portV3Render() {
@@ -1282,6 +1308,7 @@ function _portV3ExportCSV() {
 function _portV3ComputeRows() {
   const assets = portfolioV3?.assets || {};
   let totalMV = 0, totalCost = 0, totalDayChange = 0, dayChangeable = 0;
+  let totalDivs = 0, totalTtmDivs = 0, totalRealized = 0, totalFees = 0;
   const rows = Object.entries(assets).map(([id, a]) => {
     const pi = _portV3Price(a);
     const qty = a.holding?.qty || 0;
@@ -1290,11 +1317,14 @@ function _portV3ComputeRows() {
     const pnl = mv - cost;
     const pnlPct = cost > 0 ? pnl / cost * 100 : 0;
     const cagr = _portV3AssetCAGR(a, mv);
+    const ds = _portV3CashflowsAndStats(a);
+    const totalReturn = pnl + ds.totalDivs + ds.realized;
     totalMV += mv; totalCost += cost;
+    totalDivs += ds.totalDivs; totalTtmDivs += ds.ttmDivs; totalRealized += ds.realized; totalFees += ds.fees;
     if (pi?.dayChangePct != null && qty > 0) { totalDayChange += (pi.dayChangePct / 100) * mv; dayChangeable++; }
-    return { id, a, pi, qty, cost, mv, pnl, pnlPct, cagr };
+    return { id, a, pi, qty, cost, mv, pnl, pnlPct, cagr, divs: ds.totalDivs, realized: ds.realized, fees: ds.fees, totalReturn };
   }).filter(r => r.mv > 0 || r.cost > 0).sort((a,b) => b.mv - a.mv);
-  return { rows, totalMV, totalCost, totalDayChange, dayChangeable };
+  return { rows, totalMV, totalCost, totalDayChange, dayChangeable, totalDivs, totalTtmDivs, totalRealized, totalFees };
 }
 
 // Aggregate monthly cost & market value across all assets (cumulative, carry-forward)
@@ -1319,6 +1349,24 @@ function _portV3TimeSeries() {
   return { months, cost, mv };
 }
 
+// Rebase the TASI index to a starting portfolio value, aligned to the given month labels
+function _portV3TasiRebased(months, baseValue) {
+  try {
+    if (typeof tasiIndex === 'undefined' || !tasiIndex.closes?.length || !tasiIndex.timestamps?.length || !months.length || !(baseValue > 0)) return null;
+    const monthClose = {};
+    for (let i = 0; i < tasiIndex.timestamps.length; i++) {
+      let t = tasiIndex.timestamps[i]; if (t < 1e12) t *= 1000;
+      monthClose[new Date(t).toISOString().slice(0,7)] = tasiIndex.closes[i];
+    }
+    const keys = Object.keys(monthClose).sort();
+    if (!keys.length) return null;
+    const closeFor = m => { if (monthClose[m] != null) return monthClose[m]; let c = null; for (const k of keys) { if (k <= m) c = monthClose[k]; else break; } return c != null ? c : monthClose[keys[0]]; };
+    const base = closeFor(months[0]);
+    if (!(base > 0)) return null;
+    return months.map(m => { const c = closeFor(m); return c > 0 ? Math.round(baseValue * (c / base)) : null; });
+  } catch(e) { return null; }
+}
+
 const _PV3_PALETTE = ['#5b9bd5','#f5a623','#ffd700','#a78bfa','#4caf50','#e91e63','#00bcd4','#ff7043','#9ccc65','#ba68c8','#4dd0e1','#ffb74d','#90a4ae','#7986cb','#4db6ac'];
 let _portV3Charts = {};
 
@@ -1339,12 +1387,14 @@ function _portV3DrawCharts() {
   const ts = _portV3TimeSeries();
   if (ts.months.length) { ts.mv[ts.mv.length-1] = Math.round(totalMV); ts.cost[ts.cost.length-1] = Math.round(totalCost); }
   const perf = document.getElementById('pv3-perf');
+  const tasiSeries = _portV3TasiRebased(ts.months, ts.mv[0]);
   if (perf && ts.months.length) {
     _portV3Charts.perf = new Chart(perf, {
       type: 'line',
       data: { labels: ts.months, datasets: [
         { label: 'Value', data: ts.mv, borderColor: th.blue, backgroundColor: 'rgba(91,155,213,0.14)', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2 },
-        { label: 'Cost', data: ts.cost, borderColor: th.amber, fill: false, tension: 0.25, pointRadius: 0, borderWidth: 1.5, borderDash: [4,3] }
+        { label: 'Cost', data: ts.cost, borderColor: th.amber, fill: false, tension: 0.25, pointRadius: 0, borderWidth: 1.5, borderDash: [4,3] },
+        ...(tasiSeries ? [{ label: 'If TASI', data: tasiSeries, borderColor: '#9e9e9e', fill: false, tension: 0.25, pointRadius: 0, borderWidth: 1.2, borderDash: [2,2], spanGaps: true }] : [])
       ]},
       options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
         plugins: { legend: { display: true, labels: { color: th.tick, font: { size: 9 }, boxWidth: 10 } },
@@ -1397,9 +1447,13 @@ function _portV3AssetDetail(id) {
   const cagr = _portV3AssetCAGR(a, mv);
   const hist = (a.history || []).slice().sort((x,y)=>(x.d||'').localeCompare(y.d||''));
   const divs = a.dividends || [];
-  const totalDivs = divs.reduce((s,d) => s + (d.amount||0), 0);
-  const totalReturn = pnl + totalDivs;
+  const _ds = _portV3CashflowsAndStats(a);
+  const totalDivs = _ds.totalDivs;
+  const realized = _ds.realized;
+  const feesPaid = _ds.fees;
+  const totalReturn = pnl + totalDivs + realized;
   const totalReturnPct = cost > 0 ? totalReturn/cost*100 : 0;
+  const _curWeight = (()=>{ const r = _portV3ComputeRows(); return r.totalMV > 0 ? mv/r.totalMV*100 : 0; })();
   const first = hist[0]?.d, isManual = a.type === 'manual' || a.unit === 'gram';
   const pnlC = pnl>=0?'var(--green)':'var(--red)';
   const cagrC = cagr==null?'var(--tx3)':cagr>=0?'var(--green)':'var(--red)';
@@ -1457,9 +1511,17 @@ function _portV3AssetDetail(id) {
           ${stat('Capital P&amp;L', (pnl>=0?'+':'')+fmt(pnl)+'<br><span style="font-size:9px">'+(pnlPct>=0?'+':'')+pnlPct.toFixed(1)+'%</span>', pnlC)}
           ${totalDivs>0?stat('Dividends', '+'+fmt(totalDivs)+' SAR', 'var(--green)', 'Total dividends received'):''}
           ${totalDivs>0?stat('Total Return', (totalReturn>=0?'+':'')+fmt(totalReturn)+'<br><span style="font-size:9px">'+(totalReturnPct>=0?'+':'')+totalReturnPct.toFixed(1)+'%</span>', trC, 'Capital P&L + dividends'):''}
-          ${stat('CAGR', cagr!=null?(cagr*100).toFixed(1)+'%/yr':'—', cagrC, 'Annualized return from first purchase (XIRR). Needs ≥3 months of history.')}
+          ${realized!=0?stat('Realized P&amp;L', (realized>=0?'+':'')+fmt(realized)+' SAR', realized>=0?'var(--green)':'var(--red)', 'Profit/loss booked on units already sold'):''}
+          ${feesPaid>0?stat('Fees Paid', fmt(feesPaid)+' SAR', 'var(--tx2)', 'Total brokerage fees recorded'):''}
+          ${stat('CAGR', cagr!=null?(cagr*100).toFixed(1)+'%/yr':'—', cagrC, 'Annualized money-weighted return (XIRR), dividend- and fee-inclusive, from first purchase. Needs ≥3 months of history.')}
           ${stat('Avg Cost', (a.holding?.avg||0).toFixed(2))}
           ${stat('Price', pi?pi.sarPrice.toFixed(2):'—')}
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;font-family:var(--mono);font-size:9px;color:var(--tx3)">
+          <span>🎯 Target allocation</span>
+          <input type="number" id="pv3-target-${id}" value="${a.target||''}" placeholder="—" step="any" style="width:62px;background:var(--bg2);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:3px 6px;outline:none">
+          <span>%&ensp;·&ensp;current ${_curWeight.toFixed(1)}%</span>
+          <button onclick="_portV3SetTarget('${id}',document.getElementById('pv3-target-${id}').value)" style="font-family:var(--mono);font-size:9px;padding:3px 10px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">Set</button>
         </div>
 
         <div style="height:200px;margin-bottom:10px;position:relative">
@@ -1567,9 +1629,10 @@ function _portV3TxnForm(id) {
       <span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">@</span>
       <input type="number" id="pv3-txn-price" placeholder="price/unit (SAR)" step="any" style="width:120px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
       <input type="date" id="pv3-txn-date" value="${new Date().toISOString().slice(0,10)}" style="background:var(--bg3);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
+      <input type="number" id="pv3-txn-fee" placeholder="fee SAR" step="any" title="Brokerage commission (optional)" style="width:80px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
       <button onclick="_portV3SaveTxn('${id}')" style="font-family:var(--mono);font-size:10px;padding:5px 12px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">Save</button>
     </div>
-    <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-top:6px">For TASI/ETF the price is informational — live price drives current value. Sells reduce units at average cost.</div>
+    <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-top:6px">For TASI/ETF the price is informational — live price drives current value. Sells reduce units at average cost. Fees are tracked separately as a return drag.</div>
   </div>`;
   document.getElementById('pv3-txn-units')?.focus();
 }
@@ -1580,6 +1643,7 @@ function _portV3SaveTxn(id) {
   const units = parseFloat(document.getElementById('pv3-txn-units').value);
   const price = parseFloat(document.getElementById('pv3-txn-price').value);
   const date = document.getElementById('pv3-txn-date').value || new Date().toISOString().slice(0,10);
+  const fee = parseFloat(document.getElementById('pv3-txn-fee')?.value) || 0;
   if (!(units > 0) || !(price > 0)) { showToast('Enter units and price'); return; }
   a.holding = a.holding || { qty: 0, cost: 0, avg: 0 };
   let qty = a.holding.qty || 0, cost = a.holding.cost || 0;
@@ -1592,10 +1656,30 @@ function _portV3SaveTxn(id) {
   a.holding.avg = qty > 0 ? +(a.holding.cost / qty).toFixed(4) : 0;
   const curPrice = _portV3Price(a)?.sarPrice || price;
   a.history = a.history || [];
-  a.history.push({ d: date, qty: a.holding.qty, price: +price.toFixed(4), cost: a.holding.cost, mv: +(a.holding.qty * curPrice).toFixed(2) });
+  const row = { d: date, qty: a.holding.qty, price: +price.toFixed(4), cost: a.holding.cost, mv: +(a.holding.qty * curPrice).toFixed(2) };
+  if (fee > 0) row.fee = +fee.toFixed(2);
+  a.history.push(row);
   a.history.sort((x,y) => (x.d||'').localeCompare(y.d||''));
   _portV3PersistLS(); _portV3Render(); _portV3AssetDetail(id);
-  showToast('✓ ' + (side === 'sell' ? 'Sold ' : 'Bought ') + units + ' @ ' + price);
+  showToast('✓ ' + (side === 'sell' ? 'Sold ' : 'Bought ') + units + ' @ ' + price + (fee>0?(' (fee '+fee+')'):''));
+}
+
+function _portV3SetTarget(id, val) {
+  const a = portfolioV3?.assets?.[id]; if (!a) return;
+  const p = parseFloat(val);
+  if (val === '' || val == null || isNaN(p) || p <= 0) { delete a.target; } else { a.target = +p.toFixed(2); }
+  _portV3PersistLS(); _portV3Render(); _portV3AssetDetail(id);
+  showToast('✓ Target allocation updated');
+}
+
+function _portV3ExportJSON() {
+  if (!portfolioV3) return;
+  const blob = new Blob([JSON.stringify(portfolioV3, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'TASI_portfolio_v3_' + new Date().toISOString().slice(0,10) + '.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  showToast('✓ Portfolio JSON exported (backup)');
 }
 
 function _portV3RemoveAsset(id) {
@@ -1767,9 +1851,11 @@ function _portV3ExpandChart(type, id) {
   } else if (type === 'perf') {
     const ts = _portV3TimeSeries(); const { totalMV, totalCost } = _portV3ComputeRows();
     if (ts.months.length) { ts.mv[ts.mv.length-1]=Math.round(totalMV); ts.cost[ts.cost.length-1]=Math.round(totalCost); }
+    const tasiSeries = _portV3TasiRebased(ts.months, ts.mv[0]);
     new Chart(el, { type:'line', data:{ labels:ts.months,
       datasets:[{ label:'Value', data:ts.mv, borderColor:th.blue, backgroundColor:'rgba(91,155,213,0.14)', fill:true, tension:0.25, pointRadius:0, borderWidth:2 },
-                 { label:'Cost', data:ts.cost, borderColor:th.amber, fill:false, tension:0.25, pointRadius:0, borderWidth:1.5, borderDash:[4,3] }]},
+                 { label:'Cost', data:ts.cost, borderColor:th.amber, fill:false, tension:0.25, pointRadius:0, borderWidth:1.5, borderDash:[4,3] },
+                 ...(tasiSeries ? [{ label:'If TASI', data:tasiSeries, borderColor:'#9e9e9e', fill:false, tension:0.25, pointRadius:0, borderWidth:1.2, borderDash:[2,2], spanGaps:true }] : [])]},
       options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
         plugins:{ legend:{labels:{color:th.tick,font:{size:10}}}, tooltip:{callbacks:{label:c=>c.dataset.label+': '+Math.round(c.parsed.y).toLocaleString()+' SAR'}} },
         scales:{ x:{ticks:{color:th.tick,maxTicksLimit:12},grid:{display:false}}, y:{ticks:{color:th.tick,callback:v=>v>=1e6?(v/1e6).toFixed(1)+'M':(v/1e3).toFixed(0)+'k'},grid:{color:th.grid}} } } });
@@ -3943,16 +4029,21 @@ function renderPortfolioV3HTML() {
   const assets = portfolioV3.assets;
 
   // ── Compute per-asset stats (shared with charts) ──
-  const { rows, totalMV, totalCost, totalDayChange, dayChangeable } = _portV3ComputeRows();
+  const { rows, totalMV, totalCost, totalDayChange, dayChangeable, totalDivs, totalTtmDivs, totalRealized, totalFees } = _portV3ComputeRows();
   const totalPnL = totalMV - totalCost;
   const totalPnLPct = totalCost > 0 ? totalPnL / totalCost * 100 : 0;
   const totalDayPct = totalMV > 0 ? totalDayChange / (totalMV - totalDayChange) * 100 : 0;
+  const totalReturnAll = totalPnL + totalDivs + totalRealized;
+  const totalReturnPctAll = totalCost > 0 ? totalReturnAll / totalCost * 100 : 0;
+  const yieldOnCost = totalCost > 0 ? totalTtmDivs / totalCost * 100 : 0;
   const portCAGR = _portV3TotalCAGR();
   const pnlC = totalPnL >= 0 ? 'var(--green)' : 'var(--red)';
+  const trAllC = totalReturnAll >= 0 ? 'var(--green)' : 'var(--red)';
   const cagrC = portCAGR == null ? 'var(--tx3)' : portCAGR >= 0 ? 'var(--green)' : 'var(--red)';
   const shortNm = a => (a.type==='tasi'?(a.ticker||'').replace('.SR','')+' ':'') + (a.name||'').split(' ').slice(0,2).join(' ');
   const ranked = rows.filter(r => r.cost > 0).slice().sort((a,b) => b.pnlPct - a.pnlPct);
   const best = ranked[0], worst = ranked[ranked.length-1];
+  const fmtSAR = v => Math.abs(v)>=1e6?(v/1e6).toFixed(2)+'M':Math.round(v).toLocaleString();
 
   // ── Summary cards ──
   let html = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(108px,1fr));gap:8px;margin-bottom:14px">
@@ -3960,6 +4051,10 @@ function renderPortfolioV3HTML() {
     <div class="mi"><div class="mil">Total Cost</div><div class="miv">${totalCost>=1e6?(totalCost/1e6).toFixed(2)+'M':totalCost.toFixed(0)} SAR</div></div>
     <div class="mi"><div class="mil">P&amp;L</div><div class="miv" style="color:${pnlC}">${totalPnL>=0?'+':''}${totalPnL.toFixed(0)} SAR<br><span style="font-size:9px">${totalPnL>=0?'+':''}${totalPnLPct.toFixed(1)}%</span></div></div>
     <div class="mi"><div class="mil" data-tip="Money-weighted annualized return (XIRR) across all assets since first purchase.">Portfolio CAGR</div><div class="miv" style="color:${cagrC}">${portCAGR!=null?(portCAGR*100).toFixed(1)+'%/yr':'—'}</div></div>
+    <div class="mi"><div class="mil" data-tip="Capital gain + dividends received + realized gains, as a share of cost.">Total Return</div><div class="miv" style="color:${trAllC}">${totalReturnAll>=0?'+':''}${fmtSAR(totalReturnAll)} SAR<br><span style="font-size:9px">${totalReturnPctAll>=0?'+':''}${totalReturnPctAll.toFixed(1)}%</span></div></div>
+    ${totalDivs>0?`<div class="mi"><div class="mil" data-tip="Total dividends received. Yield = trailing-12-month dividends ÷ total cost.">Dividends</div><div class="miv" style="color:var(--green);font-size:12px">+${fmtSAR(totalDivs)}<br><span style="font-size:9px">${yieldOnCost.toFixed(2)}% yield</span></div></div>`:''}
+    ${totalRealized!=0?`<div class="mi"><div class="mil" data-tip="Profit/loss booked on units already sold.">Realized P&amp;L</div><div class="miv" style="color:${totalRealized>=0?'var(--green)':'var(--red)'};font-size:12px">${totalRealized>=0?'+':''}${fmtSAR(totalRealized)}</div></div>`:''}
+    ${totalFees>0?`<div class="mi"><div class="mil" data-tip="Total brokerage fees recorded across all transactions.">Fees Paid</div><div class="miv" style="color:var(--tx2);font-size:12px">${fmtSAR(totalFees)}</div></div>`:''}
     ${dayChangeable>0?`<div class="mi"><div class="mil">Today (Live)</div><div class="miv" style="color:${totalDayChange>=0?'var(--green)':'var(--red)'}">${totalDayChange>=0?'+':''}${totalDayChange.toFixed(0)} SAR<br><span style="font-size:9px">${totalDayPct>=0?'+':''}${totalDayPct.toFixed(2)}%</span></div></div>`:''}
     ${best?`<div class="mi" style="cursor:pointer" onclick="_portV3AssetDetail('${best.id}')"><div class="mil">Best Performer</div><div class="miv" style="font-size:11px;color:var(--green)">${escapeHTML(shortNm(best.a))}<br><span style="font-size:9px">+${best.pnlPct.toFixed(1)}%</span></div></div>`:''}
     ${worst&&worst!==best?`<div class="mi" style="cursor:pointer" onclick="_portV3AssetDetail('${worst.id}')"><div class="mil">Worst Performer</div><div class="miv" style="font-size:11px;color:${worst.pnlPct>=0?'var(--green)':'var(--red)'}">${escapeHTML(shortNm(worst.a))}<br><span style="font-size:9px">${worst.pnlPct>=0?'+':''}${worst.pnlPct.toFixed(1)}%</span></div></div>`:''}
@@ -3970,8 +4065,35 @@ function renderPortfolioV3HTML() {
     <div class="mi" style="padding:10px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="mil">📈 Portfolio Performance</span><button onclick="_portV3ExpandChart('perf')" style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--bg2);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);cursor:pointer">⛶</button></div><div style="height:200px"><canvas id="pv3-perf"></canvas></div></div>
     <div class="mi" style="padding:10px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="mil">🥧 Allocation</span><button onclick="_portV3ExpandChart('alloc')" style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--bg2);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);cursor:pointer">⛶</button></div><div style="height:200px"><canvas id="pv3-alloc"></canvas></div></div>
     <div class="mi" style="padding:10px;grid-column:1/-1"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="mil">📊 Annualized Return by Asset (CAGR)</span><button onclick="_portV3ExpandChart('apr')" style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--bg2);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);cursor:pointer">⛶</button></div><div style="height:170px"><canvas id="pv3-apr"></canvas></div></div>
-  </div>
-  <div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button onclick="_portV3AddAssetForm()" style="font-family:var(--mono);font-size:10px;padding:6px 14px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:5px;cursor:pointer">➕ Add Asset</button></div>`;
+  </div>`;
+
+  // ── Target allocation / rebalance (only assets with a target set) ──
+  const targeted = rows.filter(r => (r.a.target||0) > 0);
+  if (targeted.length) {
+    const sumTarget = targeted.reduce((s,r)=>s+(r.a.target||0),0);
+    html += `<div class="mi" style="padding:10px;margin-bottom:14px">
+      <div class="mil" style="margin-bottom:6px">🎯 Target Allocation / Rebalance <span style="color:var(--tx3)">(targets sum ${sumTarget.toFixed(0)}%)</span></div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+        <thead><tr style="border-bottom:1px solid var(--b2)">${['Asset','Current %','Target %','Drift','Action'].map((h,i)=>`<th style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-align:${i===0?'left':'right'};padding:3px 6px;font-weight:400">${h}</th>`).join('')}</tr></thead><tbody>
+        ${targeted.map(r=>{
+          const curPct = totalMV>0?r.mv/totalMV*100:0;
+          const tgt = r.a.target||0;
+          const drift = curPct - tgt;
+          const deltaSAR = totalMV*tgt/100 - r.mv;
+          const dc = Math.abs(drift)<1?'var(--tx3)':drift>0?'var(--amb)':'var(--blue)';
+          return `<tr style="border-bottom:1px solid var(--b1);cursor:pointer" onclick="_portV3AssetDetail('${r.id}')">
+            <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:left">${escapeHTML(shortNm(r.a))}</td>
+            <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right">${curPct.toFixed(1)}%</td>
+            <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right">${tgt.toFixed(1)}%</td>
+            <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right;color:${dc}">${drift>=0?'+':''}${drift.toFixed(1)}%</td>
+            <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right;color:${deltaSAR>=0?'var(--green)':'var(--red)'}">${Math.abs(deltaSAR)<totalMV*0.005?'—':(deltaSAR>=0?'Buy ':'Sell ')+fmtSAR(Math.abs(deltaSAR))}</td>
+          </tr>`;
+        }).join('')}
+        </tbody></table></div>
+    </div>`;
+  }
+
+  html += `<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button onclick="_portV3AddAssetForm()" style="font-family:var(--mono);font-size:10px;padding:6px 14px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:5px;cursor:pointer">➕ Add Asset</button></div>`;
 
   // ── Asset table ──
   const typeBadge = a => {
@@ -4021,6 +4143,7 @@ function renderPortfolioV3HTML() {
     <button onclick="_portV3ImportFile()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer" title="Replace with a newer portfolio.json file">📂 Import File</button>
     ${gdConnected?`<button onclick="_portV3GdSave().then(()=>showToast('✓ Saved to Google Drive'))" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">☁ Save to Drive</button>`:''}
     <button onclick="_portV3ExportCSV()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">⬇ Export CSV</button>
+    <button onclick="_portV3ExportJSON()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer" title="Download full portfolio JSON for backup">⬇ Export JSON</button>
     <div style="margin-left:auto;font-family:var(--mono);font-size:8px;color:var(--tx3)">${Object.keys(assets).length} assets · ${gdConnected?'☁ Drive connected':'💾 Local only'}</div>
   </div>`;
   return html;
