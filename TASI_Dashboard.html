@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260620c'; // bump this string on every deploy that matters
+  var V='20260620d'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -1094,6 +1094,46 @@ async function _portV3GdSave() {
   } catch(e) { console.warn('_portV3GdSave:', e); }
 }
 
+// Deep merge two portfolio v3 objects — history merged by date, navDate takes the newer value
+function _portV3MergeData(local, remote) {
+  if (!remote?.schema || !remote?.assets) return local || remote;
+  if (!local?.schema || !local?.assets) return remote;
+  const merged = { schema: remote.schema, fx: { ...(local.fx||{}), ...(remote.fx||{}) }, assets: {} };
+  const allIds = new Set([...Object.keys(local.assets), ...Object.keys(remote.assets)]);
+  for (const id of allIds) {
+    const l = local.assets[id], r = remote.assets[id];
+    if (!l) { merged.assets[id] = r; continue; }
+    if (!r) { merged.assets[id] = l; continue; }
+    // Merge history by date key — remote wins on same-date conflict
+    const histMap = new Map();
+    for (const h of (l.history||[])) if (h.d) histMap.set(h.d, h);
+    for (const h of (r.history||[])) if (h.d) histMap.set(h.d, h);
+    const history = [...histMap.values()].sort((a,b)=>(a.d||'').localeCompare(b.d||''));
+    // Merge dividends by date+amount key (dedup)
+    const divKey = d => (d.d||'') + '_' + (d.amount||0);
+    const divMap = new Map();
+    for (const d of (l.dividends||[])) divMap.set(divKey(d), d);
+    for (const d of (r.dividends||[])) divMap.set(divKey(d), d);
+    const dividends = [...divMap.values()].sort((a,b)=>(a.d||'').localeCompare(b.d||''));
+    const useRemoteNav = (r.navDate||'') >= (l.navDate||'');
+    const lastH = history[history.length-1];
+    merged.assets[id] = {
+      ...l, ...r,
+      navPrice: useRemoteNav ? (r.navPrice||l.navPrice) : l.navPrice,
+      navDate:  useRemoteNav ? (r.navDate ||l.navDate)  : l.navDate,
+      history,
+      ...(dividends.length ? { dividends } : {}),
+      holding: lastH ? {
+        qty:  lastH.qty  ?? (r.holding?.qty  || l.holding?.qty  || 0),
+        cost: lastH.cost ?? (r.holding?.cost || l.holding?.cost || 0),
+        avg:  (lastH.qty||0) > 0 ? +((lastH.cost||0)/(lastH.qty||1)).toFixed(4) : (r.holding?.avg||l.holding?.avg||0)
+      } : (r.holding || l.holding)
+    };
+    if (!dividends.length) delete merged.assets[id].dividends;
+  }
+  return merged;
+}
+
 async function _portV3GdLoad() {
   if (!GD_TOKEN) return false;
   try {
@@ -1112,7 +1152,7 @@ async function _portV3GdLoad() {
     if (!fr.ok) { if (fr.status === 404 || fr.status === 410) { _portV3FileId = null; localStorage.removeItem('TASI_portv3_gd_id'); } return false; }
     const data = await fr.json().catch(()=>null);
     if (data?.schema === 3 && data?.assets) {
-      portfolioV3 = data;
+      portfolioV3 = _portV3MergeData(portfolioV3, data);
       localStorage.setItem('TASI_portfolio_v3', JSON.stringify(portfolioV3));
       console.log(`[GD] Portfolio v3 loaded (${Object.keys(data.assets).length} assets)`);
       if (document.getElementById('portfolio-panel')) _portV3Render();
@@ -1293,7 +1333,7 @@ function _portV3DrawCharts() {
   ['perf','alloc','apr'].forEach(k => { if (_portV3Charts[k]) { try { _portV3Charts[k].destroy(); } catch(e){} delete _portV3Charts[k]; } });
   const th = _portV3ChartTheme();
   const { rows, totalMV, totalCost } = _portV3ComputeRows();
-  const shortName = a => (a.type === 'tasi' ? (a.ticker||'').replace('.SR','')+' ' : '') + (a.name||'').split(' ').slice(0,2).join(' ');
+  const fullName = (a, id) => (a.type === 'tasi' ? (a.ticker||'').replace('.SR','')+' ':'')+((a.name||id||'').replace(/\s+/g,' ').trim());
 
   // 1 ── Portfolio Performance: value vs cost over time ──
   const ts = _portV3TimeSeries();
@@ -1320,10 +1360,10 @@ function _portV3DrawCharts() {
   if (alloc && allocRows.length) {
     _portV3Charts.alloc = new Chart(alloc, {
       type: 'doughnut',
-      data: { labels: allocRows.map(r => shortName(r.a)),
+      data: { labels: allocRows.map(r => fullName(r.a, r.id)),
         datasets: [{ data: allocRows.map(r => Math.round(r.mv)), backgroundColor: allocRows.map((_,i) => _PV3_PALETTE[i % _PV3_PALETTE.length]), borderWidth: 1, borderColor: document.body.classList.contains('light') ? '#fff' : '#1a1a2e' }] },
       options: { responsive: true, maintainAspectRatio: false, cutout: '58%',
-        plugins: { legend: { position: 'right', labels: { color: th.tick, font: { size: 8 }, boxWidth: 9, padding: 5 } },
+        plugins: { legend: { position: 'right', labels: { color: th.tick, font: { size: 8 }, boxWidth: 9, padding: 5, generateLabels: chart => chart.data.labels.map((lbl,i) => ({ text: lbl, fillStyle: _PV3_PALETTE[i%_PV3_PALETTE.length], strokeStyle: _PV3_PALETTE[i%_PV3_PALETTE.length], index: i })) } },
           tooltip: { callbacks: { label: c => { const pct = totalMV>0 ? (c.parsed/totalMV*100).toFixed(1) : 0; return c.label + ': ' + Math.round(c.parsed).toLocaleString() + ' SAR (' + pct + '%)'; } } } } }
     });
   }
@@ -1334,7 +1374,7 @@ function _portV3DrawCharts() {
   if (aprEl && aprRows.length) {
     _portV3Charts.apr = new Chart(aprEl, {
       type: 'bar',
-      data: { labels: aprRows.map(r => shortName(r.a)),
+      data: { labels: aprRows.map(r => fullName(r.a, r.id)),
         datasets: [{ data: aprRows.map(r => +(r.cagr*100).toFixed(1)), backgroundColor: aprRows.map(r => r.cagr >= 0 ? th.green : th.red), borderRadius: 3 }] },
       options: { responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.y + '%/yr' } } },
@@ -1356,53 +1396,120 @@ function _portV3AssetDetail(id) {
   const pnl = mv - cost, pnlPct = cost > 0 ? pnl/cost*100 : 0;
   const cagr = _portV3AssetCAGR(a, mv);
   const hist = (a.history || []).slice().sort((x,y)=>(x.d||'').localeCompare(y.d||''));
+  const divs = a.dividends || [];
+  const totalDivs = divs.reduce((s,d) => s + (d.amount||0), 0);
+  const totalReturn = pnl + totalDivs;
+  const totalReturnPct = cost > 0 ? totalReturn/cost*100 : 0;
   const first = hist[0]?.d, isManual = a.type === 'manual' || a.unit === 'gram';
-  const pnlC = pnl>=0?'var(--green)':'var(--red)', cagrC = cagr==null?'var(--tx3)':cagr>=0?'var(--green)':'var(--red)';
+  const pnlC = pnl>=0?'var(--green)':'var(--red)';
+  const cagrC = cagr==null?'var(--tx3)':cagr>=0?'var(--green)':'var(--red)';
+  const trC = totalReturn>=0?'var(--green)':'var(--red)';
   const fmt = v => v>=1e6?(v/1e6).toFixed(2)+'M':Math.round(v).toLocaleString();
-  const stat = (l,v,c) => `<div class="mi" style="padding:8px"><div class="mil">${l}</div><div class="miv" style="font-size:12px;${c?'color:'+c:''}">${v}</div></div>`;
+  const stat = (l,v,c,tip) => `<div class="mi" style="padding:8px"${tip?` title="${tip}"`:''}><div class="mil">${l}</div><div class="miv" style="font-size:11px;${c?'color:'+c:''}">${v}</div></div>`;
+
+  const histRows = hist.slice().reverse().map((h, dispIdx) => {
+    const arrIdx = hist.length - 1 - dispIdx;
+    const hp = h.cost>0&&h.mv>0?((h.mv-h.cost)/h.cost*100):null;
+    const hc = hp==null?'var(--tx3)':hp>=0?'var(--green)':'var(--red)';
+    return `<tr id="pv3-hist-row-${arrIdx}" style="border-bottom:1px solid var(--b1)">
+      <td style="font-family:var(--mono);font-size:9px;padding:3px 5px;color:var(--tx2)">${(h.d||'').slice(0,7)}</td>
+      <td style="font-family:var(--mono);font-size:9px;padding:3px 5px;text-align:right">${h.qty??'—'}</td>
+      <td style="font-family:var(--mono);font-size:9px;padding:3px 5px;text-align:right">${h.price!=null?h.price.toFixed(2):'—'}</td>
+      <td style="font-family:var(--mono);font-size:9px;padding:3px 5px;text-align:right">${h.cost!=null?Math.round(h.cost).toLocaleString():'—'}</td>
+      <td style="font-family:var(--mono);font-size:9px;padding:3px 5px;text-align:right">${h.mv!=null?Math.round(h.mv).toLocaleString():'—'}</td>
+      <td style="font-family:var(--mono);font-size:9px;padding:3px 5px;text-align:right;color:${hc}">${hp!=null?(hp>=0?'+':'')+hp.toFixed(1)+'%':'—'}</td>
+      <td style="padding:2px 4px;text-align:right;white-space:nowrap">
+        <button onclick="_portV3EditHistRow('${id}',${arrIdx})" title="Edit row" style="font-size:8px;font-family:var(--mono);padding:1px 5px;background:var(--bg2);color:var(--tx3);border:1px solid var(--b2);border-radius:2px;cursor:pointer">✎</button>
+        <button onclick="_portV3DeleteHistRow('${id}',${arrIdx})" title="Delete row" style="font-size:8px;font-family:var(--mono);padding:1px 5px;background:var(--rdim);color:var(--red);border:1px solid #e0526040;border-radius:2px;cursor:pointer;margin-left:2px">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const divRows = divs.slice().reverse().map((d, dispIdx) => {
+    const arrIdx = divs.length - 1 - dispIdx;
+    return `<tr style="border-bottom:1px solid var(--b1)">
+      <td style="font-family:var(--mono);font-size:9px;padding:3px 5px;color:var(--tx2)">${(d.d||'').slice(0,10)}</td>
+      <td style="font-family:var(--mono);font-size:9px;padding:3px 5px;text-align:right;color:var(--green)">+${Math.round(d.amount||0).toLocaleString()}</td>
+      <td style="font-family:var(--mono);font-size:9px;padding:3px 5px;text-align:right">${d.perUnit?d.perUnit.toFixed(4):''}</td>
+      <td style="font-family:var(--mono);font-size:9px;padding:3px 5px;color:var(--tx3)">${escapeHTML(d.note||'')}</td>
+      <td style="padding:2px 4px;text-align:right">
+        <button onclick="_portV3DeleteDiv('${id}',${arrIdx})" style="font-size:8px;font-family:var(--mono);padding:1px 5px;background:var(--rdim);color:var(--red);border:1px solid #e0526040;border-radius:2px;cursor:pointer">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+
   const html = `<div class="mo" id="portv3-asset-modal" onclick="if(event.target===this)this.remove()" style="z-index:1200">
-    <div class="modal" style="width:680px;max-width:94vw;max-height:92vh">
+    <div class="modal" style="width:700px;max-width:95vw;max-height:92vh">
       <div class="mhead"><div class="mhtop">
-        <div><div class="mtitle" style="font-size:14px">${escapeHTML(a.name||id)}</div>
-          <div class="msub">${a.type==='tasi'?'TASI '+(a.ticker||'').replace('.SR',''):a.type==='yahoo'?(a.ticker||'ETF')+' · USD':isManual?(a.unit==='gram'?'Gold · SAR/gram':'Fund · NAV'):a.type} · ${qty.toLocaleString()} ${a.unit==='gram'?'g':'units'}${first?' · since '+first.slice(0,7):''}</div></div>
-        <div class="mclose" onclick="this.closest('.mo').remove()">×</div>
+        <div>
+          <div class="mtitle" style="font-size:14px" id="portv3-asset-title">${escapeHTML(a.name||id)}</div>
+          <div class="msub">${a.type==='tasi'?'TASI '+(a.ticker||'').replace('.SR',''):a.type==='yahoo'?(a.ticker||'ETF')+' · USD':isManual?(a.unit==='gram'?'Gold · SAR/gram':'Fund · NAV'):a.type} · ${qty.toLocaleString()} ${a.unit==='gram'?'g':'units'}${first?' · since '+first.slice(0,7):''}</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          ${a.type==='tasi'?`<button onclick="document.getElementById('portv3-asset-modal').remove();openModal((typeof allData!=='undefined'?allData:[]).findIndex(f=>f.ticker==='${escapeHTML(a.ticker||'')}'))" style="font-family:var(--mono);font-size:9px;padding:4px 9px;background:var(--bg2);color:var(--acc);border:1px solid var(--acc)55;border-radius:4px;cursor:pointer" title="Open full stock analysis in screener">🔍 Screener</button>`:''}
+          <div class="mclose" onclick="this.closest('.mo').remove()">×</div>
+        </div>
       </div></div>
       <div class="mbody">
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(95px,1fr));gap:7px;margin-bottom:12px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:6px;margin-bottom:12px">
           ${stat('Market Value', fmt(mv)+' SAR')}
           ${stat('Invested', fmt(cost)+' SAR')}
-          ${stat('Total P&amp;L', (pnl>=0?'+':'')+fmt(pnl)+'<br><span style="font-size:9px">'+(pnlPct>=0?'+':'')+pnlPct.toFixed(1)+'%</span>', pnlC)}
-          ${stat('CAGR', cagr!=null?(cagr*100).toFixed(1)+'%/yr':'—', cagrC)}
+          ${stat('Capital P&amp;L', (pnl>=0?'+':'')+fmt(pnl)+'<br><span style="font-size:9px">'+(pnlPct>=0?'+':'')+pnlPct.toFixed(1)+'%</span>', pnlC)}
+          ${totalDivs>0?stat('Dividends', '+'+fmt(totalDivs)+' SAR', 'var(--green)', 'Total dividends received'):''}
+          ${totalDivs>0?stat('Total Return', (totalReturn>=0?'+':'')+fmt(totalReturn)+'<br><span style="font-size:9px">'+(totalReturnPct>=0?'+':'')+totalReturnPct.toFixed(1)+'%</span>', trC, 'Capital P&L + dividends'):''}
+          ${stat('CAGR', cagr!=null?(cagr*100).toFixed(1)+'%/yr':'—', cagrC, 'Annualized return from first purchase (XIRR). Needs ≥3 months of history.')}
           ${stat('Avg Cost', (a.holding?.avg||0).toFixed(2))}
           ${stat('Price', pi?pi.sarPrice.toFixed(2):'—')}
         </div>
-        <div style="height:220px;margin-bottom:14px"><canvas id="pv3-detail-chart"></canvas></div>
-        <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px">
-          <button onclick="_portV3TxnForm('${id}')" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">＋ Add Buy / Sell</button>
+
+        <div style="height:200px;margin-bottom:10px;position:relative">
+          <canvas id="pv3-detail-chart"></canvas>
+          <button onclick="_portV3ExpandChart('detail','${id}')" title="Full-size chart" style="position:absolute;top:4px;right:4px;background:var(--bg3);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);font-size:9px;padding:2px 6px;cursor:pointer;font-family:var(--mono)">⛶</button>
+        </div>
+
+        <div style="background:var(--bg3);border:1px solid var(--b2);border-radius:5px;padding:9px;margin-bottom:12px">
+          <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">📐 Period Return — select any date range</div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">From</span>
+            <input type="date" id="pv3-pr-from" value="${first?first.slice(0,10):new Date().toISOString().slice(0,10)}" style="background:var(--bg2);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:9px;padding:4px 6px;outline:none">
+            <span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">To</span>
+            <input type="date" id="pv3-pr-to" value="${new Date().toISOString().slice(0,10)}" style="background:var(--bg2);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:9px;padding:4px 6px;outline:none">
+            <button onclick="_portV3CalcPeriodReturn('${id}')" style="font-family:var(--mono);font-size:9px;padding:4px 10px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">Calculate</button>
+            <span id="pv3-pr-result" style="font-family:var(--mono);font-size:10px;color:var(--tx2)"></span>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+          <button onclick="_portV3TxnForm('${id}')" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">＋ Buy / Sell</button>
           ${isManual?`<button onclick="_portV3ShowNavForm2('${id}')" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">↻ Update ${a.unit==='gram'?'SAR/gram':'NAV'}</button>`:''}
+          <button onclick="_portV3AddDivForm('${id}')" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">💰 Add Dividend</button>
           <button onclick="_portV3RemoveAsset('${id}')" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:var(--rdim);color:var(--red);border:1px solid var(--red);border-radius:4px;cursor:pointer;margin-left:auto">🗑 Remove</button>
         </div>
         <div id="pv3-detail-forms"></div>
-        <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">Transaction / Monthly History</div>
-        <div style="overflow-x:auto;max-height:230px;overflow-y:auto"><table style="width:100%;border-collapse:collapse">
-          <thead><tr style="border-bottom:1px solid var(--b2)">
-            ${['Date','Units','Price','Cost','Mkt Value','P&L%'].map(h=>`<th style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-align:right;padding:3px 6px;font-weight:400;position:sticky;top:0;background:var(--bg3)">${h}</th>`).join('')}
-          </tr></thead><tbody>
-          ${hist.slice().reverse().map(h=>{
-            const hp = h.cost>0&&h.mv>0?((h.mv-h.cost)/h.cost*100):null;
-            const hc = hp==null?'var(--tx3)':hp>=0?'var(--green)':'var(--red)';
-            return `<tr style="border-bottom:1px solid var(--b1)">
-              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:left;color:var(--tx2)">${(h.d||'').slice(0,7)}</td>
-              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right">${h.qty??'—'}</td>
-              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right">${h.price!=null?h.price.toFixed(2):'—'}</td>
-              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right">${h.cost!=null?Math.round(h.cost).toLocaleString():'—'}</td>
-              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right">${h.mv!=null?Math.round(h.mv).toLocaleString():'—'}</td>
-              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right;color:${hc}">${hp!=null?(hp>=0?'+':'')+hp.toFixed(1)+'%':'—'}</td>
-            </tr>`;
-          }).join('')}
-          </tbody></table></div>
+
+        <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em">Transaction / Monthly History</div>
+        <div style="overflow-x:auto;max-height:200px;overflow-y:auto;margin-bottom:12px">
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr style="border-bottom:1px solid var(--b2)">
+              ${['Date','Units','Price','Cost','Mkt Val','P&L%',''].map(h=>`<th style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-align:right;padding:3px 5px;font-weight:400;position:sticky;top:0;background:var(--bg3);white-space:nowrap">${h}</th>`).join('')}
+            </tr></thead>
+            <tbody id="pv3-hist-tbody">${histRows}</tbody>
+          </table>
+        </div>
+
+        <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em">Dividends${totalDivs>0?' — Total: +'+fmt(totalDivs)+' SAR':''}</div>
+        <div style="overflow-x:auto;max-height:140px;overflow-y:auto">
+          ${divs.length?`<table style="width:100%;border-collapse:collapse">
+            <thead><tr style="border-bottom:1px solid var(--b2)">
+              ${['Date','Amount (SAR)','Per Unit','Note',''].map(h=>`<th style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-align:right;padding:3px 5px;font-weight:400;position:sticky;top:0;background:var(--bg3)">${h}</th>`).join('')}
+            </tr></thead>
+            <tbody>${divRows}</tbody>
+          </table>`
+          :`<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);padding:4px 0">No dividends recorded. Click "💰 Add Dividend" above.</div>`}
+        </div>
       </div>
-    </div></div>`;
+    </div>
+  </div>`;
   document.body.insertAdjacentHTML('beforeend', html);
   _portV3DrawDetailChart(id);
 }
