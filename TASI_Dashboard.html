@@ -2141,6 +2141,7 @@ function connectGoogleDrive() {
         showToast('✓ Google Drive connected');
         gdLoadPortfolio(); // pull portfolio from Drive on first connect
         gdLoadWatchlist(); // pull watchlist + alerts from Drive on first connect
+        _portV3GdLoad();   // pull portfolio v3 from Drive if available
         // Capture anything already fetched this session (gdSetStatement no-opped while
         // disconnected), then pull + merge the Drive statement cache and persist the union
         // so connecting mid-session never loses data and never overwrites Drive with less.
@@ -3262,21 +3263,160 @@ function printReport(ticker) {
 function showPortfolioPanel() {
   const existing = document.getElementById('portfolio-modal');
   if(existing) existing.remove();
+  const useV3 = portfolioV3?.schema === 3 && portfolioV3?.assets;
+  const subtitle = useV3
+    ? 'Growth · CAGR · History · Multi-asset'
+    : 'Fund manager view · P&amp;L · Dividends · Events · Health check';
+  const bodyContent = useV3 ? renderPortfolioV3HTML() : renderPortfolioHTML(getPortfolioStats());
   const html = `
   <div class="mo" id="portfolio-modal" onclick="if(event.target===this)document.getElementById('portfolio-modal').remove()">
-  <div class="modal" style="width:820px;max-height:92vh">
+  <div class="modal" style="width:900px;max-height:92vh">
     <div class="mhead">
       <div class="mhtop">
-        <div><div class="mtitle">💼 Portfolio Manager</div>
-        <div class="msub">Fund manager view · P&L · Dividends · Events · Health check</div></div>
-        <div class="mclose" onclick="document.getElementById('portfolio-modal').remove()">×</div>
+        <div>
+          <div class="mtitle">💼 Portfolio</div>
+          <div class="msub">${subtitle}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${!useV3 ? `<button onclick="_portV3ImportFile()" style="font-family:var(--mono);font-size:9px;padding:4px 10px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer" title="Import portfolio.json (schema v3) to unlock growth, CAGR and history">📂 Import v3</button>` : ''}
+          <div class="mclose" onclick="document.getElementById('portfolio-modal').remove()">×</div>
+        </div>
       </div>
     </div>
     <div class="mbody" id="portfolio-panel">
-      ${renderPortfolioHTML(getPortfolioStats())}
+      ${bodyContent}
     </div>
   </div></div>`;
   document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function renderPortfolioV3HTML() {
+  if (!portfolioV3?.assets) {
+    return `<div style="text-align:center;padding:40px;color:var(--tx3);font-family:var(--mono);font-size:11px">
+      <div style="font-size:22px;margin-bottom:12px">💼</div>
+      <div style="margin-bottom:8px">No portfolio loaded yet.</div>
+      <div style="margin-bottom:16px;font-size:10px">Import your <b>portfolio.json</b> (schema v3) file from your computer or Google Drive.</div>
+      <button onclick="_portV3ImportFile()" style="font-family:var(--mono);font-size:10px;padding:7px 18px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:5px;cursor:pointer">📂 Import Portfolio File</button>
+    </div>`;
+  }
+  const assets = portfolioV3.assets;
+
+  // ── Compute per-asset stats ──
+  let totalMV = 0, totalCost = 0, totalDayChange = 0, dayChangeable = 0;
+  const rows = Object.entries(assets).map(([id, a]) => {
+    const pi = _portV3Price(a);
+    const qty = a.holding?.qty || 0;
+    const cost = a.holding?.cost || 0;
+    const mv = pi && qty > 0 ? pi.sarPrice * qty : (a.history?.[a.history.length-1]?.mv || 0);
+    const pnl = mv - cost;
+    const pnlPct = cost > 0 ? pnl / cost * 100 : 0;
+    const cagr = _portV3AssetCAGR(a, mv);
+    totalMV += mv;
+    totalCost += cost;
+    if (pi?.dayChangePct != null && qty > 0) { totalDayChange += (pi.dayChangePct / 100) * mv; dayChangeable++; }
+    return { id, a, pi, qty, cost, mv, pnl, pnlPct, cagr };
+  }).filter(r => r.mv > 0 || r.cost > 0).sort((a,b) => b.mv - a.mv);
+
+  const totalPnL = totalMV - totalCost;
+  const totalPnLPct = totalCost > 0 ? totalPnL / totalCost * 100 : 0;
+  const portCAGR = _portV3TotalCAGR();
+  const pnlC = totalPnL >= 0 ? 'var(--green)' : 'var(--red)';
+  const cagrC = portCAGR == null ? 'var(--tx3)' : portCAGR >= 0 ? 'var(--green)' : 'var(--red)';
+
+  // ── Summary cards ──
+  let html = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:14px">
+    <div class="mi"><div class="mil">Total Value</div><div class="miv" style="font-size:13px;font-weight:700">${totalMV>=1e6?(totalMV/1e6).toFixed(2)+'M':totalMV.toFixed(0)} SAR</div></div>
+    <div class="mi"><div class="mil">Total Cost</div><div class="miv">${totalCost>=1e6?(totalCost/1e6).toFixed(2)+'M':totalCost.toFixed(0)} SAR</div></div>
+    <div class="mi"><div class="mil">P&amp;L</div><div class="miv" style="color:${pnlC}">${totalPnL>=0?'+':''}${totalPnL.toFixed(0)} SAR<br><span style="font-size:9px">${totalPnL>=0?'+':''}${totalPnLPct.toFixed(1)}%</span></div></div>
+    <div class="mi"><div class="mil" data-tip="Money-weighted annualized return (XIRR) across all assets since first purchase.">Portfolio CAGR</div><div class="miv" style="color:${cagrC}">${portCAGR!=null?(portCAGR*100).toFixed(1)+'%/yr':'—'}</div></div>
+    ${dayChangeable>0?`<div class="mi"><div class="mil">Today (Live)</div><div class="miv" style="color:${totalDayChange>=0?'var(--green)':'var(--red)'}">${totalDayChange>=0?'+':''}${totalDayChange.toFixed(0)} SAR</div></div>`:''}
+  </div>`;
+
+  // ── Asset table ──
+  const typeBadge = a => {
+    if (a.type==='tasi') return '<span style="font-size:8px;padding:1px 5px;background:#1a2a4a;color:#5b9bd5;border-radius:3px;font-family:var(--mono);font-weight:600">TASI</span>';
+    if (a.type==='yahoo') return '<span style="font-size:8px;padding:1px 5px;background:#2a1a0a;color:#f5a623;border-radius:3px;font-family:var(--mono);font-weight:600">'+(a.ticker||'ETF')+'</span>';
+    if (a.unit==='gram') return '<span style="font-size:8px;padding:1px 5px;background:#2a2000;color:#ffd700;border-radius:3px;font-family:var(--mono);font-weight:600">GOLD</span>';
+    return '<span style="font-size:8px;padding:1px 5px;background:#1a0a2a;color:#a78bfa;border-radius:3px;font-family:var(--mono);font-weight:600">FUND</span>';
+  };
+
+  html += `<div style="overflow-x:auto;margin-bottom:12px"><table class="ft">
+    <thead><tr>
+      <th>Asset</th><th>Type</th><th>Units</th><th>Avg Cost</th>
+      <th>Price (SAR)</th><th>Market Value</th><th>P&amp;L</th>
+      <th title="Annualized money-weighted return (XIRR) since first purchase">CAGR/yr</th><th></th>
+    </tr></thead><tbody>`;
+
+  for (const r of rows) {
+    const { id, a, pi, qty, cost, mv, pnl, pnlPct, cagr } = r;
+    const safe = id.replace(/[^a-zA-Z0-9]/g,'_');
+    const pnlC2 = pnl >= 0 ? 'var(--green)' : 'var(--red)';
+    const cagrC2 = cagr == null ? 'var(--tx3)' : cagr >= 0 ? 'var(--green)' : 'var(--red)';
+    const liveDot = pi?.live ? '<span style="color:var(--green);font-size:8px"> ●</span>' : pi?.stale ? '<span style="color:var(--amb);font-size:8px"> ⚠</span>' : '<span style="color:var(--tx3);font-size:8px"> NAV</span>';
+    const priceStr = pi ? pi.sarPrice.toFixed(2) + (pi.usdPrice ? '<br><span style="font-size:8px;color:var(--tx3)">$'+pi.usdPrice.toFixed(2)+'</span>' : '') + liveDot : '—';
+    const avgCostStr = (a.holding?.avg || 0) > 0 ? a.holding.avg.toFixed(2) : '—';
+    const unitStr = a.unit === 'gram' ? qty + 'g' : qty.toLocaleString();
+    const cagrStr = cagr != null ? (cagr*100).toFixed(1)+'%' : '—';
+    const nameCell = a.type === 'tasi'
+      ? `<span class="tk" style="cursor:pointer;font-size:10px" onclick="document.getElementById('portfolio-modal').remove();openModal(window._fd?.findIndex(f=>f.ticker==='${escapeHTML(a.ticker||'')}'))">${(a.ticker||'').replace('.SR','')}</span> <span style="font-size:9px;color:var(--tx3)">${escapeHTML((a.name||'').split(' ').slice(0,2).join(' '))}</span>`
+      : `<span style="font-size:10px">${escapeHTML(a.name||id)}</span>`;
+    const isManual = a.type === 'manual' || a.unit === 'gram';
+    html += `<tr>
+      <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHTML(a.name||id)}">${nameCell}</td>
+      <td>${typeBadge(a)}</td>
+      <td style="font-family:var(--mono);font-size:10px">${unitStr}</td>
+      <td style="font-family:var(--mono);font-size:10px">${avgCostStr}</td>
+      <td style="font-family:var(--mono);font-size:10px">${priceStr}</td>
+      <td style="font-family:var(--mono);font-size:10px;font-weight:600">${mv>=1e6?(mv/1e6).toFixed(2)+'M':mv.toFixed(0)}</td>
+      <td style="font-family:var(--mono);font-size:10px;color:${pnlC2}">${pnl>=0?'+':''}${pnl.toFixed(0)}<br><span style="font-size:8px">${pnlPct>=0?'+':''}${pnlPct.toFixed(1)}%</span></td>
+      <td style="font-family:var(--mono);font-size:11px;font-weight:600;color:${cagrC2}">${cagrStr}</td>
+      <td style="white-space:nowrap">
+        <button onclick="_portV3ToggleHist('${id}')" style="font-size:8px;font-family:var(--mono);padding:2px 6px;background:var(--bg2);color:var(--tx3);border:1px solid var(--b2);border-radius:3px;cursor:pointer" title="Show monthly history">▾ Hist</button>
+        ${isManual?`<button onclick="_portV3ShowNavForm('${id}')" style="font-size:8px;font-family:var(--mono);padding:2px 6px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:3px;cursor:pointer;margin-left:3px" title="Update NAV price">NAV</button>`:''}
+      </td>
+    </tr>
+    <tr id="portv3-hist-${safe}" style="display:none"><td colspan="9" style="padding:0;border-bottom:1px solid var(--b1)">
+      <div style="padding:8px 14px;background:var(--bg3)">
+        <div id="navform-${safe}" style="display:none;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding:8px;background:var(--adm);border-radius:5px;border:1px solid var(--acc)">
+          <span style="font-family:var(--mono);font-size:9px;color:var(--tx2)">Update ${a.unit==='gram'?'SAR/gram':'NAV'} for ${escapeHTML(a.name||id)}:</span>
+          <input type="number" id="navprice-${safe}" placeholder="${a.unit==='gram'?'SAR/gram':'NAV price'}" step="0.01" style="width:110px;background:var(--bg2);border:1px solid var(--acc);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:4px 7px;outline:none">
+          <input type="date" id="navdate-${safe}" value="${a.navDate||new Date().toISOString().slice(0,10)}" style="background:var(--bg2);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:4px 7px;outline:none">
+          <button onclick="_portV3UpdateNav('${id}',document.getElementById('navprice-${safe}').value,document.getElementById('navdate-${safe}').value)" style="font-family:var(--mono);font-size:10px;padding:4px 10px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">Save</button>
+        </div>
+        <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">${escapeHTML(a.name||id)} — Monthly History</div>
+        <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+          <thead><tr style="border-bottom:1px solid var(--b2)">
+            ${['Date','Units','Price','Cost Basis','Mkt Value','P&L%'].map(h=>`<th style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-align:right;padding:3px 6px;font-weight:400">${h}</th>`).join('')}
+          </tr></thead><tbody>
+          ${(a.history||[]).slice().reverse().map(h=>{
+            const hpnl = h.cost>0&&h.mv>0 ? ((h.mv-h.cost)/h.cost*100) : null;
+            const hpnlC = hpnl==null?'var(--tx3)':hpnl>=0?'var(--green)':'var(--red)';
+            return `<tr style="border-bottom:1px solid var(--b1)">
+              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:left;color:var(--tx2)">${h.d.slice(0,7)}</td>
+              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right">${h.qty}</td>
+              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right">${h.price!=null?h.price.toFixed(2):'—'}</td>
+              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right">${h.cost!=null?h.cost.toFixed(0):'—'}</td>
+              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right">${h.mv!=null?h.mv.toFixed(0):'—'}</td>
+              <td style="font-family:var(--mono);font-size:9px;padding:3px 6px;text-align:right;color:${hpnlC}">${hpnl!=null?(hpnl>=0?'+':'')+hpnl.toFixed(1)+'%':'—'}</td>
+            </tr>`;
+          }).join('')}
+          </tbody>
+        </table></div>
+      </div>
+    </td></tr>`;
+  }
+
+  html += `</tbody></table></div>`;
+
+  // ── Footer actions ──
+  const gdConnected = typeof GD_TOKEN !== 'undefined' && GD_TOKEN;
+  html += `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:8px;border-top:1px solid var(--b1)">
+    <button onclick="_portV3ImportFile()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer" title="Replace with a newer portfolio.json file">📂 Import File</button>
+    ${gdConnected?`<button onclick="_portV3GdSave().then(()=>showToast('✓ Saved to Google Drive'))" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">☁ Save to Drive</button>`:''}
+    <button onclick="_portV3ExportCSV()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">⬇ Export CSV</button>
+    <div style="margin-left:auto;font-family:var(--mono);font-size:8px;color:var(--tx3)">${Object.keys(assets).length} assets · ${gdConnected?'☁ Drive connected':'💾 Local only'}</div>
+  </div>`;
+  return html;
 }
 
 function renderPortfolioHTML(stats) {
@@ -9281,6 +9421,7 @@ function closeModal(){
 function init(){
   try{loadWatchlist();}catch(e){console.warn('watchlist:',e);}
   try{loadPortfolio();}catch(e){console.warn('portfolio:',e);}
+  try{_portV3LoadLS();}catch(e){console.warn('portfolioV3:',e);}
   try{loadAlerts();}catch(e){console.warn('alerts:',e);}
   try{loadTheme();}catch(e){console.warn('theme:',e);}
   // Merge hardcoded stocks + additional discovered tickers
@@ -9673,6 +9814,7 @@ async function refreshAll(forceRefresh=false){
         });
         gdLoadPortfolio(); // restore portfolio from Drive if available
         gdLoadWatchlist(); // restore watchlist + alerts from Drive if available
+        _portV3GdLoad();   // restore portfolio v3 from Drive if available
       }
       doFilter();updateMetrics();
       checkAlerts(); // cache-hit path previously skipped alert checks for the whole session
@@ -10147,6 +10289,7 @@ async function refreshAll(forceRefresh=false){
   if (GD_TOKEN) {
     gdLoadPortfolio(); // restore portfolio from Drive (runs in background, non-blocking)
     gdLoadWatchlist(); // restore watchlist + alerts from Drive (background, non-blocking)
+    _portV3GdLoad();   // restore portfolio v3 from Drive (background, non-blocking)
     if (forceRefresh) {
       document.getElementById("pl").textContent = 'Loading financial statements from Google Drive...';
       await Promise.race([gdLoadStatementsBulk(), new Promise(r=>setTimeout(r, 45000))]);
