@@ -195,10 +195,10 @@ if (gdp) console.log(`GDP: ${Object.keys(gdp).length} years (latest ${Math.max(.
 else console.warn('GDP: unavailable this run — dashboard will use its hardcoded table');
 
 // ── Portfolio assets that aren't on Tadawul — priced from Yahoo for the portfolio view. ──
-// IBIT = iShares Bitcoin ETF (USD/share); GC=F = COMEX gold front-month (USD/troy-oz). The
-// dashboard converts gold to SAR/gram and any USD value to SAR at the 3.75 peg. Kept separate
-// from `quotes` so they never enter the TASI universe / breadth / delisting logic.
-const EXTERNAL = ['IBIT', 'GC=F'];
+// IBIT = iShares Bitcoin ETF (USD/share). Kept separate from `quotes` so they never
+// enter the TASI universe / breadth / delisting logic.
+// Gold is tracked in SAR/gram via Al Rajhi and is updated manually — NOT auto-fetched here.
+const EXTERNAL = ['IBIT'];
 const [extQuotes, extCloses] = [await fetchQuotes(EXTERNAL, auth), await fetchCloses(EXTERNAL)];
 const external = {};
 for (const s of EXTERNAL) {
