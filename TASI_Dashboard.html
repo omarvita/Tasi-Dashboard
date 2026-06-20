@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260620f'; // bump this string on every deploy that matters
+  var V='20260620g'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -1213,8 +1213,22 @@ function _portV3CashflowsAndStats(asset) {
   return { cfs, realized, fees, totalDivs, ttmDivs };
 }
 
-// Per-asset XIRR — money-weighted, dividend- and fee-inclusive, since first purchase
-function _portV3AssetCAGR(asset, currentMV) {
+// Per-asset price CAGR: ((currentPrice / avgCostPerUnit) ^ (1/years)) - 1
+// Annualizes pure price appreciation since first purchase — not money-weighted
+function _portV3AssetCAGR(asset) {
+  const pi = _portV3Price(asset);
+  const avg = asset.holding?.avg || 0;
+  const hist = (asset.history || []).slice().sort((a,b)=>(a.d||'').localeCompare(b.d||''));
+  if (!pi || !(pi.sarPrice > 0) || !(avg > 0) || !hist.length) return null;
+  const first = hist[0]?.d;
+  if (!first) return null;
+  const years = (Date.now() - new Date(first).getTime()) / 31557600000;
+  if (years < 90 / 365) return null; // need ≥ 3 months
+  return Math.pow(pi.sarPrice / avg, 1 / years) - 1;
+}
+
+// Money-weighted IRR (XIRR), dividend- and fee-inclusive, since first purchase
+function _portV3AssetXIRR(asset, currentMV) {
   if (!asset?.history?.length || !(currentMV > 0)) return null;
   const { cfs } = _portV3CashflowsAndStats(asset);
   if (!cfs.length) return null;
@@ -1222,7 +1236,7 @@ function _portV3AssetCAGR(asset, currentMV) {
   cfs.sort((a,b)=>a.t-b.t);
   if (!cfs.some(c=>c.v<0)) return null;
   const firstOut = cfs.find(c=>c.v<0);
-  if (firstOut && (Date.now() - firstOut.t) < 90 * 86400000) return null; // need ≥ 3 months
+  if (firstOut && (Date.now() - firstOut.t) < 90 * 86400000) return null;
   return _xirr(cfs);
 }
 
@@ -1293,7 +1307,7 @@ function _portV3ExportCSV() {
     const mv = pi && qty > 0 ? pi.sarPrice * qty : (a.history?.[a.history.length-1]?.mv || 0);
     const pnl = mv - cost;
     const pnlPct = cost > 0 ? pnl/cost*100 : 0;
-    const cagr = _portV3AssetCAGR(a, mv);
+    const cagr = _portV3AssetCAGR(a);
     rows.push([id, a.name, a.type, qty, (a.holding?.avg||0).toFixed(2), pi?(pi.sarPrice.toFixed(2)):'', mv.toFixed(0), cost.toFixed(0), pnl.toFixed(0), pnlPct.toFixed(1), cagr!=null?(cagr*100).toFixed(1):''].map(esc).join(','));
   }
   const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' });
@@ -1316,7 +1330,7 @@ function _portV3ComputeRows() {
     const mv = pi && qty > 0 ? pi.sarPrice * qty : (a.history?.[a.history.length-1]?.mv || 0);
     const pnl = mv - cost;
     const pnlPct = cost > 0 ? pnl / cost * 100 : 0;
-    const cagr = _portV3AssetCAGR(a, mv);
+    const cagr = _portV3AssetCAGR(a);
     const ds = _portV3CashflowsAndStats(a);
     const totalReturn = pnl + ds.totalDivs + ds.realized;
     totalMV += mv; totalCost += cost;
@@ -1367,7 +1381,8 @@ function _portV3TasiRebased(months, baseValue) {
   } catch(e) { return null; }
 }
 
-const _PV3_PALETTE = ['#5b9bd5','#f5a623','#ffd700','#a78bfa','#4caf50','#e91e63','#00bcd4','#ff7043','#9ccc65','#ba68c8','#4dd0e1','#ffb74d','#90a4ae','#7986cb','#4db6ac'];
+// 15 perceptually distinct colors spread across the full hue wheel
+const _PV3_PALETTE = ['#ef4444','#3b82f6','#f59e0b','#22c55e','#a855f7','#06b6d4','#f97316','#14b8a6','#ec4899','#84cc16','#6366f1','#facc15','#10b981','#8b5cf6','#fb923c'];
 let _portV3Charts = {};
 
 function _portV3ChartTheme() {
@@ -1444,7 +1459,8 @@ function _portV3AssetDetail(id) {
   const cost = a.holding?.cost || 0;
   const mv = pi && qty > 0 ? pi.sarPrice * qty : (a.history?.[a.history.length-1]?.mv || 0);
   const pnl = mv - cost, pnlPct = cost > 0 ? pnl/cost*100 : 0;
-  const cagr = _portV3AssetCAGR(a, mv);
+  const cagr = _portV3AssetCAGR(a);
+  const xirr = _portV3AssetXIRR(a, mv);
   const hist = (a.history || []).slice().sort((x,y)=>(x.d||'').localeCompare(y.d||''));
   const divs = a.dividends || [];
   const _ds = _portV3CashflowsAndStats(a);
@@ -1513,7 +1529,8 @@ function _portV3AssetDetail(id) {
           ${totalDivs>0?stat('Total Return', (totalReturn>=0?'+':'')+fmt(totalReturn)+'<br><span style="font-size:9px">'+(totalReturnPct>=0?'+':'')+totalReturnPct.toFixed(1)+'%</span>', trC, 'Capital P&L + dividends'):''}
           ${realized!=0?stat('Realized P&amp;L', (realized>=0?'+':'')+fmt(realized)+' SAR', realized>=0?'var(--green)':'var(--red)', 'Profit/loss booked on units already sold'):''}
           ${feesPaid>0?stat('Fees Paid', fmt(feesPaid)+' SAR', 'var(--tx2)', 'Total brokerage fees recorded'):''}
-          ${stat('CAGR', cagr!=null?(cagr*100).toFixed(1)+'%/yr':'—', cagrC, 'Annualized money-weighted return (XIRR), dividend- and fee-inclusive, from first purchase. Needs ≥3 months of history.')}
+          ${stat('Price CAGR', cagr!=null?(cagr*100).toFixed(1)+'%/yr':'—', cagrC, 'Annualized share-price return: (currentPrice / avgCost)^(1/years) − 1. Pure price appreciation since first purchase, ignoring dividends and timing of additional buys.')}
+          ${xirr!=null?stat('Total CAGR', (xirr*100).toFixed(1)+'%/yr', xirr>=0?'var(--green)':'var(--red)', 'Money-weighted IRR (XIRR) including dividends and fees. Reflects actual cash-flow timing across all purchases, sales, and income.'):''}
           ${stat('Avg Cost', (a.holding?.avg||0).toFixed(2))}
           ${stat('Price', pi?pi.sarPrice.toFixed(2):'—')}
         </div>
