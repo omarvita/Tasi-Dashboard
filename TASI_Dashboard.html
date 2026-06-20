@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260619e'; // bump this string on every deploy that matters
+  var V='20260620a'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -1024,6 +1024,232 @@ function addPortfolioLot(ticker, newShares, buyPrice) {
 
 function loadPortfolio() {
   try { const p = localStorage.getItem('TASI_portfolio'); if(p) portfolio = JSON.parse(p); } catch(e){}
+}
+
+// ── XIRR — Newton-Raphson money-weighted return solver ──
+function _xirr(cfs) {
+  // cfs: [{t: ms_epoch, v: amount}], outflows negative, inflows positive
+  if (!cfs || cfs.length < 2) return null;
+  const t0 = cfs[0].t;
+  const yrs = cfs.map(c => (c.t - t0) / 31557600000); // ms → fractional years (365.25d)
+  let r = 0.1;
+  for (let n = 0; n < 200; n++) {
+    let f = 0, fp = 0;
+    for (let i = 0; i < cfs.length; i++) {
+      if (!yrs[i] && !cfs[i].v) continue;
+      const d = Math.pow(1 + r, yrs[i]);
+      f  += cfs[i].v / d;
+      fp -= yrs[i] * cfs[i].v / (d * (1 + r));
+    }
+    if (!isFinite(f) || Math.abs(fp) < 1e-14) break;
+    const step = f / fp;
+    r -= step;
+    if (Math.abs(step) < 1e-9) break;
+  }
+  return isFinite(r) && r > -0.999 ? r : null;
+}
+
+// ── Portfolio v3 (schema 3) state + persistence ──
+let portfolioV3 = null;
+let _portV3FileId = localStorage.getItem('TASI_portv3_gd_id') || null;
+let _portV3SaveTimer = null;
+
+function _portV3LoadLS() {
+  try {
+    const s = localStorage.getItem('TASI_portfolio_v3');
+    if (s) { const d = JSON.parse(s); if (d?.schema === 3 && d?.assets) portfolioV3 = d; }
+  } catch(e) {}
+}
+
+function _portV3PersistLS() {
+  if (!portfolioV3) return;
+  try { localStorage.setItem('TASI_portfolio_v3', JSON.stringify(portfolioV3)); } catch(e) {}
+  clearTimeout(_portV3SaveTimer);
+  _portV3SaveTimer = setTimeout(_portV3GdSave, 4000);
+}
+
+async function _portV3GdSave() {
+  if (!GD_TOKEN || !portfolioV3) return;
+  _portV3SaveTimer = null;
+  try {
+    const body = JSON.stringify({ ...portfolioV3, savedAt: Date.now() });
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify({ name: 'TASI_portfolio_v3.json' })], { type: 'application/json' }));
+    form.append('file', new Blob([body], { type: 'application/json' }));
+    const method = _portV3FileId ? 'PATCH' : 'POST';
+    const url = _portV3FileId
+      ? `https://www.googleapis.com/upload/drive/v3/files/${_portV3FileId}?uploadType=multipart`
+      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+    const res = await fetch(url, { method, headers: { Authorization: `Bearer ${GD_TOKEN}` }, body: form, signal: AbortSignal.timeout(15000) });
+    if (res.ok) {
+      if (!_portV3FileId) { const m = await res.json().catch(()=>({})); if (m?.id) { _portV3FileId = m.id; localStorage.setItem('TASI_portv3_gd_id', m.id); } }
+      console.log('[GD] Portfolio v3 saved');
+    } else if (res.status === 401) {
+      GD_TOKEN = null; sessionStorage.removeItem('TASI_gd_token'); updateGDStatus();
+    } else if (res.status === 404 || res.status === 410) {
+      _portV3FileId = null; localStorage.removeItem('TASI_portv3_gd_id');
+      clearTimeout(_portV3SaveTimer); _portV3SaveTimer = setTimeout(_portV3GdSave, 2000);
+    }
+  } catch(e) { console.warn('_portV3GdSave:', e); }
+}
+
+async function _portV3GdLoad() {
+  if (!GD_TOKEN) return false;
+  try {
+    let fileId = _portV3FileId;
+    if (!fileId) {
+      const sr = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=name%3D'TASI_portfolio_v3.json'%20and%20trashed%3Dfalse&fields=files(id,modifiedTime)`,
+        { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(8000) }
+      );
+      const sj = await sr.json().catch(()=>({}));
+      if (sj.files?.length) { fileId = sj.files[0].id; _portV3FileId = fileId; localStorage.setItem('TASI_portv3_gd_id', fileId); }
+    }
+    if (!fileId) return false;
+    const fr = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+      { headers: { Authorization: `Bearer ${GD_TOKEN}` }, signal: AbortSignal.timeout(10000) });
+    if (!fr.ok) { if (fr.status === 404 || fr.status === 410) { _portV3FileId = null; localStorage.removeItem('TASI_portv3_gd_id'); } return false; }
+    const data = await fr.json().catch(()=>null);
+    if (data?.schema === 3 && data?.assets) {
+      portfolioV3 = data;
+      localStorage.setItem('TASI_portfolio_v3', JSON.stringify(portfolioV3));
+      console.log(`[GD] Portfolio v3 loaded (${Object.keys(data.assets).length} assets)`);
+      if (document.getElementById('portfolio-panel')) _portV3Render();
+      return true;
+    }
+  } catch(e) { console.warn('_portV3GdLoad:', e); }
+  return false;
+}
+
+// Current SAR price info for a v3 asset — live TASI, snapshot IBIT (USD→SAR), manual NAV
+function _portV3Price(asset) {
+  if (asset.type === 'tasi' && asset.ticker) {
+    const d = (typeof allData !== 'undefined' ? allData : []).find(s => s.ticker === asset.ticker);
+    if (d?.price > 0) return { sarPrice: d.price, dayChangePct: d.change ?? null, live: true };
+  }
+  if (asset.type === 'yahoo' && asset.ticker) {
+    const ext = _snapshotData?.external?.[asset.ticker];
+    if (ext?.p > 0) {
+      const usdsar = portfolioV3?.fx?.USDSAR || 3.75;
+      return { sarPrice: ext.p * usdsar, usdPrice: ext.p, live: false };
+    }
+  }
+  if ((asset.navPrice || 0) > 0) return { sarPrice: asset.navPrice, live: false, navDate: asset.navDate };
+  const last = asset.history?.[asset.history.length - 1];
+  if (last?.price > 0) return { sarPrice: last.price, live: false, stale: true };
+  return null;
+}
+
+// Per-asset XIRR CAGR from monthly cost history
+function _portV3AssetCAGR(asset, currentMV) {
+  const hist = asset.history;
+  if (!hist?.length || !(currentMV > 0)) return null;
+  const cfs = [];
+  for (let i = 0; i < hist.length; i++) {
+    const delta = i === 0 ? hist[i].cost : hist[i].cost - hist[i-1].cost;
+    if (Math.abs(delta) > 0.5) cfs.push({ t: new Date(hist[i].d).getTime(), v: -delta });
+  }
+  cfs.push({ t: Date.now(), v: currentMV });
+  if (!cfs.some(c=>c.v<0)) return null;
+  const firstOut = cfs.find(c=>c.v<0);
+  if (firstOut && (Date.now() - firstOut.t) < 90 * 86400000) return null; // need ≥ 3 months
+  return _xirr(cfs);
+}
+
+// Portfolio-level XIRR across all assets
+function _portV3TotalCAGR() {
+  if (!portfolioV3?.assets) return null;
+  const cfMap = new Map();
+  const addCF = (d, v) => cfMap.set(d, (cfMap.get(d)||0) + v);
+  let totalMV = 0;
+  for (const asset of Object.values(portfolioV3.assets)) {
+    if (!asset.history?.length) continue;
+    const pi = _portV3Price(asset);
+    const qty = asset.holding?.qty || 0;
+    const mv = pi && qty > 0 ? pi.sarPrice * qty : (asset.history[asset.history.length-1]?.mv || 0);
+    totalMV += mv;
+    for (let i = 0; i < asset.history.length; i++) {
+      const delta = i === 0 ? asset.history[i].cost : asset.history[i].cost - asset.history[i-1].cost;
+      if (Math.abs(delta) > 0.5) addCF(asset.history[i].d, -delta);
+    }
+  }
+  const cfs = [...cfMap.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([d,v])=>({t:new Date(d).getTime(),v}));
+  cfs.push({ t: Date.now(), v: totalMV });
+  if (!cfs.some(c=>c.v<0)) return null;
+  return _xirr(cfs);
+}
+
+function _portV3Render() {
+  const el = document.getElementById('portfolio-panel');
+  if (el) el.innerHTML = renderPortfolioV3HTML();
+}
+
+function _portV3ImportFile() {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.json,application/json';
+  inp.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (data?.schema !== 3 || !data?.assets) { showToast('⚠ Not a valid portfolio v3 file'); return; }
+      portfolioV3 = data;
+      _portV3PersistLS();
+      _portV3Render();
+      showToast('✓ Portfolio loaded — ' + Object.keys(data.assets).length + ' assets');
+    } catch(ex) { showToast('⚠ Error reading file: ' + ex.message); }
+  };
+  inp.click();
+}
+
+function _portV3UpdateNav(assetId, price, date) {
+  if (!portfolioV3?.assets?.[assetId]) return;
+  const p = parseFloat(price);
+  if (!isFinite(p) || p <= 0) { showToast('Enter a valid price'); return; }
+  portfolioV3.assets[assetId].navPrice = p;
+  portfolioV3.assets[assetId].navDate = date || new Date().toISOString().slice(0,10);
+  _portV3PersistLS();
+  _portV3Render();
+  showToast('✓ NAV updated for ' + (portfolioV3.assets[assetId].name || assetId));
+}
+
+function _portV3ToggleHist(id) {
+  const safe = id.replace(/[^a-zA-Z0-9]/g,'_');
+  const tr = document.getElementById('portv3-hist-' + safe);
+  if (!tr) return;
+  tr.style.display = tr.style.display === 'none' ? 'table-row' : 'none';
+}
+
+function _portV3ShowNavForm(id) {
+  const safe = id.replace(/[^a-zA-Z0-9]/g,'_');
+  const histTr = document.getElementById('portv3-hist-' + safe);
+  if (histTr) histTr.style.display = 'table-row';
+  const form = document.getElementById('navform-' + safe);
+  if (form) form.style.display = form.style.display === 'none' ? 'flex' : 'none';
+}
+
+function _portV3ExportCSV() {
+  if (!portfolioV3?.assets) return;
+  const esc = v => { const s = String(v??''); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
+  const header = 'Asset,Name,Type,Qty,AvgCost,Price(SAR),MV(SAR),Cost(SAR),PnL(SAR),PnL%,CAGR%';
+  const rows = [header];
+  for (const [id, a] of Object.entries(portfolioV3.assets)) {
+    const pi = _portV3Price(a);
+    const qty = a.holding?.qty || 0;
+    const cost = a.holding?.cost || 0;
+    const mv = pi && qty > 0 ? pi.sarPrice * qty : (a.history?.[a.history.length-1]?.mv || 0);
+    const pnl = mv - cost;
+    const pnlPct = cost > 0 ? pnl/cost*100 : 0;
+    const cagr = _portV3AssetCAGR(a, mv);
+    rows.push([id, a.name, a.type, qty, (a.holding?.avg||0).toFixed(2), pi?(pi.sarPrice.toFixed(2)):'', mv.toFixed(0), cost.toFixed(0), pnl.toFixed(0), pnlPct.toFixed(1), cagr!=null?(cagr*100).toFixed(1):''].map(esc).join(','));
+  }
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'portfolio_' + new Date().toISOString().slice(0,10) + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  showToast('✓ Portfolio exported to CSV');
 }
 
 // Returns next TASI earnings reporting deadline (45 days after quarter end)
