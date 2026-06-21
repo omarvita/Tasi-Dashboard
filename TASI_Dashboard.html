@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260621e'; // bump this string on every deploy that matters
+  var V='20260621g'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -440,7 +440,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260621d · “⚡ Fill All Dividends” button (portfolio footer) auto-fills dividends for every TASI/ETF holding at once; performance chart now plots “Cash invested (ex-dividends)” as the dashed contributions line — excluding reinvested dividends — with the full cost basis shown as a faint secondary line when you have DRIP entries; corrected the per-asset CAGR column label to “Price CAGR” (it is price-only) and added a note clarifying the headline Portfolio CAGR includes dividends · v20260621c · Auto-fill Dividends per asset: pulls per-share dividend history from Yahoo (10y) scaled by shares held on each ex-date · v20260621b · DRIP support: “♻ Reinvest (DRIP)” marks dividend reinvestments and shows “Cash In” excluding them</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260621g · Mutual funds can now auto-price: link a fund holding to its Yahoo symbol (6-digit Tadawul code + .SR, e.g. 012060.SR for the Al Rajhi SMID-Cap Fund) from the fund’s “↻ Update NAV” panel — it fetches the live NAV to confirm the match and refreshes on every open; CAGR chart now truncates long fund names on the axis (full name still shows on hover) · v20260621f · Gold now auto-prices in SAR/gram from Yahoo spot (XAUUSD=X, ÷31.1035 troy-oz × USD/SAR peg) via the 3×/day market snapshot — your manual “Update SAR/gram” still overrides when newer · v20260621e · Portfolio analytics pack: TASI/S&P 500 benchmark toggle, volatility, max-drawdown chart, Sharpe ratio, time-weighted return (TWR), dividend calendar with projected income, concentration/HHI & FX-exposure risk flags, stale-price badge, CSV bulk import, and FIFO realised/unrealised tax lots · v20260621d · “⚡ Fill All Dividends” button (portfolio footer) auto-fills dividends for every TASI/ETF holding at once; performance chart now plots “Cash invested (ex-dividends)” as the dashed contributions line — excluding reinvested dividends — with the full cost basis shown as a faint secondary line when you have DRIP entries; corrected the per-asset CAGR column label to “Price CAGR” (it is price-only) and added a note clarifying the headline Portfolio CAGR includes dividends · v20260621c · Auto-fill Dividends per asset: pulls per-share dividend history from Yahoo (10y) scaled by shares held on each ex-date · v20260621b · DRIP support: “♻ Reinvest (DRIP)” marks dividend reinvestments and shows “Cash In” excluding them</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1168,11 +1168,31 @@ function _portV3Price(asset) {
     const d = (typeof allData !== 'undefined' ? allData : []).find(s => s.ticker === asset.ticker);
     if (d?.price > 0) return { sarPrice: d.price, dayChangePct: d.change ?? null, live: true };
   }
-  if (asset.type === 'yahoo' && asset.ticker) {
+  // Any asset carrying a Yahoo ticker in the snapshot's `external` map: IBIT (USD)
+  // and Saudi mutual funds (SAR, 6-digit code .SR e.g. 012060.SR). Honour the
+  // quote's own currency — only USD quotes get scaled by the peg.
+  if (asset.ticker) {
     const ext = _snapshotData?.external?.[asset.ticker];
     if (ext?.p > 0) {
-      const usdsar = portfolioV3?.fx?.USDSAR || 3.75;
-      return { sarPrice: ext.p * usdsar, usdPrice: ext.p, live: false };
+      if ((ext.ccy || 'USD') === 'USD') {
+        const usdsar = portfolioV3?.fx?.USDSAR || 3.75;
+        return { sarPrice: ext.p * usdsar, usdPrice: ext.p, live: false };
+      }
+      return { sarPrice: ext.p, dayChangePct: ext.c ?? null, live: false };
+    }
+    // Client-side fallback fetched this session (funds not yet in the snapshot)
+    const cf = _pv3FundCache[asset.ticker];
+    if (cf?.p > 0) return { sarPrice: cf.p, dayChangePct: cf.c ?? null, live: true };
+  }
+  // Gold: auto-priced in SAR/gram from the snapshot (Yahoo spot ÷ 31.1035 × USDSAR),
+  // unless the user pinned a manual price newer than the snapshot. Manual still wins
+  // when offline / snapshot stale (handled by the navPrice fallback below).
+  if (asset.unit === 'gram' && asset.autoGold !== false) {
+    const g = _snapshotData?.gold;
+    if (g?.sarGram > 0) {
+      const navTs = asset.navDate ? new Date(asset.navDate).getTime() : 0;
+      if (!(navTs > (g.ts || 0)))
+        return { sarPrice: g.sarGram, dayChangePct: g.change ?? null, live: true };
     }
   }
   if ((asset.navPrice || 0) > 0) return { sarPrice: asset.navPrice, live: false, navDate: asset.navDate };
@@ -1751,7 +1771,7 @@ function _portV3DrawCharts() {
         datasets: [{ data: aprRows.map(r => +(r.cagr*100).toFixed(1)), backgroundColor: aprRows.map(r => r.cagr >= 0 ? th.green : th.red), borderRadius: 3 }] },
       options: { responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.y + '%/yr' } } },
-        scales: { x: { ticks: { color: th.tick, font: { size: 8 }, maxRotation: 55, minRotation: 0 }, grid: { display: false } },
+        scales: { x: { ticks: { color: th.tick, font: { size: 8 }, maxRotation: 55, minRotation: 0, autoSkip: false, callback: function(v){ const l=this.getLabelForValue(v); return l.length>16 ? l.slice(0,15)+'…' : l; } }, grid: { display: false } },
           y: { ticks: { color: th.tick, font: { size: 8 }, callback: v => v+'%' }, grid: { color: th.grid }, title: { display: true, text: 'CAGR %/yr', color: th.tick, font: { size: 8 } } } } }
     });
   }
@@ -1883,7 +1903,7 @@ function _portV3AssetDetail(id) {
       <div class="mhead"><div class="mhtop">
         <div>
           <div class="mtitle" style="font-size:14px" id="portv3-asset-title">${escapeHTML(a.name||id)}</div>
-          <div class="msub">${a.type==='tasi'?'TASI '+(a.ticker||'').replace('.SR',''):a.type==='yahoo'?(a.ticker||'ETF')+' · USD':isManual?(a.unit==='gram'?'Gold · SAR/gram':'Fund · NAV'):a.type} · ${qty.toLocaleString()} ${a.unit==='gram'?'g':'units'}${first?' · since '+first.slice(0,7):''}</div>
+          <div class="msub">${a.type==='tasi'?'TASI '+(a.ticker||'').replace('.SR',''):a.type==='yahoo'?(a.ticker||'ETF')+' · USD':isManual?(a.unit==='gram'?'Gold · SAR/gram':(a.ticker?'Fund · '+a.ticker+' (auto)':'Fund · NAV')):a.type} · ${qty.toLocaleString()} ${a.unit==='gram'?'g':'units'}${first?' · since '+first.slice(0,7):''}</div>
         </div>
         <div style="display:flex;gap:6px;align-items:center">
           ${a.type==='tasi'?`<button onclick="document.getElementById('portv3-asset-modal').remove();openModal((typeof allData!=='undefined'?allData:[]).findIndex(f=>f.ticker==='${escapeHTML(a.ticker||'')}'))" style="font-family:var(--mono);font-size:9px;padding:4px 9px;background:var(--bg2);color:var(--acc);border:1px solid var(--acc)55;border-radius:4px;cursor:pointer" title="Open full stock analysis in screener">🔍 Screener</button>`:''}
@@ -2040,13 +2060,76 @@ function _portV3ShowNavForm2(id) {
   const a = portfolioV3?.assets?.[id]; if (!a) return;
   const c = document.getElementById('pv3-detail-forms'); if (!c) return;
   const unit = a.unit === 'gram' ? 'SAR/gram' : 'NAV price';
-  c.innerHTML = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:9px;background:var(--adm);border-radius:5px;border:1px solid var(--acc)">
+  // Saudi mutual funds carry a 6-digit Tadawul code on Yahoo (e.g. 012060.SR).
+  // Linking one lets the fund auto-price from Yahoo, same as a TASI stock.
+  const symRow = a.unit === 'gram' ? '' : `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding:9px;background:var(--bg2);border-radius:5px;border:1px solid var(--b2)">
+    <span style="font-family:var(--mono);font-size:9px;color:var(--tx2)" title="6-digit Tadawul fund code + .SR, e.g. 012060.SR for the Al Rajhi SMID-Cap Fund. Auto-prices the NAV from Yahoo.">🔗 Yahoo symbol:</span>
+    <input type="text" id="pv3-fund-sym" placeholder="e.g. 012060.SR" value="${a.ticker||''}" style="width:130px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
+    <button onclick="_portV3LinkFundSym('${id}',document.getElementById('pv3-fund-sym').value)" style="font-family:var(--mono);font-size:10px;padding:5px 12px;background:var(--bg3);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">Link &amp; fetch NAV</button>
+    <span id="pv3-fund-sym-msg" style="font-family:var(--mono);font-size:9px;color:var(--tx3)"></span>
+  </div>`;
+  c.innerHTML = symRow + `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:9px;background:var(--adm);border-radius:5px;border:1px solid var(--acc)">
     <span style="font-family:var(--mono);font-size:9px;color:var(--tx2)">New ${unit}:</span>
     <input type="number" id="pv3-nav2-price" placeholder="${unit}" step="0.01" value="${a.navPrice||''}" style="width:120px;background:var(--bg2);border:1px solid var(--acc);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
     <input type="date" id="pv3-nav2-date" value="${a.navDate||new Date().toISOString().slice(0,10)}" style="background:var(--bg2);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
-    <button onclick="_portV3UpdateNav('${id}',document.getElementById('pv3-nav2-price').value,document.getElementById('pv3-nav2-date').value);_portV3AssetDetail('${id}')" style="font-family:var(--mono);font-size:10px;padding:5px 12px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">Save</button>
+    <button onclick="_portV3UpdateNav('${id}',document.getElementById('pv3-nav2-price').value,document.getElementById('pv3-nav2-date').value);_portV3AssetDetail('${id}')" style="font-family:var(--mono);font-size:10px;padding:5px 12px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">Save manual</button>
   </div>`;
-  document.getElementById('pv3-nav2-price')?.focus();
+  document.getElementById(a.unit==='gram'?'pv3-nav2-price':'pv3-fund-sym')?.focus();
+}
+
+// Fund NAV cache (client-side, this session) — ticker → { p, c, name, ts }.
+// Lets a manual fund asset auto-price from Yahoo even before the 3×/day snapshot
+// picks the symbol up. Mirrors how TASI quotes are fetched live then snapshot-backed.
+const _pv3FundCache = {};
+
+// Fetch a Saudi-fund NAV (SAR) from Yahoo by its 6-digit .SR symbol.
+async function _portV3FetchFundNav(sym) {
+  if (!sym) return null;
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=1mo&interval=1d`;
+    const data = await fetchWithProxy(url);
+    const m = data?.chart?.result?.[0]?.meta;
+    const p = m?.regularMarketPrice;
+    if (!(p > 0)) return null;
+    const prev = m?.chartPreviousClose ?? m?.previousClose;
+    const c = prev > 0 ? +((p - prev) / prev * 100).toFixed(2) : null;
+    const ccy = m?.currency || 'SAR';
+    // Saudi funds quote in SAR; guard against an unexpected non-SAR symbol.
+    const sar = ccy === 'SAR' ? p : (ccy === 'USD' ? p * (portfolioV3?.fx?.USDSAR || 3.75) : p);
+    const out = { p: +sar.toFixed(4), c, name: m?.longName || m?.shortName || sym, ccy, ts: Date.now() };
+    _pv3FundCache[sym] = out;
+    return out;
+  } catch (e) { return null; }
+}
+
+// Link a Yahoo symbol to a fund asset and fetch its NAV to confirm the match.
+async function _portV3LinkFundSym(id, sym) {
+  const a = portfolioV3?.assets?.[id]; if (!a) return;
+  sym = (sym || '').trim().toUpperCase();
+  const msg = document.getElementById('pv3-fund-sym-msg');
+  if (!sym) { a.ticker = undefined; _portV3PersistLS(); if (msg) msg.textContent = 'Unlinked.'; return; }
+  if (msg) { msg.style.color = 'var(--tx3)'; msg.textContent = '⏳ fetching…'; }
+  const r = await _portV3FetchFundNav(sym);
+  if (!r) { if (msg) { msg.style.color = 'var(--amb)'; msg.textContent = '⚠ no quote for ' + sym; } return; }
+  a.ticker = sym;
+  a.navPrice = r.p; a.navDate = new Date().toISOString().slice(0,10);
+  _portV3PersistLS();
+  if (msg) { msg.style.color = 'var(--green)'; msg.textContent = '✓ ' + r.name + ' · ' + r.p.toFixed(2) + ' SAR'; }
+  showToast('Linked ' + sym + ' — ' + r.p.toFixed(2) + ' SAR. Verify it matches your fund NAV.');
+  setTimeout(() => { _portV3Render(); }, 1400);
+}
+
+// Auto-refresh every linked fund's NAV (called on portfolio load).
+async function _portV3RefreshLinkedFunds() {
+  const assets = Object.values(portfolioV3?.assets || {});
+  const linked = assets.filter(a => a.type === 'manual' && a.unit !== 'gram' && a.ticker);
+  if (!linked.length) return;
+  let any = false;
+  for (const a of linked) {
+    const r = await _portV3FetchFundNav(a.ticker);
+    if (r?.p > 0) any = true;
+  }
+  if (any) { try { _portV3Render(); } catch(e){} }
 }
 
 function _portV3TxnForm(id) {
@@ -2422,7 +2505,7 @@ function _portV3ExpandChart(type, id) {
       datasets:[{ data:ar.map(r=>+(r.cagr*100).toFixed(1)), backgroundColor:ar.map(r=>r.cagr>=0?th.green:th.red), borderRadius:4 }]},
       options:{ responsive:true, maintainAspectRatio:false,
         plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>c.parsed.y+'%/yr'}} },
-        scales:{ x:{ticks:{color:th.tick,maxRotation:45},grid:{display:false}}, y:{ticks:{color:th.tick,callback:v=>v+'%'},grid:{color:th.grid}} } } });
+        scales:{ x:{ticks:{color:th.tick,maxRotation:55,autoSkip:false,callback:function(v){ const l=this.getLabelForValue(v); return l.length>20 ? l.slice(0,19)+'…' : l; }},grid:{display:false}}, y:{ticks:{color:th.tick,callback:v=>v+'%'},grid:{color:th.grid}} } } });
   } else if (type === 'sector') {
     const sa = _portV3SectorAlloc(); const secTotal = sa.values.reduce((s,v)=>s+v,0);
     new Chart(el, { type:'doughnut', data:{ labels:sa.labels, datasets:[{ data:sa.values, backgroundColor:sa.colors, borderWidth:1, borderColor:document.body.classList.contains('light')?'#fff':'#1a1a2e' }]},
@@ -4592,7 +4675,7 @@ function showPortfolioPanel() {
     </div>
   </div></div>`;
   document.body.insertAdjacentHTML('beforeend', html);
-  if (useV3) _portV3DrawCharts();
+  if (useV3) { _portV3DrawCharts(); _portV3RefreshLinkedFunds(); }
 }
 
 function renderPortfolioV3HTML() {

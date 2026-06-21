@@ -197,7 +197,6 @@ else console.warn('GDP: unavailable this run — dashboard will use its hardcode
 // ── Portfolio assets that aren't on Tadawul — priced from Yahoo for the portfolio view. ──
 // IBIT = iShares Bitcoin ETF (USD/share). Kept separate from `quotes` so they never
 // enter the TASI universe / breadth / delisting logic.
-// Gold is tracked in SAR/gram via Al Rajhi and is updated manually — NOT auto-fetched here.
 const EXTERNAL = ['IBIT'];
 const [extQuotes, extCloses] = [await fetchQuotes(EXTERNAL, auth), await fetchCloses(EXTERNAL)];
 const external = {};
@@ -206,7 +205,48 @@ for (const s of EXTERNAL) {
   if (q?.p > 0) external[s] = { p: q.p, c: q.c, ccy: 'USD', closes: c?.c || [], timestamps: c?.t || [] };
   else if (prevSnap?.external?.[s]) external[s] = prevSnap.external[s]; // carry forward on a failed fetch
 }
-console.log(`External: ${Object.keys(external).length}/${EXTERNAL.length} priced (${Object.keys(external).join(', ') || 'none'})`);
+
+// Saudi open-ended mutual funds — Yahoo lists them under the 6-digit Tadawul fund
+// code + .SR and quotes them in SAR (no FX conversion). Added so the portfolio view
+// can auto-price fund holdings the same way it does TASI stocks. The dashboard only
+// uses a fund quote if a holding is explicitly linked to its symbol, so listing extra
+// candidates here is harmless. `name` is carried for the link-by-name UI.
+// Confirmed: 012060.SR = Al Rajhi Mid/Small-Cap (SMID) Fund.
+const SAR_FUNDS = ['012060.SR'];
+if (SAR_FUNDS.length) {
+  const [fq, fc] = [await fetchQuotes(SAR_FUNDS, auth), await fetchCloses(SAR_FUNDS)];
+  // v7/quote carries the fund name; fall back to a chart-meta lookup if the crumb flow degraded.
+  for (const s of SAR_FUNDS) {
+    const q = fq[s], c = fc[s];
+    if (q?.p > 0) external[s] = { p: q.p, c: q.c, ccy: 'SAR', closes: c?.c || [], timestamps: c?.t || [], fund: true };
+    else if (prevSnap?.external?.[s]) external[s] = prevSnap.external[s];
+  }
+}
+console.log(`External: ${Object.keys(external).length}/${EXTERNAL.length + SAR_FUNDS.length} priced (${Object.keys(external).join(', ') || 'none'})`);
+
+// ── Gold spot → SAR/gram for manually-tracked gold holdings. ──────────────────
+// Yahoo quotes gold in USD per troy ounce (XAUUSD=X spot, GC=F COMEX front-month
+// as fallback). The dashboard tracks gold in SAR/gram, so convert here once:
+//   SAR/gram = USD_per_oz / 31.1034768 (g per troy oz) × USDSAR (pegged 3.75).
+// The chart endpoint needs no crumb, so this works even when the v7/quote auth
+// flow is down. Carry the previous value forward on a total failure.
+const G_PER_OZT = 31.1034768, USDSAR = 3.75;
+async function fetchGold() {
+  for (const sym of ['XAUUSD=X', 'GC=F']) {
+    try {
+      const j = await fetchJSON(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=5d&interval=1d`);
+      const m = j?.chart?.result?.[0]?.meta;
+      const usdOz = m?.regularMarketPrice;
+      if (!(usdOz > 0)) continue;
+      const prev = m?.chartPreviousClose ?? m?.previousClose;
+      const change = prev > 0 ? r2((usdOz - prev) / prev * 100) : null;
+      return { sarGram: r2(usdOz / G_PER_OZT * USDSAR), usdOz: r2(usdOz), change, sym, ts: Date.now() };
+    } catch (e) { console.warn(`gold ${sym}: ${e.message}`); }
+  }
+  return null;
+}
+const gold = (await fetchGold()) || prevSnap?.gold || null;
+console.log(gold ? `Gold: ${gold.sarGram} SAR/gram (${gold.usdOz} USD/oz via ${gold.sym})` : 'Gold: unavailable this run');
 
 // Fill quote gaps from spark closes (price = last close, change = vs previous)
 let derived = 0;
@@ -253,7 +293,7 @@ const DELIST_MS = 35 * 24 * 36e5;
 const delisted = tickers.filter(t => seen[t] != null && now - seen[t] > DELIST_MS);
 if (delisted.length) console.warn(`Possibly delisted/suspended (${delisted.length}): ${delisted.join(', ')}`);
 
-const snapshot = { generated: Date.now(), generatedISO: new Date().toISOString(), quotes, closes, tasi, seen, delisted, gdp, external, fx: { USDSAR: 3.75 } };
+const snapshot = { generated: Date.now(), generatedISO: new Date().toISOString(), quotes, closes, tasi, seen, delisted, gdp, external, gold, fx: { USDSAR: 3.75 } };
 mkdirSync(join(ROOT, 'data'), { recursive: true });
 writeFileSync(join(ROOT, 'data', 'market_snapshot.json'), JSON.stringify(snapshot));
 console.log(`Wrote data/market_snapshot.json (${(JSON.stringify(snapshot).length / 1048576).toFixed(2)} MB)`);
