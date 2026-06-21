@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260620g'; // bump this string on every deploy that matters
+  var V='20260620h'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -1383,6 +1383,45 @@ function _portV3TasiRebased(months, baseValue) {
 
 // 15 perceptually distinct colors spread across the full hue wheel
 const _PV3_PALETTE = ['#ef4444','#3b82f6','#f59e0b','#22c55e','#a855f7','#06b6d4','#f97316','#14b8a6','#ec4899','#84cc16','#6366f1','#facc15','#10b981','#8b5cf6','#fb923c'];
+
+// Fixed colors per sector bucket so the sector donut is stable across renders
+const _PV3_SECTOR_COLORS = { 'TASI Equity':'#3b82f6', 'Real Estate':'#22c55e', 'Sukuk / Income':'#a855f7', 'Gold':'#f59e0b', 'Global / ETF':'#06b6d4', 'Funds':'#ec4899', 'Other':'#90a4ae' };
+
+// Classify an asset into a broad sector/category bucket for the sector donut
+function _portV3Sector(a) {
+  if (a.sector) return a.sector;
+  if (a.unit === 'gram') return 'Gold';
+  const n = ((a.name||'') + ' ' + (a.ticker||'')).toLowerCase();
+  if (/reit|عقاري|ريت|real ?estate|maather|taleem|bonyan/.test(n)) return 'Real Estate';
+  if (/sukuk|صكوك|murabaha|مرابحة|income|دخل|fixed/.test(n)) return 'Sukuk / Income';
+  if (a.type === 'yahoo') return 'Global / ETF';
+  if (a.type === 'manual') return 'Funds';
+  if (a.type === 'tasi') return 'TASI Equity';
+  return 'Other';
+}
+
+// Total dividends grouped by calendar year, across all assets
+function _portV3DividendsByYear() {
+  const byYear = {};
+  for (const a of Object.values(portfolioV3?.assets || {})) {
+    for (const d of (a.dividends || [])) {
+      const y = (d.d||'').slice(0,4); if (!y) continue;
+      byYear[y] = (byYear[y]||0) + (d.amount||0);
+    }
+  }
+  const years = Object.keys(byYear).sort();
+  return { years, amounts: years.map(y => Math.round(byYear[y])) };
+}
+
+// Market value grouped by sector bucket
+function _portV3SectorAlloc() {
+  const { rows } = _portV3ComputeRows();
+  const byS = {};
+  for (const r of rows) { if (r.mv > 0) { const s = _portV3Sector(r.a); byS[s] = (byS[s]||0) + r.mv; } }
+  const labels = Object.keys(byS).sort((a,b) => byS[b]-byS[a]);
+  return { labels, values: labels.map(l => Math.round(byS[l])), colors: labels.map(l => _PV3_SECTOR_COLORS[l] || '#90a4ae') };
+}
+
 let _portV3Charts = {};
 
 function _portV3ChartTheme() {
@@ -1393,7 +1432,7 @@ function _portV3ChartTheme() {
 function _portV3DrawCharts() {
   if (!document.getElementById('pv3-perf')) return;
   if (typeof Chart === 'undefined') { setTimeout(_portV3DrawCharts, 200); return; }
-  ['perf','alloc','apr'].forEach(k => { if (_portV3Charts[k]) { try { _portV3Charts[k].destroy(); } catch(e){} delete _portV3Charts[k]; } });
+  ['perf','alloc','apr','sector','divyear','cumret'].forEach(k => { if (_portV3Charts[k]) { try { _portV3Charts[k].destroy(); } catch(e){} delete _portV3Charts[k]; } });
   const th = _portV3ChartTheme();
   const { rows, totalMV, totalCost } = _portV3ComputeRows();
   const fullName = (a, id) => (a.type === 'tasi' ? (a.ticker||'').replace('.SR','')+' ':'')+((a.name||id||'').replace(/\s+/g,' ').trim());
@@ -1447,6 +1486,48 @@ function _portV3DrawCharts() {
           y: { ticks: { color: th.tick, font: { size: 8 }, callback: v => v+'%' }, grid: { color: th.grid }, title: { display: true, text: 'CAGR %/yr', color: th.tick, font: { size: 8 } } } } }
     });
   }
+
+  // 4 ── Sector / asset-class allocation donut ──
+  const secEl = document.getElementById('pv3-sector');
+  const sa = _portV3SectorAlloc();
+  if (secEl && sa.labels.length) {
+    const secTotal = sa.values.reduce((s,v)=>s+v,0);
+    _portV3Charts.sector = new Chart(secEl, {
+      type: 'doughnut',
+      data: { labels: sa.labels, datasets: [{ data: sa.values, backgroundColor: sa.colors, borderWidth: 1, borderColor: document.body.classList.contains('light') ? '#fff' : '#1a1a2e' }] },
+      options: { responsive: true, maintainAspectRatio: false, cutout: '58%',
+        plugins: { legend: { position: 'right', labels: { color: th.tick, font: { size: 9 }, boxWidth: 9, padding: 5 } },
+          tooltip: { callbacks: { label: c => { const pct = secTotal>0 ? (c.parsed/secTotal*100).toFixed(1) : 0; return c.label + ': ' + Math.round(c.parsed).toLocaleString() + ' SAR (' + pct + '%)'; } } } } }
+    });
+  }
+
+  // 5 ── Dividend income by calendar year ──
+  const dyEl = document.getElementById('pv3-divyear');
+  const dy = _portV3DividendsByYear();
+  if (dyEl && dy.years.length) {
+    _portV3Charts.divyear = new Chart(dyEl, {
+      type: 'bar',
+      data: { labels: dy.years, datasets: [{ label: 'Dividends', data: dy.amounts, backgroundColor: '#10b981', borderRadius: 3 }] },
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => Math.round(c.parsed.y).toLocaleString() + ' SAR' } } },
+        scales: { x: { ticks: { color: th.tick, font: { size: 9 } }, grid: { display: false } },
+          y: { ticks: { color: th.tick, font: { size: 8 }, callback: v => v>=1e3?(v/1e3).toFixed(0)+'k':v }, grid: { color: th.grid }, title: { display: true, text: 'SAR / year', color: th.tick, font: { size: 8 } } } } }
+    });
+  }
+
+  // 6 ── Cumulative return on cost over time ──
+  const crEl = document.getElementById('pv3-cumret');
+  if (crEl && ts.months.length) {
+    const cumret = ts.mv.map((v,i) => ts.cost[i] > 0 ? +(((v - ts.cost[i]) / ts.cost[i]) * 100).toFixed(1) : null);
+    _portV3Charts.cumret = new Chart(crEl, {
+      type: 'line',
+      data: { labels: ts.months, datasets: [{ label: 'Return on cost', data: cumret, borderColor: th.green, backgroundColor: 'rgba(76,175,80,0.12)', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2, spanGaps: true }] },
+      options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => (c.parsed.y>=0?'+':'') + c.parsed.y + '%' } } },
+        scales: { x: { ticks: { color: th.tick, font: { size: 8 }, maxTicksLimit: 8 }, grid: { display: false } },
+          y: { ticks: { color: th.tick, font: { size: 8 }, callback: v => v+'%' }, grid: { color: th.grid } } } }
+    });
+  }
 }
 
 // ── Per-asset detail modal: growth chart + stats + management ──
@@ -1465,8 +1546,10 @@ function _portV3AssetDetail(id) {
   const divs = a.dividends || [];
   const _ds = _portV3CashflowsAndStats(a);
   const totalDivs = _ds.totalDivs;
+  const ttmDivs = _ds.ttmDivs;
   const realized = _ds.realized;
   const feesPaid = _ds.fees;
+  const yieldOnCost = cost > 0 ? ttmDivs / cost * 100 : 0;
   const totalReturn = pnl + totalDivs + realized;
   const totalReturnPct = cost > 0 ? totalReturn/cost*100 : 0;
   const _curWeight = (()=>{ const r = _portV3ComputeRows(); return r.totalMV > 0 ? mv/r.totalMV*100 : 0; })();
@@ -1526,6 +1609,7 @@ function _portV3AssetDetail(id) {
           ${stat('Invested', fmt(cost)+' SAR')}
           ${stat('Capital P&amp;L', (pnl>=0?'+':'')+fmt(pnl)+'<br><span style="font-size:9px">'+(pnlPct>=0?'+':'')+pnlPct.toFixed(1)+'%</span>', pnlC)}
           ${totalDivs>0?stat('Dividends', '+'+fmt(totalDivs)+' SAR', 'var(--green)', 'Total dividends received'):''}
+          ${ttmDivs>0?stat('Yield on Cost', yieldOnCost.toFixed(1)+'%', 'var(--green)', 'Trailing-12-month dividends ÷ amount invested. Income return on the capital you put in.'):''}
           ${totalDivs>0?stat('Total Return', (totalReturn>=0?'+':'')+fmt(totalReturn)+'<br><span style="font-size:9px">'+(totalReturnPct>=0?'+':'')+totalReturnPct.toFixed(1)+'%</span>', trC, 'Capital P&L + dividends'):''}
           ${realized!=0?stat('Realized P&amp;L', (realized>=0?'+':'')+fmt(realized)+' SAR', realized>=0?'var(--green)':'var(--red)', 'Profit/loss booked on units already sold'):''}
           ${feesPaid>0?stat('Fees Paid', fmt(feesPaid)+' SAR', 'var(--tx2)', 'Total brokerage fees recorded'):''}
@@ -1607,11 +1691,14 @@ function _portV3DrawDetailChart(id) {
   // refresh terminal point with live value
   const pi = _portV3Price(a), qty = a.holding?.qty||0;
   if (pi && qty>0 && mvArr.length) mvArr[mvArr.length-1] = Math.round(pi.sarPrice*qty);
+  const breakeven = qty>0 ? Math.round(qty*(a.holding?.avg||0)) : (a.holding?.cost||0);
+  const beArr = labels.map(()=>breakeven);
   _portV3Charts.detail = new Chart(el, {
     type: 'line',
     data: { labels, datasets: [
       { label: 'Market Value', data: mvArr, borderColor: th.blue, backgroundColor: 'rgba(91,155,213,0.14)', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2, spanGaps: true },
-      { label: 'Invested (cost)', data: costArr, borderColor: th.amber, fill: false, tension: 0.25, pointRadius: 0, borderWidth: 1.5, borderDash: [4,3], spanGaps: true }
+      { label: 'Invested (cost)', data: costArr, borderColor: th.amber, fill: false, tension: 0.25, pointRadius: 0, borderWidth: 1.5, borderDash: [4,3], spanGaps: true },
+      { label: 'Break-even', data: beArr, borderColor: th.red, fill: false, tension: 0, pointRadius: 0, borderWidth: 1, borderDash: [2,2] }
     ]},
     options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
       plugins: { legend: { display: true, labels: { color: th.tick, font: { size: 9 }, boxWidth: 10 } },
@@ -1838,7 +1925,8 @@ function _portV3CalcPeriodReturn(id) {
 
 function _portV3ExpandChart(type, id) {
   document.getElementById('portv3-expand-modal')?.remove();
-  const title = type==='detail'?(document.getElementById('portv3-asset-title')?.textContent||'Asset'):type==='perf'?'Portfolio Performance':type==='alloc'?'Allocation':'Annualized Return (CAGR)';
+  const titles = { detail:(document.getElementById('portv3-asset-title')?.textContent||'Asset'), perf:'Portfolio Performance', alloc:'Allocation', apr:'Annualized Return (CAGR)', sector:'Sector / Class Allocation', divyear:'Dividend Income by Year', cumret:'Return on Cost over Time' };
+  const title = titles[type] || 'Chart';
   const html = `<div class="mo" id="portv3-expand-modal" onclick="if(event.target===this)this.remove()" style="z-index:1300">
     <div class="modal" style="width:960px;max-width:96vw;max-height:92vh">
       <div class="mhead"><div class="mhtop">
@@ -1859,9 +1947,11 @@ function _portV3ExpandChart(type, id) {
     const costArr = hist.map(h=>h.cost!=null?Math.round(h.cost):null);
     const pi = _portV3Price(a), qty = a.holding?.qty||0;
     if (pi&&qty>0&&mvArr.length) mvArr[mvArr.length-1]=Math.round(pi.sarPrice*qty);
+    const breakeven = qty>0 ? Math.round(qty*(a.holding?.avg||0)) : (a.holding?.cost||0);
     new Chart(el, { type:'line', data:{ labels:hist.map(h=>(h.d||'').slice(0,7)),
       datasets:[{ label:'Market Value', data:mvArr, borderColor:th.blue, backgroundColor:'rgba(91,155,213,0.14)', fill:true, tension:0.25, pointRadius:0, borderWidth:2, spanGaps:true },
-                 { label:'Invested (cost)', data:costArr, borderColor:th.amber, fill:false, tension:0.25, pointRadius:0, borderWidth:1.5, borderDash:[4,3], spanGaps:true }]},
+                 { label:'Invested (cost)', data:costArr, borderColor:th.amber, fill:false, tension:0.25, pointRadius:0, borderWidth:1.5, borderDash:[4,3], spanGaps:true },
+                 { label:'Break-even', data:hist.map(()=>breakeven), borderColor:th.red, fill:false, tension:0, pointRadius:0, borderWidth:1, borderDash:[2,2] }]},
       options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
         plugins:{ legend:{labels:{color:th.tick,font:{size:10},boxWidth:12}}, tooltip:{callbacks:{label:c=>c.dataset.label+': '+Math.round(c.parsed.y||0).toLocaleString()+' SAR'}} },
         scales:{ x:{ticks:{color:th.tick,maxTicksLimit:12},grid:{display:false}}, y:{ticks:{color:th.tick,callback:v=>v>=1e6?(v/1e6).toFixed(1)+'M':(v/1e3).toFixed(0)+'k'},grid:{color:th.grid}} } } });
@@ -1890,6 +1980,26 @@ function _portV3ExpandChart(type, id) {
       options:{ responsive:true, maintainAspectRatio:false,
         plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>c.parsed.y+'%/yr'}} },
         scales:{ x:{ticks:{color:th.tick,maxRotation:45},grid:{display:false}}, y:{ticks:{color:th.tick,callback:v=>v+'%'},grid:{color:th.grid}} } } });
+  } else if (type === 'sector') {
+    const sa = _portV3SectorAlloc(); const secTotal = sa.values.reduce((s,v)=>s+v,0);
+    new Chart(el, { type:'doughnut', data:{ labels:sa.labels, datasets:[{ data:sa.values, backgroundColor:sa.colors, borderWidth:1, borderColor:document.body.classList.contains('light')?'#fff':'#1a1a2e' }]},
+      options:{ responsive:true, maintainAspectRatio:false, cutout:'55%',
+        plugins:{ legend:{position:'right',labels:{color:th.tick,font:{size:11},boxWidth:12,padding:7}},
+          tooltip:{callbacks:{label:c=>c.label+': '+Math.round(c.parsed).toLocaleString()+' SAR ('+(secTotal>0?(c.parsed/secTotal*100).toFixed(1):0)+'%)'}} } } });
+  } else if (type === 'divyear') {
+    const dy = _portV3DividendsByYear();
+    new Chart(el, { type:'bar', data:{ labels:dy.years, datasets:[{ label:'Dividends', data:dy.amounts, backgroundColor:'#10b981', borderRadius:4 }]},
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>Math.round(c.parsed.y).toLocaleString()+' SAR'}} },
+        scales:{ x:{ticks:{color:th.tick},grid:{display:false}}, y:{ticks:{color:th.tick,callback:v=>v>=1e3?(v/1e3).toFixed(0)+'k':v},grid:{color:th.grid},title:{display:true,text:'SAR / year',color:th.tick}} } } });
+  } else if (type === 'cumret') {
+    const ts = _portV3TimeSeries(); const { totalMV, totalCost } = _portV3ComputeRows();
+    if (ts.months.length) { ts.mv[ts.mv.length-1]=Math.round(totalMV); ts.cost[ts.cost.length-1]=Math.round(totalCost); }
+    const cumret = ts.mv.map((v,i)=> ts.cost[i]>0 ? +(((v-ts.cost[i])/ts.cost[i])*100).toFixed(1) : null);
+    new Chart(el, { type:'line', data:{ labels:ts.months, datasets:[{ label:'Return on cost', data:cumret, borderColor:th.green, backgroundColor:'rgba(76,175,80,0.12)', fill:true, tension:0.25, pointRadius:0, borderWidth:2, spanGaps:true }]},
+      options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+        plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>(c.parsed.y>=0?'+':'')+c.parsed.y+'%'}} },
+        scales:{ x:{ticks:{color:th.tick,maxTicksLimit:12},grid:{display:false}}, y:{ticks:{color:th.tick,callback:v=>v+'%'},grid:{color:th.grid}} } } });
   }
 }
 
@@ -4081,6 +4191,9 @@ function renderPortfolioV3HTML() {
   html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:14px">
     <div class="mi" style="padding:10px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="mil">📈 Portfolio Performance</span><button onclick="_portV3ExpandChart('perf')" style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--bg2);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);cursor:pointer">⛶</button></div><div style="height:200px"><canvas id="pv3-perf"></canvas></div></div>
     <div class="mi" style="padding:10px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="mil">🥧 Allocation</span><button onclick="_portV3ExpandChart('alloc')" style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--bg2);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);cursor:pointer">⛶</button></div><div style="height:200px"><canvas id="pv3-alloc"></canvas></div></div>
+    <div class="mi" style="padding:10px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="mil">🏷️ Sector / Class</span><button onclick="_portV3ExpandChart('sector')" style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--bg2);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);cursor:pointer">⛶</button></div><div style="height:200px"><canvas id="pv3-sector"></canvas></div></div>
+    <div class="mi" style="padding:10px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="mil">💰 Dividend Income / Year</span><button onclick="_portV3ExpandChart('divyear')" style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--bg2);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);cursor:pointer">⛶</button></div><div style="height:200px"><canvas id="pv3-divyear"></canvas></div></div>
+    <div class="mi" style="padding:10px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="mil">📉 Return on Cost (over time)</span><button onclick="_portV3ExpandChart('cumret')" style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--bg2);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);cursor:pointer">⛶</button></div><div style="height:200px"><canvas id="pv3-cumret"></canvas></div></div>
     <div class="mi" style="padding:10px;grid-column:1/-1"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="mil">📊 Annualized Return by Asset (CAGR)</span><button onclick="_portV3ExpandChart('apr')" style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--bg2);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);cursor:pointer">⛶</button></div><div style="height:170px"><canvas id="pv3-apr"></canvas></div></div>
   </div>`;
 
