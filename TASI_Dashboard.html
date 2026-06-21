@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260620l'; // bump this string on every deploy that matters
+  var V='20260621a'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -440,7 +440,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260620l · FIXED a currency bug on USD holdings (IBIT): the cost basis is stored in native USD but the live price is converted to SAR, so the dashboard was comparing USD cost against SAR price — inflating IBIT to a fake +187% gain when it is actually down ~23%. All cost, average cost, invested, P&L, CAGR, allocation and chart figures for USD assets are now converted to SAR at the pegged 3.75 rate, so every number is in one currency. The avg-cost and price cards show the native USD value on hover; the raw history ledger stays in USD (that is what you edit) with a note · v20260620k · fixed two figures that measured contributions instead of performance: per-asset Period Return now uses the price-per-unit move (not total market-value change), and the “If TASI” benchmark is contribution-matched — it invests each of your buys into the index on the same dates, so it is a fair side-by-side with your Value line · v20260620j · Save to Drive button now always visible — green when connected, greyed-out with a prompt when not; CAGR expand chart matches the live table values</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260621a · USD assets (IBIT): Buy/Sell form now shows prices in USD, avg cost and live price in the detail modal show native USD as primary (SAR on hover); new transactions also correctly store mv in USD so history stays consistent · v20260620l · fixed currency mismatch on USD holdings — cost stored in native USD was being compared to SAR live price, inflating IBIT to a fake +187% gain (actual is ~−23%); all portfolio stats now convert USD figures to SAR at the pegged 3.75 rate · v20260620k · per-asset Period Return now uses price-per-unit (not total MV change); “If TASI” benchmark is contribution-matched — buys same index units on same dates as your purchases</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1638,8 +1638,8 @@ function _portV3AssetDetail(id) {
           ${feesPaid>0?stat('Fees Paid', fmt(feesPaid)+' SAR', 'var(--tx2)', 'Total brokerage fees recorded'):''}
           ${stat('Price CAGR', cagr!=null?(cagr*100).toFixed(1)+'%/yr':'—', cagrC, 'Annualized share-price return: (currentPrice / avgCost)^(1/years) − 1. Pure price appreciation since first purchase, ignoring dividends and timing of additional buys.')}
           ${xirr!=null?stat('Total CAGR', (xirr*100).toFixed(1)+'%/yr', xirr>=0?'var(--green)':'var(--red)', 'Money-weighted IRR (XIRR) including dividends and fees. Reflects actual cash-flow timing across all purchases, sales, and income.'):''}
-          ${stat('Avg Cost', avgSar.toFixed(2)+' SAR', '', fx!==1?'Stored as '+(a.holding?.avg||0).toFixed(2)+' '+(a.ccy||'USD')+', shown in SAR at '+fx+' (pegged) for comparison with the SAR price.':'')}
-          ${stat('Price', pi?pi.sarPrice.toFixed(2)+' SAR':'—', '', fx!==1&&pi?.usdPrice?'Live '+pi.usdPrice.toFixed(2)+' '+(a.ccy||'USD')+' × '+fx:'')}
+          ${stat('Avg Cost', fx!==1?(a.holding?.avg||0).toFixed(2)+' '+(a.ccy||'USD'):avgSar.toFixed(2)+' SAR', '', fx!==1?'= '+avgSar.toFixed(2)+' SAR at '+fx+' (pegged)':'')}
+          ${stat('Price', pi?(fx!==1&&pi.usdPrice?pi.usdPrice.toFixed(2)+' '+(a.ccy||'USD'):pi.sarPrice.toFixed(2)+' SAR'):'—', '', fx!==1&&pi?.usdPrice?'= '+pi.sarPrice.toFixed(2)+' SAR at fx '+fx:'')}
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;font-family:var(--mono);font-size:9px;color:var(--tx3)">
           <span>🎯 Target allocation</span>
@@ -1749,18 +1749,19 @@ function _portV3TxnForm(id) {
   const a = portfolioV3?.assets?.[id]; if (!a) return;
   const c = document.getElementById('pv3-detail-forms'); if (!c) return;
   const unitLbl = a.unit === 'gram' ? 'grams' : 'units';
+  const ccy = a.ccy || 'SAR';
   c.innerHTML = `<div style="margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:5px;border:1px solid var(--b2)">
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
       <select id="pv3-txn-side" style="background:var(--bg3);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 7px;outline:none">
         <option value="buy">Buy</option><option value="sell">Sell</option></select>
       <input type="number" id="pv3-txn-units" placeholder="${unitLbl}" step="any" style="width:90px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
       <span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">@</span>
-      <input type="number" id="pv3-txn-price" placeholder="price/unit (SAR)" step="any" style="width:120px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
+      <input type="number" id="pv3-txn-price" placeholder="price/unit (${ccy})" step="any" style="width:120px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
       <input type="date" id="pv3-txn-date" value="${new Date().toISOString().slice(0,10)}" style="background:var(--bg3);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
-      <input type="number" id="pv3-txn-fee" placeholder="fee SAR" step="any" title="Brokerage commission (optional)" style="width:80px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
+      <input type="number" id="pv3-txn-fee" placeholder="fee (${ccy})" step="any" title="Brokerage commission (optional)" style="width:80px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
       <button onclick="_portV3SaveTxn('${id}')" style="font-family:var(--mono);font-size:10px;padding:5px 12px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">Save</button>
     </div>
-    <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-top:6px">For TASI/ETF the price is informational — live price drives current value. Sells reduce units at average cost. Fees are tracked separately as a return drag.</div>
+    <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-top:6px">Enter prices in ${ccy}. For TASI/ETF the price is informational — live price drives current value. Sells reduce units at average cost. Fees are tracked separately as a return drag.</div>
   </div>`;
   document.getElementById('pv3-txn-units')?.focus();
 }
@@ -1782,7 +1783,10 @@ function _portV3SaveTxn(id) {
   } else { qty += units; cost += units * price; }
   a.holding.qty = +qty.toFixed(6); a.holding.cost = +Math.max(0,cost).toFixed(2);
   a.holding.avg = qty > 0 ? +(a.holding.cost / qty).toFixed(4) : 0;
-  const curPrice = _portV3Price(a)?.sarPrice || price;
+  const _pi = _portV3Price(a);
+  const _fx = _pv3Fx(a);
+  // Store mv in native currency (USD for USD assets, SAR otherwise)
+  const curPrice = _fx > 1 ? (_pi?.usdPrice || price) : (_pi?.sarPrice || price);
   a.history = a.history || [];
   const row = { d: date, qty: a.holding.qty, price: +price.toFixed(4), cost: a.holding.cost, mv: +(a.holding.qty * curPrice).toFixed(2) };
   if (fee > 0) row.fee = +fee.toFixed(2);
