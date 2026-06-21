@@ -206,16 +206,13 @@ for (const s of EXTERNAL) {
   else if (prevSnap?.external?.[s]) external[s] = prevSnap.external[s]; // carry forward on a failed fetch
 }
 
-// Saudi open-ended mutual funds — Yahoo lists them under the 6-digit Tadawul fund
-// code + .SR and quotes them in SAR (no FX conversion). Added so the portfolio view
-// can auto-price fund holdings the same way it does TASI stocks. The dashboard only
-// uses a fund quote if a holding is explicitly linked to its symbol, so listing extra
-// candidates here is harmless. `name` is carried for the link-by-name UI.
-// Confirmed: 012060.SR = Al Rajhi Mid/Small-Cap (SMID) Fund.
-// 012044.SR = Al Rajhi MSCI Saudi Multi Factor Index Fund (user's "Al Rajhi Index Fund").
-// 012061.SR = Al Rajhi Real Estate Monthly Distributions Fund (user's "Real Estate Income Fund").
-// MultiAsset (Flexible) code TBD — user to verify via the dashboard Link & fetch NAV button.
-const SAR_FUNDS = ['012060.SR', '012044.SR', '012061.SR'];
+// Saudi open-ended mutual funds (e.g. Al Rajhi 012060.SR / 012044.SR / 012061.SR)
+// are NOT carried by Yahoo Finance — verified empirically: every 6-digit fund code
+// returns no quote from v7/quote or spark, while listed equities/REITs/ETFs (4-digit)
+// and IBIT/gold work fine. Sites like Stock Events show these funds via a private
+// data feed, not Yahoo. Leave this list empty unless a fund is confirmed on Yahoo;
+// the dashboard prices fund holdings manually or via its own client-side fallback.
+const SAR_FUNDS = [];
 if (SAR_FUNDS.length) {
   const [fq, fc] = [await fetchQuotes(SAR_FUNDS, auth), await fetchCloses(SAR_FUNDS)];
   // v7/quote carries the fund name; fall back to a chart-meta lookup if the crumb flow degraded.
