@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260620i'; // bump this string on every deploy that matters
+  var V='20260620j'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -440,7 +440,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260620i · fixed the allocation pie legend text (it was rendering black on the dark theme) and made the per-asset CAGR chart identical at small and full size — the expanded view was recomputing with newer live prices, so it now reads from a frozen snapshot taken when the small charts drew · v20260620h · five new portfolio analytics: a Sector / Class allocation donut, a Dividend Income by calendar-year bar chart, a Return-on-Cost-over-time line, a Yield-on-Cost stat per asset, and a break-even reference line on each asset’s growth chart · v20260620g · CAGR is now a simple annualized share-price return ((price / avg cost)^(1/years) − 1) instead of the portfolio money-weighted figure (which was distorted by incremental buys) — the money-weighted XIRR is kept as “Total CAGR” in the asset detail; the allocation pie was repainted with 15 clearly distinct colors</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260620j · Save to Drive button now always visible — shows green when connected, greyed-out with a prompt when not (was hidden entirely when not connected); CAGR expand chart reverted to fresh computation so it always matches the live table values (the snapshot approach captured stale prices before IBIT external data loaded) · v20260620i · fixed the allocation pie legend text (it was rendering black on the dark theme) and made the per-asset CAGR chart identical at small and full size — the expanded view was recomputing with newer live prices, so it now reads from a frozen snapshot taken when the small charts drew · v20260620h · five new portfolio analytics: a Sector / Class allocation donut, a Dividend Income by calendar-year bar chart, a Return-on-Cost-over-time line, a Yield-on-Cost stat per asset, and a break-even reference line on each asset's growth chart</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1423,7 +1423,6 @@ function _portV3SectorAlloc() {
 }
 
 let _portV3Charts = {};
-let _portV3SnapshotRows = null; // frozen snapshot of rows used by the last _portV3DrawCharts call
 
 function _portV3ChartTheme() {
   const light = document.body.classList.contains('light');
@@ -1436,7 +1435,6 @@ function _portV3DrawCharts() {
   ['perf','alloc','apr','sector','divyear','cumret'].forEach(k => { if (_portV3Charts[k]) { try { _portV3Charts[k].destroy(); } catch(e){} delete _portV3Charts[k]; } });
   const th = _portV3ChartTheme();
   const { rows, totalMV, totalCost } = _portV3ComputeRows();
-  _portV3SnapshotRows = rows; // freeze for expand charts so they show identical data
   const fullName = (a, id) => (a.type === 'tasi' ? (a.ticker||'').replace('.SR','')+' ':'')+((a.name||id||'').replace(/\s+/g,' ').trim());
 
   // 1 ── Portfolio Performance: value vs cost over time ──
@@ -1969,9 +1967,8 @@ function _portV3ExpandChart(type, id) {
         plugins:{ legend:{labels:{color:th.tick,font:{size:10}}}, tooltip:{callbacks:{label:c=>c.dataset.label+': '+Math.round(c.parsed.y).toLocaleString()+' SAR'}} },
         scales:{ x:{ticks:{color:th.tick,maxTicksLimit:12},grid:{display:false}}, y:{ticks:{color:th.tick,callback:v=>v>=1e6?(v/1e6).toFixed(1)+'M':(v/1e3).toFixed(0)+'k'},grid:{color:th.grid}} } } });
   } else if (type === 'alloc') {
-    const _rows2 = _portV3SnapshotRows || _portV3ComputeRows().rows;
+    const { rows: _rows2, totalMV: totalMV2 } = _portV3ComputeRows();
     const ar = _rows2.filter(r=>r.mv>0);
-    const totalMV2 = ar.reduce((s,r)=>s+r.mv,0);
     const _fn2 = (a,id) => (a.type==='tasi'?(a.ticker||'').replace('.SR','')+'  ':'')+((a.name||id||'').replace(/\s+/g,' ').trim());
     new Chart(el, { type:'doughnut', data:{ labels:ar.map(r=>_fn2(r.a,r.id)),
       datasets:[{ data:ar.map(r=>Math.round(r.mv)), backgroundColor:ar.map((_,i)=>_PV3_PALETTE[i%_PV3_PALETTE.length]), borderWidth:1, borderColor:document.body.classList.contains('light')?'#fff':'#1a1a2e' }]},
@@ -1979,7 +1976,7 @@ function _portV3ExpandChart(type, id) {
         plugins:{ legend:{position:'right',labels:{color:th.tick,font:{size:10},boxWidth:11,padding:6,generateLabels:chart=>chart.data.labels.map((lbl,i)=>({text:lbl,fillStyle:_PV3_PALETTE[i%_PV3_PALETTE.length],strokeStyle:_PV3_PALETTE[i%_PV3_PALETTE.length],fontColor:th.tick,hidden:false,index:i}))}},
           tooltip:{callbacks:{label:c=>c.label+': '+Math.round(c.parsed).toLocaleString()+' SAR ('+(totalMV2>0?(c.parsed/totalMV2*100).toFixed(1):0)+'%)'}} } } });
   } else if (type === 'apr') {
-    const _rows = _portV3SnapshotRows || _portV3ComputeRows().rows;
+    const { rows: _rows } = _portV3ComputeRows();
     const _fn = (a,id) => (a.type==='tasi'?(a.ticker||'').replace('.SR','')+'  ':'')+((a.name||id||'').replace(/\s+/g,' ').trim());
     const ar = _rows.filter(r=>r.cagr!=null).sort((a,b)=>b.cagr-a.cagr);
     new Chart(el, { type:'bar', data:{ labels:ar.map(r=>_fn(r.a,r.id)),
@@ -4278,7 +4275,9 @@ function renderPortfolioV3HTML() {
   html += `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:8px;border-top:1px solid var(--b1)">
     <button onclick="_portV3AddAssetForm()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">➕ Add Asset</button>
     <button onclick="_portV3ImportFile()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer" title="Replace with a newer portfolio.json file">📂 Import File</button>
-    ${gdConnected?`<button onclick="_portV3GdSave().then(()=>showToast('✓ Saved to Google Drive'))" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">☁ Save to Drive</button>`:''}
+    ${gdConnected
+      ? `<button onclick="_portV3GdSave().then(()=>showToast('✓ Saved to Google Drive'))" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--green);border:1px solid var(--green);border-radius:4px;cursor:pointer" title="Save portfolio to Google Drive now">☁ Save to Drive</button>`
+      : `<button onclick="showToast('Connect Google Drive in ⚙ Settings first')" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx3);border:1px solid var(--b2);border-radius:4px;cursor:pointer;opacity:.6" title="Connect Google Drive in Settings to enable cloud save">☁ Save to Drive</button>`}
     <button onclick="_portV3ExportCSV()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">⬇ Export CSV</button>
     <button onclick="_portV3ExportJSON()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer" title="Download full portfolio JSON for backup">⬇ Export JSON</button>
     <div style="margin-left:auto;font-family:var(--mono);font-size:8px;color:var(--tx3)">${Object.keys(assets).length} assets · ${gdConnected?'☁ Drive connected':'💾 Local only'}</div>
