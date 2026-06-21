@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260620h'; // bump this string on every deploy that matters
+  var V='20260620i'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -1423,6 +1423,7 @@ function _portV3SectorAlloc() {
 }
 
 let _portV3Charts = {};
+let _portV3SnapshotRows = null; // frozen snapshot of rows used by the last _portV3DrawCharts call
 
 function _portV3ChartTheme() {
   const light = document.body.classList.contains('light');
@@ -1435,6 +1436,7 @@ function _portV3DrawCharts() {
   ['perf','alloc','apr','sector','divyear','cumret'].forEach(k => { if (_portV3Charts[k]) { try { _portV3Charts[k].destroy(); } catch(e){} delete _portV3Charts[k]; } });
   const th = _portV3ChartTheme();
   const { rows, totalMV, totalCost } = _portV3ComputeRows();
+  _portV3SnapshotRows = rows; // freeze for expand charts so they show identical data
   const fullName = (a, id) => (a.type === 'tasi' ? (a.ticker||'').replace('.SR','')+' ':'')+((a.name||id||'').replace(/\s+/g,' ').trim());
 
   // 1 ── Portfolio Performance: value vs cost over time ──
@@ -1467,7 +1469,7 @@ function _portV3DrawCharts() {
       data: { labels: allocRows.map(r => fullName(r.a, r.id)),
         datasets: [{ data: allocRows.map(r => Math.round(r.mv)), backgroundColor: allocRows.map((_,i) => _PV3_PALETTE[i % _PV3_PALETTE.length]), borderWidth: 1, borderColor: document.body.classList.contains('light') ? '#fff' : '#1a1a2e' }] },
       options: { responsive: true, maintainAspectRatio: false, cutout: '58%',
-        plugins: { legend: { position: 'right', labels: { color: th.tick, font: { size: 8 }, boxWidth: 9, padding: 5, generateLabels: chart => chart.data.labels.map((lbl,i) => ({ text: lbl, fillStyle: _PV3_PALETTE[i%_PV3_PALETTE.length], strokeStyle: _PV3_PALETTE[i%_PV3_PALETTE.length], index: i })) } },
+        plugins: { legend: { position: 'right', labels: { color: th.tick, font: { size: 8 }, boxWidth: 9, padding: 5, generateLabels: chart => chart.data.labels.map((lbl,i) => ({ text: lbl, fillStyle: _PV3_PALETTE[i%_PV3_PALETTE.length], strokeStyle: _PV3_PALETTE[i%_PV3_PALETTE.length], fontColor: th.tick, hidden: false, index: i })) } },
           tooltip: { callbacks: { label: c => { const pct = totalMV>0 ? (c.parsed/totalMV*100).toFixed(1) : 0; return c.label + ': ' + Math.round(c.parsed).toLocaleString() + ' SAR (' + pct + '%)'; } } } } }
     });
   }
@@ -1967,15 +1969,20 @@ function _portV3ExpandChart(type, id) {
         plugins:{ legend:{labels:{color:th.tick,font:{size:10}}}, tooltip:{callbacks:{label:c=>c.dataset.label+': '+Math.round(c.parsed.y).toLocaleString()+' SAR'}} },
         scales:{ x:{ticks:{color:th.tick,maxTicksLimit:12},grid:{display:false}}, y:{ticks:{color:th.tick,callback:v=>v>=1e6?(v/1e6).toFixed(1)+'M':(v/1e3).toFixed(0)+'k'},grid:{color:th.grid}} } } });
   } else if (type === 'alloc') {
-    const { rows, totalMV } = _portV3ComputeRows(); const ar = rows.filter(r=>r.mv>0);
-    new Chart(el, { type:'doughnut', data:{ labels:ar.map(r=>r.a.name||r.id),
+    const _rows2 = _portV3SnapshotRows || _portV3ComputeRows().rows;
+    const ar = _rows2.filter(r=>r.mv>0);
+    const totalMV2 = ar.reduce((s,r)=>s+r.mv,0);
+    const _fn2 = (a,id) => (a.type==='tasi'?(a.ticker||'').replace('.SR','')+'  ':'')+((a.name||id||'').replace(/\s+/g,' ').trim());
+    new Chart(el, { type:'doughnut', data:{ labels:ar.map(r=>_fn2(r.a,r.id)),
       datasets:[{ data:ar.map(r=>Math.round(r.mv)), backgroundColor:ar.map((_,i)=>_PV3_PALETTE[i%_PV3_PALETTE.length]), borderWidth:1, borderColor:document.body.classList.contains('light')?'#fff':'#1a1a2e' }]},
       options:{ responsive:true, maintainAspectRatio:false, cutout:'52%',
-        plugins:{ legend:{position:'right',labels:{color:th.tick,font:{size:10},boxWidth:11,padding:6}},
-          tooltip:{callbacks:{label:c=>c.label+': '+Math.round(c.parsed).toLocaleString()+' SAR ('+(totalMV>0?(c.parsed/totalMV*100).toFixed(1):0)+'%)'}} } } });
+        plugins:{ legend:{position:'right',labels:{color:th.tick,font:{size:10},boxWidth:11,padding:6,generateLabels:chart=>chart.data.labels.map((lbl,i)=>({text:lbl,fillStyle:_PV3_PALETTE[i%_PV3_PALETTE.length],strokeStyle:_PV3_PALETTE[i%_PV3_PALETTE.length],fontColor:th.tick,hidden:false,index:i}))}},
+          tooltip:{callbacks:{label:c=>c.label+': '+Math.round(c.parsed).toLocaleString()+' SAR ('+(totalMV2>0?(c.parsed/totalMV2*100).toFixed(1):0)+'%)'}} } } });
   } else if (type === 'apr') {
-    const { rows } = _portV3ComputeRows(); const ar = rows.filter(r=>r.cagr!=null).sort((a,b)=>b.cagr-a.cagr);
-    new Chart(el, { type:'bar', data:{ labels:ar.map(r=>r.a.name||r.id),
+    const _rows = _portV3SnapshotRows || _portV3ComputeRows().rows;
+    const _fn = (a,id) => (a.type==='tasi'?(a.ticker||'').replace('.SR','')+'  ':'')+((a.name||id||'').replace(/\s+/g,' ').trim());
+    const ar = _rows.filter(r=>r.cagr!=null).sort((a,b)=>b.cagr-a.cagr);
+    new Chart(el, { type:'bar', data:{ labels:ar.map(r=>_fn(r.a,r.id)),
       datasets:[{ data:ar.map(r=>+(r.cagr*100).toFixed(1)), backgroundColor:ar.map(r=>r.cagr>=0?th.green:th.red), borderRadius:4 }]},
       options:{ responsive:true, maintainAspectRatio:false,
         plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>c.parsed.y+'%/yr'}} },
