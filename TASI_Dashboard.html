@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260621a'; // bump this string on every deploy that matters
+  var V='20260621b'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -440,7 +440,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260621a · USD assets (IBIT): Buy/Sell form now shows prices in USD, avg cost and live price in the detail modal show native USD as primary (SAR on hover); new transactions also correctly store mv in USD so history stays consistent · v20260620l · fixed currency mismatch on USD holdings — cost stored in native USD was being compared to SAR live price, inflating IBIT to a fake +187% gain (actual is ~−23%); all portfolio stats now convert USD figures to SAR at the pegged 3.75 rate · v20260620k · per-asset Period Return now uses price-per-unit (not total MV change); “If TASI” benchmark is contribution-matched — buys same index units on same dates as your purchases</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260621b · DRIP support: when adding a transaction choose “♻ Reinvest (DRIP)” to mark it as a dividend reinvestment — the detail modal now shows “Cash In” (your own pocket money, excluding DRIP) alongside “Invested” (full cost basis), and ♻ marks reinvest rows in the history table · v20260621a · USD assets (IBIT): Buy/Sell form shows prices in USD, avg cost and live price show native USD as primary (SAR on hover), new transactions store mv in USD so history stays consistent · v20260620l · fixed currency mismatch on USD holdings (IBIT showed fake +187% gain, now correctly −23%)</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1572,6 +1572,8 @@ function _portV3AssetDetail(id) {
   const ttmDivs = _ds.ttmDivs;
   const realized = _ds.realized;
   const feesPaid = _ds.fees;
+  const dripTotal = hist.filter(h => h.reinvest).reduce((s, h) => s + (h.reinvestAmt || 0), 0) * fx;
+  const cashIn = cost - dripTotal;
   const yieldOnCost = cost > 0 ? ttmDivs / cost * 100 : 0;
   const totalReturn = pnl + totalDivs + realized;
   const totalReturnPct = cost > 0 ? totalReturn/cost*100 : 0;
@@ -1588,7 +1590,7 @@ function _portV3AssetDetail(id) {
     const hp = h.cost>0&&h.mv>0?((h.mv-h.cost)/h.cost*100):null;
     const hc = hp==null?'var(--tx3)':hp>=0?'var(--green)':'var(--red)';
     return `<tr id="pv3-hist-row-${arrIdx}" style="border-bottom:1px solid var(--b1)">
-      <td style="font-family:var(--mono);font-size:9px;padding:3px 5px;color:var(--tx2)">${(h.d||'').slice(0,7)}</td>
+      <td style="font-family:var(--mono);font-size:9px;padding:3px 5px;color:var(--tx2)">${h.reinvest?'<span title="Dividend reinvestment (DRIP)" style="color:var(--green)">♻</span> ':''}${(h.d||'').slice(0,7)}</td>
       <td style="font-family:var(--mono);font-size:9px;padding:3px 5px;text-align:right">${h.qty??'—'}</td>
       <td style="font-family:var(--mono);font-size:9px;padding:3px 5px;text-align:right">${h.price!=null?h.price.toFixed(2):'—'}</td>
       <td style="font-family:var(--mono);font-size:9px;padding:3px 5px;text-align:right">${h.cost!=null?Math.round(h.cost).toLocaleString():'—'}</td>
@@ -1629,7 +1631,8 @@ function _portV3AssetDetail(id) {
       <div class="mbody">
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:6px;margin-bottom:12px">
           ${stat('Market Value', fmt(mv)+' SAR')}
-          ${stat('Invested', fmt(cost)+' SAR')}
+          ${stat('Invested', fmt(cost)+' SAR', '', dripTotal>0?'Total cost basis including '+fmt(dripTotal)+' SAR reinvested from dividends':'')}
+          ${dripTotal>0?stat('Cash In', fmt(cashIn)+' SAR', 'var(--acc)', 'Your own cash put in — excludes '+fmt(dripTotal)+' SAR of dividend reinvestments (DRIP). Use this to judge how much you personally invested.'):''}
           ${stat('Capital P&amp;L', (pnl>=0?'+':'')+fmt(pnl)+'<br><span style="font-size:9px">'+(pnlPct>=0?'+':'')+pnlPct.toFixed(1)+'%</span>', pnlC)}
           ${totalDivs>0?stat('Dividends', '+'+fmt(totalDivs)+' SAR', 'var(--green)', 'Total dividends received'):''}
           ${ttmDivs>0?stat('Yield on Cost', yieldOnCost.toFixed(1)+'%', 'var(--green)', 'Trailing-12-month dividends ÷ amount invested. Income return on the capital you put in.'):''}
@@ -1666,7 +1669,7 @@ function _portV3AssetDetail(id) {
         </div>
 
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
-          <button onclick="_portV3TxnForm('${id}')" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">＋ Buy / Sell</button>
+          <button onclick="_portV3TxnForm('${id}')" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">＋ Buy / Sell / DRIP</button>
           ${isManual?`<button onclick="_portV3ShowNavForm2('${id}')" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">↻ Update ${a.unit==='gram'?'SAR/gram':'NAV'}</button>`:''}
           <button onclick="_portV3AddDivForm('${id}')" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">💰 Add Dividend</button>
           <button onclick="_portV3RemoveAsset('${id}')" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:var(--rdim);color:var(--red);border:1px solid var(--red);border-radius:4px;cursor:pointer;margin-left:auto">🗑 Remove</button>
@@ -1753,7 +1756,7 @@ function _portV3TxnForm(id) {
   c.innerHTML = `<div style="margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:5px;border:1px solid var(--b2)">
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
       <select id="pv3-txn-side" style="background:var(--bg3);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 7px;outline:none">
-        <option value="buy">Buy</option><option value="sell">Sell</option></select>
+        <option value="buy">Buy</option><option value="sell">Sell</option><option value="reinvest">♻ Reinvest (DRIP)</option></select>
       <input type="number" id="pv3-txn-units" placeholder="${unitLbl}" step="any" style="width:90px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
       <span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">@</span>
       <input type="number" id="pv3-txn-price" placeholder="price/unit (${ccy})" step="any" style="width:120px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
@@ -1790,6 +1793,7 @@ function _portV3SaveTxn(id) {
   a.history = a.history || [];
   const row = { d: date, qty: a.holding.qty, price: +price.toFixed(4), cost: a.holding.cost, mv: +(a.holding.qty * curPrice).toFixed(2) };
   if (fee > 0) row.fee = +fee.toFixed(2);
+  if (side === 'reinvest') { row.reinvest = true; row.reinvestAmt = +(units * price).toFixed(2); }
   a.history.push(row);
   a.history.sort((x,y) => (x.d||'').localeCompare(y.d||''));
   _portV3PersistLS(); _portV3Render(); _portV3AssetDetail(id);
