@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260621c'; // bump this string on every deploy that matters
+  var V='20260621d'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -440,7 +440,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260621c · Auto-fill Dividends: in any TASI/ETF asset detail, click “⚡ Auto-fill Dividends” to pull the stock's per-share dividend history from Yahoo (10y) and record each payout scaled by the shares you actually held on that ex-date — skips dates before your first buy and any already-recorded payouts · v20260621b · DRIP support: choose “♻ Reinvest (DRIP)” when adding a transaction to mark a dividend reinvestment — detail modal shows “Cash In” (your own money, excluding DRIP) alongside “Invested” · v20260621a · USD assets (IBIT): Buy/Sell form shows prices in USD, avg cost & live price show native USD primary (SAR on hover), new txns store mv in USD</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260621d · “⚡ Fill All Dividends” button (portfolio footer) auto-fills dividends for every TASI/ETF holding at once; performance chart now plots “Cash invested (ex-dividends)” as the dashed contributions line — excluding reinvested dividends — with the full cost basis shown as a faint secondary line when you have DRIP entries; corrected the per-asset CAGR column label to “Price CAGR” (it is price-only) and added a note clarifying the headline Portfolio CAGR includes dividends · v20260621c · Auto-fill Dividends per asset: pulls per-share dividend history from Yahoo (10y) scaled by shares held on each ex-date · v20260621b · DRIP support: “♻ Reinvest (DRIP)” marks dividend reinvestments and shows “Cash In” excluding them</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1358,20 +1358,29 @@ function _portV3TimeSeries() {
   const monthsSet = new Set();
   assets.forEach(a => (a.history||[]).forEach(h => h.d && monthsSet.add(h.d.slice(0,7))));
   const months = [...monthsSet].sort();
-  const perAsset = assets.map(a => { const fx = _pv3Fx(a); return (a.history||[]).slice()
+  let anyDrip = false;
+  // cashCost = cost basis EXCLUDING dividend reinvestments (DRIP) — i.e. only your own external cash.
+  // On a sell we shrink the accumulated reinvested amount proportionally so it tracks remaining basis.
+  const perAsset = assets.map(a => { const fx = _pv3Fx(a); let cumReinv = 0, prevCost = 0; return (a.history||[]).slice()
     .sort((x,y) => (x.d||'').localeCompare(y.d||''))
-    .map(h => ({ m: (h.d||'').slice(0,7), cost: (h.cost||0)*fx, mv: (h.mv||0)*fx })); });
-  const cost = [], mv = [];
+    .map(h => {
+      const c = (h.cost||0);
+      if (c < prevCost - 1e-9 && prevCost > 0) cumReinv *= c / prevCost;   // sell: reduce reinvested basis pro-rata
+      else if (h.reinvest) { cumReinv += (h.reinvestAmt||0); anyDrip = true; }
+      prevCost = c;
+      return { m: (h.d||'').slice(0,7), cost: c*fx, cashCost: Math.max(0, c - cumReinv)*fx, mv: (h.mv||0)*fx };
+    }); });
+  const cost = [], cashCost = [], mv = [];
   for (const m of months) {
-    let c = 0, v = 0;
+    let c = 0, cc = 0, v = 0;
     for (const hs of perAsset) {
       let last = null;
       for (const h of hs) { if (h.m <= m) last = h; else break; }
-      if (last) { c += last.cost; v += last.mv; }
+      if (last) { c += last.cost; cc += last.cashCost; v += last.mv; }
     }
-    cost.push(Math.round(c)); mv.push(Math.round(v));
+    cost.push(Math.round(c)); cashCost.push(Math.round(cc)); mv.push(Math.round(v));
   }
-  return { months, cost, mv };
+  return { months, cost, cashCost, mv, anyDrip };
 }
 
 // Fair benchmark: if every net contribution had instead been invested in the TASI
@@ -1462,14 +1471,16 @@ function _portV3DrawCharts() {
   const ts = _portV3TimeSeries();
   if (ts.months.length) { ts.mv[ts.mv.length-1] = Math.round(totalMV); ts.cost[ts.cost.length-1] = Math.round(totalCost); }
   const perf = document.getElementById('pv3-perf');
-  const tasiSeries = _portV3TasiBenchmark(ts.months, ts.cost);
+  // Benchmark matches only your external cash (ex-dividend reinvestments) into TASI
+  const tasiSeries = _portV3TasiBenchmark(ts.months, ts.anyDrip ? ts.cashCost : ts.cost);
   if (perf && ts.months.length) {
     _portV3Charts.perf = new Chart(perf, {
       type: 'line',
       data: { labels: ts.months, datasets: [
         { label: 'Value', data: ts.mv, borderColor: th.blue, backgroundColor: 'rgba(91,155,213,0.14)', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2 },
-        { label: 'Cost', data: ts.cost, borderColor: th.amber, fill: false, tension: 0.25, pointRadius: 0, borderWidth: 1.5, borderDash: [4,3] },
-        ...(tasiSeries ? [{ label: 'If same buys in TASI', data: tasiSeries, borderColor: '#9e9e9e', fill: false, tension: 0.25, pointRadius: 0, borderWidth: 1.2, borderDash: [2,2], spanGaps: true }] : [])
+        { label: ts.anyDrip ? 'Cash invested (ex-dividends)' : 'Cost', data: ts.cashCost, borderColor: th.amber, fill: false, tension: 0.25, pointRadius: 0, borderWidth: 1.5, borderDash: [4,3] },
+        ...(ts.anyDrip ? [{ label: 'Cost incl. reinvested div', data: ts.cost, borderColor: th.amber, fill: false, tension: 0.25, pointRadius: 0, borderWidth: 1, borderDash: [1,3], hidden: false }] : []),
+        ...(tasiSeries ? [{ label: ts.anyDrip ? 'If same cash in TASI' : 'If same buys in TASI', data: tasiSeries, borderColor: '#9e9e9e', fill: false, tension: 0.25, pointRadius: 0, borderWidth: 1.2, borderDash: [2,2], spanGaps: true }] : [])
       ]},
       options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
         plugins: { legend: { display: true, labels: { color: th.tick, font: { size: 9 }, boxWidth: 10 } },
@@ -1872,40 +1883,49 @@ function _portV3SharesAt(asset, dateStr) {
   return hist[hist.length-1].qty || 0;
 }
 
-// Auto-fill dividends from Yahoo's per-share dividend history, scaled by shares held on each ex-date
+// Fetch Yahoo's per-share dividend history for one asset and build the NEW dividend
+// entries (scaled by shares held on each ex-date), without writing them. Returns
+// { added:[], skippedNoShares, hadSchedule }.
+async function _portV3BuildAutoDivs(a) {
+  const out = { added: [], skippedNoShares: 0, hadSchedule: false };
+  if (!a?.ticker) return out;
+  const sched = await fetchDividendSchedule(a.ticker);
+  if (!sched || !sched.length) return out;
+  out.hadSchedule = true;
+  const fx = _pv3Fx(a);
+  const haveDates = new Set((a.dividends||[]).map(d => (d.d||'').slice(0,10)));
+  const firstBuy = (a.history||[]).map(h=>h.d).filter(Boolean).sort()[0] || null;
+  for (const e of sched) {
+    const exDate = (e.date||'').slice(0,10);
+    if (!exDate) continue;
+    if (firstBuy && exDate < firstBuy) continue;          // before you owned any shares
+    if (haveDates.has(exDate)) continue;                   // already recorded
+    const shares = _portV3SharesAt(a, exDate);
+    if (!(shares > 0)) { out.skippedNoShares++; continue; }
+    const perUnitSar = (e.amount || 0) * fx;               // Yahoo per-share is in the asset's native ccy
+    const total = perUnitSar * shares;
+    if (!(total > 0)) continue;
+    out.added.push({ d: exDate, amount: +total.toFixed(2), perUnit: +perUnitSar.toFixed(4), note: 'Auto · Yahoo (' + shares + ' sh × ' + (e.amount||0).toFixed(4) + (fx!==1?(' '+(a.ccy||'USD')+' ×'+fx):'') + ')' });
+  }
+  return out;
+}
+
+// Auto-fill dividends from Yahoo for a SINGLE asset
 async function _portV3AutoDividends(id) {
   const a = portfolioV3?.assets?.[id];
   if (!a?.ticker) return;
   const btn = document.getElementById('pv3-autodiv-btn');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Fetching…'; }
   try {
-    const sched = await fetchDividendSchedule(a.ticker);
-    if (!sched || !sched.length) { showToast('No dividend history found on Yahoo for ' + a.ticker); return; }
-    const fx = _pv3Fx(a);
-    a.dividends = a.dividends || [];
-    // Dedup against existing entries by ex-date (YYYY-MM-DD)
-    const haveDates = new Set(a.dividends.map(d => (d.d||'').slice(0,10)));
-    const firstBuy = (a.history||[]).map(h=>h.d).filter(Boolean).sort()[0] || null;
-    const added = [];
-    let skippedNoShares = 0;
-    for (const e of sched) {
-      const exDate = (e.date||'').slice(0,10);
-      if (!exDate) continue;
-      if (firstBuy && exDate < firstBuy) continue;          // before you owned any shares
-      if (haveDates.has(exDate)) continue;                   // already recorded
-      const shares = _portV3SharesAt(a, exDate);
-      if (!(shares > 0)) { skippedNoShares++; continue; }
-      const perUnitSar = (e.amount || 0) * fx;               // Yahoo per-share is in the asset's native ccy
-      const total = perUnitSar * shares;
-      if (!(total > 0)) continue;
-      added.push({ d: exDate, amount: +total.toFixed(2), perUnit: +perUnitSar.toFixed(4), note: 'Auto · Yahoo (' + shares + ' sh × ' + (e.amount||0).toFixed(4) + (fx!==1?(' '+(a.ccy||'USD')+' ×'+fx):'') + ')' });
-    }
+    const { added, skippedNoShares, hadSchedule } = await _portV3BuildAutoDivs(a);
+    if (!hadSchedule) { showToast('No dividend history found on Yahoo for ' + a.ticker); return; }
     if (!added.length) {
       showToast(skippedNoShares>0 ? 'No new dividends to add (you held 0 shares on the remaining ex-dates)' : 'All dividends already recorded — nothing new');
       return;
     }
     const totalSar = added.reduce((s,d)=>s+d.amount,0);
     if (!confirm('Found ' + added.length + ' new dividend' + (added.length>1?'s':'') + ' from Yahoo, totaling ' + Math.round(totalSar).toLocaleString() + ' SAR\n(based on the shares you held on each ex-date).\n\nAdd them to this asset?')) return;
+    a.dividends = a.dividends || [];
     a.dividends.push(...added);
     a.dividends.sort((x,y) => (x.d||'').localeCompare(y.d||''));
     _portV3PersistLS();
@@ -1915,6 +1935,44 @@ async function _portV3AutoDividends(id) {
     showToast('Could not fetch dividends: ' + (e?.message||'network error'));
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '⚡ Auto-fill Dividends'; }
+  }
+}
+
+// Auto-fill dividends from Yahoo for ALL TASI/ETF holdings at once
+async function _portV3AutoDividendsAll() {
+  const assets = Object.entries(portfolioV3?.assets || {}).filter(([,a]) => a.ticker && (a.type==='tasi'||a.type==='yahoo'));
+  if (!assets.length) { showToast('No TASI/ETF holdings to fetch dividends for'); return; }
+  const btn = document.getElementById('pv3-autodiv-all-btn');
+  if (btn) { btn.disabled = true; }
+  try {
+    const plan = [];   // { id, a, added }
+    let noData = 0;
+    for (let i = 0; i < assets.length; i++) {
+      const [id, a] = assets[i];
+      if (btn) btn.textContent = '⏳ ' + (i+1) + '/' + assets.length + '…';
+      try {
+        const { added, hadSchedule } = await _portV3BuildAutoDivs(a);
+        if (!hadSchedule) noData++;
+        if (added.length) plan.push({ id, a, added });
+      } catch(e) { /* skip this asset, keep going */ }
+    }
+    const grandCount = plan.reduce((s,p)=>s+p.added.length,0);
+    const grandTotal = plan.reduce((s,p)=>s+p.added.reduce((x,d)=>x+d.amount,0),0);
+    if (!grandCount) { showToast('No new dividends found across ' + assets.length + ' holdings' + (noData?(' ('+noData+' had no Yahoo data)'):'')); return; }
+    const lines = plan.map(p => '• ' + ((p.a.ticker||'').replace('.SR','')) + ': ' + p.added.length + ' (+' + Math.round(p.added.reduce((x,d)=>x+d.amount,0)).toLocaleString() + ' SAR)').join('\n');
+    if (!confirm('Found ' + grandCount + ' new dividends across ' + plan.length + ' holdings, totaling ' + Math.round(grandTotal).toLocaleString() + ' SAR:\n\n' + lines + '\n\nAdd them all?')) return;
+    for (const p of plan) {
+      p.a.dividends = p.a.dividends || [];
+      p.a.dividends.push(...p.added);
+      p.a.dividends.sort((x,y) => (x.d||'').localeCompare(y.d||''));
+    }
+    _portV3PersistLS();
+    _portV3Render();
+    showToast('✓ Added ' + grandCount + ' dividends across ' + plan.length + ' holdings — +' + Math.round(grandTotal).toLocaleString() + ' SAR');
+  } catch (e) {
+    showToast('Could not fetch dividends: ' + (e?.message||'network error'));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '⚡ Fill All Dividends'; }
   }
 }
 
@@ -2048,11 +2106,12 @@ function _portV3ExpandChart(type, id) {
   } else if (type === 'perf') {
     const ts = _portV3TimeSeries(); const { totalMV, totalCost } = _portV3ComputeRows();
     if (ts.months.length) { ts.mv[ts.mv.length-1]=Math.round(totalMV); ts.cost[ts.cost.length-1]=Math.round(totalCost); }
-    const tasiSeries = _portV3TasiBenchmark(ts.months, ts.cost);
+    const tasiSeries = _portV3TasiBenchmark(ts.months, ts.anyDrip ? ts.cashCost : ts.cost);
     new Chart(el, { type:'line', data:{ labels:ts.months,
       datasets:[{ label:'Value', data:ts.mv, borderColor:th.blue, backgroundColor:'rgba(91,155,213,0.14)', fill:true, tension:0.25, pointRadius:0, borderWidth:2 },
-                 { label:'Cost', data:ts.cost, borderColor:th.amber, fill:false, tension:0.25, pointRadius:0, borderWidth:1.5, borderDash:[4,3] },
-                 ...(tasiSeries ? [{ label:'If same buys in TASI', data:tasiSeries, borderColor:'#9e9e9e', fill:false, tension:0.25, pointRadius:0, borderWidth:1.2, borderDash:[2,2], spanGaps:true }] : [])]},
+                 { label: ts.anyDrip ? 'Cash invested (ex-dividends)' : 'Cost', data:ts.cashCost, borderColor:th.amber, fill:false, tension:0.25, pointRadius:0, borderWidth:1.5, borderDash:[4,3] },
+                 ...(ts.anyDrip ? [{ label:'Cost incl. reinvested div', data:ts.cost, borderColor:th.amber, fill:false, tension:0.25, pointRadius:0, borderWidth:1, borderDash:[1,3] }] : []),
+                 ...(tasiSeries ? [{ label: ts.anyDrip ? 'If same cash in TASI' : 'If same buys in TASI', data:tasiSeries, borderColor:'#9e9e9e', fill:false, tension:0.25, pointRadius:0, borderWidth:1.2, borderDash:[2,2], spanGaps:true }] : [])]},
       options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
         plugins:{ legend:{labels:{color:th.tick,font:{size:10}}}, tooltip:{callbacks:{label:c=>c.dataset.label+': '+Math.round(c.parsed.y).toLocaleString()+' SAR'}} },
         scales:{ x:{ticks:{color:th.tick,maxTicksLimit:12},grid:{display:false}}, y:{ticks:{color:th.tick,callback:v=>v>=1e6?(v/1e6).toFixed(1)+'M':(v/1e3).toFixed(0)+'k'},grid:{color:th.grid}} } } });
@@ -4271,7 +4330,7 @@ function renderPortfolioV3HTML() {
     <div class="mi"><div class="mil">Total Value</div><div class="miv" style="font-size:13px;font-weight:700">${totalMV>=1e6?(totalMV/1e6).toFixed(2)+'M':totalMV.toFixed(0)} SAR</div></div>
     <div class="mi"><div class="mil">Total Cost</div><div class="miv">${totalCost>=1e6?(totalCost/1e6).toFixed(2)+'M':totalCost.toFixed(0)} SAR</div></div>
     <div class="mi"><div class="mil">P&amp;L</div><div class="miv" style="color:${pnlC}">${totalPnL>=0?'+':''}${totalPnL.toFixed(0)} SAR<br><span style="font-size:9px">${totalPnL>=0?'+':''}${totalPnLPct.toFixed(1)}%</span></div></div>
-    <div class="mi"><div class="mil" data-tip="Money-weighted annualized return (XIRR) across all assets since first purchase.">Portfolio CAGR</div><div class="miv" style="color:${cagrC}">${portCAGR!=null?(portCAGR*100).toFixed(1)+'%/yr':'—'}</div></div>
+    <div class="mi"><div class="mil" data-tip="Money-weighted annualized return (XIRR) across all assets since first purchase. INCLUDES dividends, realized gains and fees. (The per-asset table column shows price-only CAGR, which excludes dividends.)">Portfolio CAGR ⓘ</div><div class="miv" style="color:${cagrC}">${portCAGR!=null?(portCAGR*100).toFixed(1)+'%/yr':'—'}</div></div>
     <div class="mi"><div class="mil" data-tip="Capital gain + dividends received + realized gains, as a share of cost.">Total Return</div><div class="miv" style="color:${trAllC}">${totalReturnAll>=0?'+':''}${fmtSAR(totalReturnAll)} SAR<br><span style="font-size:9px">${totalReturnPctAll>=0?'+':''}${totalReturnPctAll.toFixed(1)}%</span></div></div>
     ${totalDivs>0?`<div class="mi"><div class="mil" data-tip="Total dividends received. Yield = trailing-12-month dividends ÷ total cost.">Dividends</div><div class="miv" style="color:var(--green);font-size:12px">+${fmtSAR(totalDivs)}<br><span style="font-size:9px">${yieldOnCost.toFixed(2)}% yield</span></div></div>`:''}
     ${totalRealized!=0?`<div class="mi"><div class="mil" data-tip="Profit/loss booked on units already sold.">Realized P&amp;L</div><div class="miv" style="color:${totalRealized>=0?'var(--green)':'var(--red)'};font-size:12px">${totalRealized>=0?'+':''}${fmtSAR(totalRealized)}</div></div>`:''}
@@ -4279,7 +4338,8 @@ function renderPortfolioV3HTML() {
     ${dayChangeable>0?`<div class="mi"><div class="mil">Today (Live)</div><div class="miv" style="color:${totalDayChange>=0?'var(--green)':'var(--red)'}">${totalDayChange>=0?'+':''}${totalDayChange.toFixed(0)} SAR<br><span style="font-size:9px">${totalDayPct>=0?'+':''}${totalDayPct.toFixed(2)}%</span></div></div>`:''}
     ${best?`<div class="mi" style="cursor:pointer" onclick="_portV3AssetDetail('${best.id}')"><div class="mil">Best Performer</div><div class="miv" style="font-size:11px;color:var(--green)">${escapeHTML(shortNm(best.a))}<br><span style="font-size:9px">+${best.pnlPct.toFixed(1)}%</span></div></div>`:''}
     ${worst&&worst!==best?`<div class="mi" style="cursor:pointer" onclick="_portV3AssetDetail('${worst.id}')"><div class="mil">Worst Performer</div><div class="miv" style="font-size:11px;color:${worst.pnlPct>=0?'var(--green)':'var(--red)'}">${escapeHTML(shortNm(worst.a))}<br><span style="font-size:9px">${worst.pnlPct>=0?'+':''}${worst.pnlPct.toFixed(1)}%</span></div></div>`:''}
-  </div>`;
+  </div>
+  <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin:-8px 0 12px;line-height:1.5">ⓘ <b>Portfolio CAGR</b> is money-weighted (XIRR) and <b>includes dividends</b>, realized gains &amp; fees. The per-asset <b>Price CAGR</b> column below is price-only (excludes dividends). On the performance chart, the dashed line is <b>cash you invested excluding reinvested dividends</b>${totalDivs>0?'':' (no dividends recorded yet)'}.</div>`;
 
   // ── Charts: performance over time, allocation, return-by-asset ──
   html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:14px">
@@ -4331,7 +4391,7 @@ function renderPortfolioV3HTML() {
     <thead><tr>
       <th>Asset</th><th>Type</th><th>Units</th><th>Avg Cost</th>
       <th>Price (SAR)</th><th>Market Value</th><th>P&amp;L</th>
-      <th title="Annualized money-weighted return (XIRR) since first purchase">CAGR/yr</th><th></th>
+      <th title="Annualized share-price return: (currentPrice / avgCost)^(1/years) − 1. Price appreciation only — excludes dividends. (The headline Portfolio CAGR does include dividends.)">Price CAGR/yr</th><th></th>
     </tr></thead><tbody>`;
 
   for (const r of rows) {
@@ -4368,6 +4428,7 @@ function renderPortfolioV3HTML() {
     ${gdConnected
       ? `<button onclick="_portV3GdSave().then(()=>showToast('✓ Saved to Google Drive'))" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--green);border:1px solid var(--green);border-radius:4px;cursor:pointer" title="Save portfolio to Google Drive now">☁ Save to Drive</button>`
       : `<button onclick="showToast('Connect Google Drive in ⚙ Settings first')" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx3);border:1px solid var(--b2);border-radius:4px;cursor:pointer;opacity:.6" title="Connect Google Drive in Settings to enable cloud save">☁ Save to Drive</button>`}
+    ${Object.values(assets).some(a=>a.ticker&&(a.type==='tasi'||a.type==='yahoo'))?`<button id="pv3-autodiv-all-btn" onclick="_portV3AutoDividendsAll()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--green);border:1px solid var(--green)55;border-radius:4px;cursor:pointer" title="Fetch dividend history from Yahoo for every TASI/ETF holding and fill amounts based on the shares you held on each ex-date">⚡ Fill All Dividends</button>`:''}
     <button onclick="_portV3ExportCSV()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">⬇ Export CSV</button>
     <button onclick="_portV3ExportJSON()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer" title="Download full portfolio JSON for backup">⬇ Export JSON</button>
     <div style="margin-left:auto;font-family:var(--mono);font-size:8px;color:var(--tx3)">${Object.keys(assets).length} assets · ${gdConnected?'☁ Drive connected':'💾 Local only'}</div>
