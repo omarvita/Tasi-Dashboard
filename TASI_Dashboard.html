@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260620k'; // bump this string on every deploy that matters
+  var V='20260620l'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -440,7 +440,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260620k · fixed two figures that were measuring contributions instead of performance: the per-asset Period Return now uses the price-per-unit move over the range (e.g. 9.49→10.10) instead of total market-value change, so adding more units no longer shows up as a fake gain; and the “If TASI” benchmark line is now contribution-matched — it invests each of your net buys into the index at that month’s level (and sells when you sell), so it grows with the same money you added and is a fair side-by-side with your actual Value line · v20260620j · Save to Drive button now always visible — green when connected, greyed-out with a prompt when not; CAGR expand chart reverted to fresh computation so it always matches the live table values · v20260620i · fixed the allocation pie legend text (was rendering black on the dark theme) and made the per-asset CAGR chart consistent between small and full size</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260620l · FIXED a currency bug on USD holdings (IBIT): the cost basis is stored in native USD but the live price is converted to SAR, so the dashboard was comparing USD cost against SAR price — inflating IBIT to a fake +187% gain when it is actually down ~23%. All cost, average cost, invested, P&L, CAGR, allocation and chart figures for USD assets are now converted to SAR at the pegged 3.75 rate, so every number is in one currency. The avg-cost and price cards show the native USD value on hover; the raw history ledger stays in USD (that is what you edit) with a note · v20260620k · fixed two figures that measured contributions instead of performance: per-asset Period Return now uses the price-per-unit move (not total market-value change), and the “If TASI” benchmark is contribution-matched — it invests each of your buys into the index on the same dates, so it is a fair side-by-side with your Value line · v20260620j · Save to Drive button now always visible — green when connected, greyed-out with a prompt when not; CAGR expand chart matches the live table values</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1177,30 +1177,39 @@ function _portV3Price(asset) {
   }
   if ((asset.navPrice || 0) > 0) return { sarPrice: asset.navPrice, live: false, navDate: asset.navDate };
   const last = asset.history?.[asset.history.length - 1];
-  if (last?.price > 0) return { sarPrice: last.price, live: false, stale: true };
+  if (last?.price > 0) return { sarPrice: last.price * _pv3Fx(asset), live: false, stale: true };
   return null;
+}
+
+// SAR-per-native conversion for an asset's STORED cost/value/price figures.
+// USD assets (e.g. IBIT) store native USD; live prices are already converted to SAR,
+// so the stored cost basis, history mv/cost/price and avg must be scaled by the
+// (pegged) USD/SAR rate to compare apples-to-apples with SAR market value.
+function _pv3Fx(asset) {
+  return (asset && asset.ccy === 'USD') ? (portfolioV3?.fx?.USDSAR || 3.75) : 1;
 }
 
 // Per-asset XIRR CAGR from monthly cost history
 // Build dated cash flows for XIRR + derive realized P&L, dividends, fees from history
 function _portV3CashflowsAndStats(asset) {
+  const fx = _pv3Fx(asset);   // USD assets store native USD — scale cost/price/fee to SAR
   const hist = (asset.history || []).slice().sort((x,y)=>(x.d||'').localeCompare(y.d||''));
   const cfs = []; let realized = 0, fees = 0;
   for (let i = 0; i < hist.length; i++) {
     const h = hist[i], prev = hist[i-1];
     const t = new Date(h.d).getTime();
-    const dcost = i === 0 ? (h.cost||0) : (h.cost||0) - (prev.cost||0);
+    const dcost = (i === 0 ? (h.cost||0) : (h.cost||0) - (prev.cost||0)) * fx;
     if (Math.abs(dcost) > 0.5) cfs.push({ t, v: -dcost });            // buys = cash out; cost reductions = cash in
     if (prev) {
       const dq = (h.qty||0) - (prev.qty||0);
       if (dq < -1e-9 && h.price > 0) {                               // a sell — book gain above cost basis as proceeds
         const avgBefore = (prev.qty||0) > 0 ? (prev.cost||0)/prev.qty : 0;
-        const gain = (h.price - avgBefore) * (-dq);
+        const gain = (h.price - avgBefore) * (-dq) * fx;
         realized += gain;
         if (Math.abs(gain) > 0.5) cfs.push({ t, v: gain });
       }
     }
-    if (h.fee > 0) { fees += h.fee; cfs.push({ t, v: -h.fee }); }     // brokerage fees are a cash drag
+    if (h.fee > 0) { fees += h.fee * fx; cfs.push({ t, v: -h.fee * fx }); }   // brokerage fees are a cash drag
   }
   const divs = asset.dividends || [];
   let totalDivs = 0, ttmDivs = 0; const yearAgo = Date.now() - 31557600000;
@@ -1217,7 +1226,7 @@ function _portV3CashflowsAndStats(asset) {
 // Annualizes pure price appreciation since first purchase — not money-weighted
 function _portV3AssetCAGR(asset) {
   const pi = _portV3Price(asset);
-  const avg = asset.holding?.avg || 0;
+  const avg = (asset.holding?.avg || 0) * _pv3Fx(asset);
   const hist = (asset.history || []).slice().sort((a,b)=>(a.d||'').localeCompare(b.d||''));
   if (!pi || !(pi.sarPrice > 0) || !(avg > 0) || !hist.length) return null;
   const first = hist[0]?.d;
@@ -1248,7 +1257,7 @@ function _portV3TotalCAGR() {
     if (!asset.history?.length) continue;
     const pi = _portV3Price(asset);
     const qty = asset.holding?.qty || 0;
-    const mv = pi && qty > 0 ? pi.sarPrice * qty : (asset.history[asset.history.length-1]?.mv || 0);
+    const mv = pi && qty > 0 ? pi.sarPrice * qty : (asset.history[asset.history.length-1]?.mv || 0) * _pv3Fx(asset);
     totalMV += mv;
     const { cfs } = _portV3CashflowsAndStats(asset);
     for (const c of cfs) allCfs.push(c);
@@ -1302,13 +1311,14 @@ function _portV3ExportCSV() {
   const rows = [header];
   for (const [id, a] of Object.entries(portfolioV3.assets)) {
     const pi = _portV3Price(a);
+    const fx = _pv3Fx(a);
     const qty = a.holding?.qty || 0;
-    const cost = a.holding?.cost || 0;
-    const mv = pi && qty > 0 ? pi.sarPrice * qty : (a.history?.[a.history.length-1]?.mv || 0);
+    const cost = (a.holding?.cost || 0) * fx;
+    const mv = pi && qty > 0 ? pi.sarPrice * qty : (a.history?.[a.history.length-1]?.mv || 0) * fx;
     const pnl = mv - cost;
     const pnlPct = cost > 0 ? pnl/cost*100 : 0;
     const cagr = _portV3AssetCAGR(a);
-    rows.push([id, a.name, a.type, qty, (a.holding?.avg||0).toFixed(2), pi?(pi.sarPrice.toFixed(2)):'', mv.toFixed(0), cost.toFixed(0), pnl.toFixed(0), pnlPct.toFixed(1), cagr!=null?(cagr*100).toFixed(1):''].map(esc).join(','));
+    rows.push([id, a.name, a.type, qty, ((a.holding?.avg||0)*fx).toFixed(2), pi?(pi.sarPrice.toFixed(2)):'', mv.toFixed(0), cost.toFixed(0), pnl.toFixed(0), pnlPct.toFixed(1), cagr!=null?(cagr*100).toFixed(1):''].map(esc).join(','));
   }
   const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -1325,9 +1335,10 @@ function _portV3ComputeRows() {
   let totalDivs = 0, totalTtmDivs = 0, totalRealized = 0, totalFees = 0;
   const rows = Object.entries(assets).map(([id, a]) => {
     const pi = _portV3Price(a);
+    const fx = _pv3Fx(a);
     const qty = a.holding?.qty || 0;
-    const cost = a.holding?.cost || 0;
-    const mv = pi && qty > 0 ? pi.sarPrice * qty : (a.history?.[a.history.length-1]?.mv || 0);
+    const cost = (a.holding?.cost || 0) * fx;
+    const mv = pi && qty > 0 ? pi.sarPrice * qty : (a.history?.[a.history.length-1]?.mv || 0) * fx;
     const pnl = mv - cost;
     const pnlPct = cost > 0 ? pnl / cost * 100 : 0;
     const cagr = _portV3AssetCAGR(a);
@@ -1347,9 +1358,9 @@ function _portV3TimeSeries() {
   const monthsSet = new Set();
   assets.forEach(a => (a.history||[]).forEach(h => h.d && monthsSet.add(h.d.slice(0,7))));
   const months = [...monthsSet].sort();
-  const perAsset = assets.map(a => (a.history||[]).slice()
+  const perAsset = assets.map(a => { const fx = _pv3Fx(a); return (a.history||[]).slice()
     .sort((x,y) => (x.d||'').localeCompare(y.d||''))
-    .map(h => ({ m: (h.d||'').slice(0,7), cost: h.cost||0, mv: h.mv||0 })));
+    .map(h => ({ m: (h.d||'').slice(0,7), cost: (h.cost||0)*fx, mv: (h.mv||0)*fx })); });
   const cost = [], mv = [];
   for (const m of months) {
     let c = 0, v = 0;
@@ -1546,9 +1557,11 @@ function _portV3AssetDetail(id) {
   if (!a) return;
   document.getElementById('portv3-asset-modal')?.remove();
   const pi = _portV3Price(a);
+  const fx = _pv3Fx(a);
   const qty = a.holding?.qty || 0;
-  const cost = a.holding?.cost || 0;
-  const mv = pi && qty > 0 ? pi.sarPrice * qty : (a.history?.[a.history.length-1]?.mv || 0);
+  const avgSar = (a.holding?.avg || 0) * fx;
+  const cost = (a.holding?.cost || 0) * fx;
+  const mv = pi && qty > 0 ? pi.sarPrice * qty : (a.history?.[a.history.length-1]?.mv || 0) * fx;
   const pnl = mv - cost, pnlPct = cost > 0 ? pnl/cost*100 : 0;
   const cagr = _portV3AssetCAGR(a);
   const xirr = _portV3AssetXIRR(a, mv);
@@ -1625,8 +1638,8 @@ function _portV3AssetDetail(id) {
           ${feesPaid>0?stat('Fees Paid', fmt(feesPaid)+' SAR', 'var(--tx2)', 'Total brokerage fees recorded'):''}
           ${stat('Price CAGR', cagr!=null?(cagr*100).toFixed(1)+'%/yr':'—', cagrC, 'Annualized share-price return: (currentPrice / avgCost)^(1/years) − 1. Pure price appreciation since first purchase, ignoring dividends and timing of additional buys.')}
           ${xirr!=null?stat('Total CAGR', (xirr*100).toFixed(1)+'%/yr', xirr>=0?'var(--green)':'var(--red)', 'Money-weighted IRR (XIRR) including dividends and fees. Reflects actual cash-flow timing across all purchases, sales, and income.'):''}
-          ${stat('Avg Cost', (a.holding?.avg||0).toFixed(2))}
-          ${stat('Price', pi?pi.sarPrice.toFixed(2):'—')}
+          ${stat('Avg Cost', avgSar.toFixed(2)+' SAR', '', fx!==1?'Stored as '+(a.holding?.avg||0).toFixed(2)+' '+(a.ccy||'USD')+', shown in SAR at '+fx+' (pegged) for comparison with the SAR price.':'')}
+          ${stat('Price', pi?pi.sarPrice.toFixed(2)+' SAR':'—', '', fx!==1&&pi?.usdPrice?'Live '+pi.usdPrice.toFixed(2)+' '+(a.ccy||'USD')+' × '+fx:'')}
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;font-family:var(--mono);font-size:9px;color:var(--tx3)">
           <span>🎯 Target allocation</span>
@@ -1660,7 +1673,7 @@ function _portV3AssetDetail(id) {
         </div>
         <div id="pv3-detail-forms"></div>
 
-        <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em">Transaction / Monthly History</div>
+        <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em">Transaction / Monthly History${fx!==1?` <span style="text-transform:none;color:var(--amber)">· prices &amp; values below are in ${a.ccy||'USD'} (native); summary cards above are converted to SAR ×${fx}</span>`:''}</div>
         <div style="overflow-x:auto;max-height:200px;overflow-y:auto;margin-bottom:12px">
           <table style="width:100%;border-collapse:collapse">
             <thead><tr style="border-bottom:1px solid var(--b2)">
@@ -1694,14 +1707,15 @@ function _portV3DrawDetailChart(id) {
   if (typeof Chart === 'undefined') { setTimeout(()=>_portV3DrawDetailChart(id), 200); return; }
   if (_portV3Charts.detail) { try { _portV3Charts.detail.destroy(); } catch(e){} }
   const th = _portV3ChartTheme();
+  const fx = _pv3Fx(a);   // USD assets store native USD — scale history to SAR
   const hist = (a.history || []).slice().sort((x,y)=>(x.d||'').localeCompare(y.d||''));
   const labels = hist.map(h => (h.d||'').slice(0,7));
-  const mvArr = hist.map(h => h.mv!=null?Math.round(h.mv):null);
-  const costArr = hist.map(h => h.cost!=null?Math.round(h.cost):null);
+  const mvArr = hist.map(h => h.mv!=null?Math.round(h.mv*fx):null);
+  const costArr = hist.map(h => h.cost!=null?Math.round(h.cost*fx):null);
   // refresh terminal point with live value
   const pi = _portV3Price(a), qty = a.holding?.qty||0;
   if (pi && qty>0 && mvArr.length) mvArr[mvArr.length-1] = Math.round(pi.sarPrice*qty);
-  const breakeven = qty>0 ? Math.round(qty*(a.holding?.avg||0)) : (a.holding?.cost||0);
+  const breakeven = qty>0 ? Math.round(qty*(a.holding?.avg||0)*fx) : Math.round((a.holding?.cost||0)*fx);
   const beArr = labels.map(()=>breakeven);
   _portV3Charts.detail = new Chart(el, {
     type: 'line',
@@ -1916,8 +1930,9 @@ function _portV3CalcPeriodReturn(id) {
     const before = hist.filter(h=>(h.d||'')<=date);
     return before.length ? before[before.length-1] : hist[0];
   };
-  // Price per unit at a history entry (mv ÷ qty) — isolates price performance from contributions
-  const unitPrice = (h) => (h && h.qty > 0 && h.mv > 0) ? h.mv / h.qty : null;
+  // Price per unit at a history entry (mv ÷ qty), in SAR — isolates price performance from contributions
+  const _fx = _pv3Fx(a);
+  const unitPrice = (h) => (h && h.qty > 0 && h.mv > 0) ? (h.mv / h.qty) * _fx : null;
   const fromEntry = nearest(fromD);
   const fromPrice = unitPrice(fromEntry);
   let toPrice;
@@ -1954,12 +1969,13 @@ function _portV3ExpandChart(type, id) {
   const el = document.getElementById('pv3-expand-canvas'); if (!el) return;
   if (type === 'detail' && id) {
     const a = portfolioV3?.assets?.[id]; if (!a) return;
+    const fx = _pv3Fx(a);
     const hist = (a.history||[]).slice().sort((x,y)=>(x.d||'').localeCompare(y.d||''));
-    const mvArr = hist.map(h=>h.mv!=null?Math.round(h.mv):null);
-    const costArr = hist.map(h=>h.cost!=null?Math.round(h.cost):null);
+    const mvArr = hist.map(h=>h.mv!=null?Math.round(h.mv*fx):null);
+    const costArr = hist.map(h=>h.cost!=null?Math.round(h.cost*fx):null);
     const pi = _portV3Price(a), qty = a.holding?.qty||0;
     if (pi&&qty>0&&mvArr.length) mvArr[mvArr.length-1]=Math.round(pi.sarPrice*qty);
-    const breakeven = qty>0 ? Math.round(qty*(a.holding?.avg||0)) : (a.holding?.cost||0);
+    const breakeven = qty>0 ? Math.round(qty*(a.holding?.avg||0)*fx) : Math.round((a.holding?.cost||0)*fx);
     new Chart(el, { type:'line', data:{ labels:hist.map(h=>(h.d||'').slice(0,7)),
       datasets:[{ label:'Market Value', data:mvArr, borderColor:th.blue, backgroundColor:'rgba(91,155,213,0.14)', fill:true, tension:0.25, pointRadius:0, borderWidth:2, spanGaps:true },
                  { label:'Invested (cost)', data:costArr, borderColor:th.amber, fill:false, tension:0.25, pointRadius:0, borderWidth:1.5, borderDash:[4,3], spanGaps:true },
@@ -4262,7 +4278,7 @@ function renderPortfolioV3HTML() {
     const cagrC2 = cagr == null ? 'var(--tx3)' : cagr >= 0 ? 'var(--green)' : 'var(--red)';
     const liveDot = pi?.live ? '<span style="color:var(--green);font-size:8px"> ●</span>' : pi?.stale ? '<span style="color:var(--amb);font-size:8px"> ⚠</span>' : '<span style="color:var(--tx3);font-size:8px"> NAV</span>';
     const priceStr = pi ? pi.sarPrice.toFixed(2) + (pi.usdPrice ? '<br><span style="font-size:8px;color:var(--tx3)">$'+pi.usdPrice.toFixed(2)+'</span>' : '') + liveDot : '—';
-    const avgCostStr = (a.holding?.avg || 0) > 0 ? a.holding.avg.toFixed(2) : '—';
+    const avgCostStr = (a.holding?.avg || 0) > 0 ? ((a.holding.avg) * _pv3Fx(a)).toFixed(2) : '—';
     const unitStr = a.unit === 'gram' ? qty + 'g' : qty.toLocaleString();
     const cagrStr = cagr != null ? (cagr*100).toFixed(1)+'%' : '—';
     const tkBadge = a.type === 'tasi' ? `<span class="tk" style="font-size:10px">${(a.ticker||'').replace('.SR','')}</span> ` : '';
