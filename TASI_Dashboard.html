@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260621d'; // bump this string on every deploy that matters
+  var V='20260621e'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -1269,6 +1269,247 @@ function _portV3TotalCAGR() {
   return _xirr(allCfs);
 }
 
+// ── Risk metrics: annualized volatility, max drawdown, Sharpe (4% risk-free) ──
+function _portV3RiskMetrics() {
+  const ts = _portV3TimeSeries();
+  const n = ts.mv.length;
+  if (n < 4) return null;
+  const rets = [];
+  for (let i = 1; i < n; i++) { if (ts.mv[i-1] > 0) rets.push((ts.mv[i]-ts.mv[i-1])/ts.mv[i-1]); }
+  if (rets.length < 3) return null;
+  const mean = rets.reduce((s,r)=>s+r,0)/rets.length;
+  const vol = Math.sqrt(rets.reduce((s,r)=>s+(r-mean)**2,0)/(rets.length-1)*12);
+  let peak=0, maxDD=0;
+  for (const v of ts.mv) { if (v>peak) peak=v; if (peak>0) maxDD=Math.max(maxDD,(peak-v)/peak); }
+  const cagr = _portV3TotalCAGR();
+  const sharpe = vol>0&&cagr!=null ? (cagr-0.04)/vol : null;
+  return { vol, maxDD, sharpe };
+}
+
+// ── Time-weighted return (modified Dietz, chain-linked monthly) ──
+function _portV3TWR() {
+  const ts = _portV3TimeSeries();
+  const n = ts.mv.length;
+  if (n < 2) return null;
+  let prod = 1, cnt = 0;
+  for (let i = 1; i < n; i++) {
+    const mv0 = ts.mv[i-1]; if (!(mv0>0)) continue;
+    const flow = (ts.cost[i]||0)-(ts.cost[i-1]||0);   // net external cash in
+    const hpr = (ts.mv[i]-flow)/mv0 - 1;
+    if (Math.abs(hpr)>2) continue;   // skip months with data gaps (>200%)
+    prod *= (1+hpr); cnt++;
+  }
+  if (cnt < 2) return null;
+  return Math.pow(prod, 12/cnt) - 1;   // annualize
+}
+
+// ── Portfolio concentration: HHI, top-1 / top-3, USD FX exposure ──
+function _portV3Concentration(rows, totalMV) {
+  if (!rows.length||!(totalMV>0)) return null;
+  const sorted = rows.filter(r=>r.mv>0).slice().sort((a,b)=>b.mv-a.mv);
+  const w = sorted.map(r=>r.mv/totalMV);
+  const hhi = w.reduce((s,x)=>s+x*x,0)*100;
+  const top1 = (w[0]||0)*100, top1Nm = sorted[0]?.a?.name||'';
+  const top3 = w.slice(0,3).reduce((s,x)=>s+x,0)*100;
+  const fxPct = rows.filter(r=>r.a.ccy==='USD').reduce((s,r)=>s+r.mv,0)/totalMV*100;
+  return { hhi, top1, top1Nm, top3, fxPct };
+}
+
+// ── Dividend calendar: next projected payment per holding ──
+function _portV3DivCalendar() {
+  const nowStr = new Date().toISOString().slice(0,10);
+  const upcoming = []; let totalFwd12m = 0;
+  for (const [id, a] of Object.entries(portfolioV3?.assets||{})) {
+    const qty = a.holding?.qty||0; if (!(qty>0)) continue;
+    const fx = _pv3Fx(a);
+    const divs = (a.dividends||[]).filter(d=>d.d&&(d.perUnit||0)>0).sort((x,y)=>x.d.localeCompare(y.d));
+    if (!divs.length) continue;
+    let freqM = 12;
+    if (divs.length>=2) {
+      const gaps=[];
+      for (let i=Math.max(1,divs.length-4);i<divs.length;i++) gaps.push((new Date(divs[i].d)-new Date(divs[i-1].d))/(30*86400000));
+      const avg=gaps.reduce((s,g)=>s+g,0)/gaps.length;
+      freqM = avg<2?1:avg<5?3:avg<9?6:12;
+    }
+    const last=divs[divs.length-1];
+    const nd=new Date(last.d); nd.setMonth(nd.getMonth()+freqM);
+    const nextStr=nd.toISOString().slice(0,10);
+    const recentPU=divs.slice(-2).reduce((s,d)=>s+d.perUnit,0)/Math.min(2,divs.length);
+    const projSar=recentPU*qty*fx;
+    upcoming.push({ id, a, nextStr, freqM, perUnit:recentPU, projSar, overdue:nextStr<nowStr });
+    totalFwd12m += projSar*(12/freqM);
+  }
+  upcoming.sort((a,b)=>a.nextStr.localeCompare(b.nextStr));
+  return { upcoming, totalFwd12m };
+}
+
+// ── FIFO tax lots for a single asset ──
+function _portV3TaxLots(asset) {
+  const fx = _pv3Fx(asset);
+  const pi = _portV3Price(asset);
+  const curPU = (fx>1&&pi?.usdPrice) ? pi.usdPrice : (pi?.sarPrice||0)/fx;
+  const hist = (asset.history||[]).slice().sort((x,y)=>(x.d||'').localeCompare(y.d||''));
+  const open=[], closed=[];
+  for (let i=0;i<hist.length;i++) {
+    const h=hist[i], prev=hist[i-1];
+    const dq = h.qty - (prev?.qty||0);
+    if (dq>1e-9) {
+      const pu = h.price || (h.cost||0)/dq;
+      open.push({ d:h.d, qty:dq, price:pu });
+    } else if (dq<-1e-9) {
+      let rem=-dq;
+      while (rem>1e-9&&open.length) {
+        const lot=open[0]; const sellQ=Math.min(rem,lot.qty);
+        closed.push({ openD:lot.d, closeD:h.d, qty:sellQ, costPU:lot.price, salePU:h.price, gain:(h.price-lot.price)*sellQ*fx });
+        lot.qty-=sellQ; if(lot.qty<1e-9) open.shift(); rem-=sellQ;
+      }
+    }
+  }
+  return { open, closed, curPU, fx };
+}
+
+// ── Benchmark: build contribution-matched series from any monthly price map ──
+function _portV3BenchmarkSeries(months, costSeries, priceMap) {
+  const keys = Object.keys(priceMap).sort(); if (!keys.length) return null;
+  const closeFor = m => { if (priceMap[m]!=null) return priceMap[m]; let c=null; for (const k of keys){if(k<=m)c=priceMap[k];else break;} return c??priceMap[keys[0]]; };
+  let units=0; const out=[];
+  for (let i=0;i<months.length;i++) {
+    const cl=closeFor(months[i]); if(!(cl>0)){out.push(null);continue;}
+    units+=(i===0?(costSeries[0]||0):(costSeries[i]||0)-(costSeries[i-1]||0))/cl;
+    out.push(Math.round(units*cl));
+  }
+  return out;
+}
+let _pv3BenchmarkMode = 'tasi'; // 'tasi' | 'spy' | 'none'
+let _pv3SpyMonthly = null; // cached SPY monthly price map { 'YYYY-MM': price }
+
+async function _portV3FetchSPY() {
+  const LS_KEY = 'pv3_spy_monthly_v1';
+  const cached = JSON.parse(localStorage.getItem(LS_KEY)||'null');
+  if (cached?.ts && Date.now()-cached.ts < 7*86400000) { _pv3SpyMonthly=cached.map; return; }
+  try {
+    const url = 'https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1mo&range=15y';
+    const data = await fetchWithProxy(url);
+    const ts   = data?.chart?.result?.[0]?.timestamp || [];
+    const cl   = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close || [];
+    if (!ts.length) return;
+    const map = {};
+    for (let i=0;i<ts.length;i++) { if(cl[i]>0) map[new Date(ts[i]*1000).toISOString().slice(0,7)]=cl[i]; }
+    _pv3SpyMonthly = map;
+    localStorage.setItem(LS_KEY, JSON.stringify({ ts:Date.now(), map }));
+  } catch(e) { /* gracefully fail */ }
+}
+
+async function _portV3SetBenchmark(mode) {
+  _pv3BenchmarkMode = mode;
+  if (mode==='spy' && !_pv3SpyMonthly) {
+    showToast('Fetching S&P 500 data…');
+    await _portV3FetchSPY();
+    if (!_pv3SpyMonthly) { showToast('Could not load S&P 500 data — try again'); _pv3BenchmarkMode='tasi'; }
+  }
+  _portV3DrawCharts();
+}
+
+// ── CSV bulk import ──
+function _portV3ShowCSVImport() {
+  document.getElementById('portv3-csv-modal')?.remove();
+  const example='date,asset,type,units,price,fee,note\n2025-01-15,1120SR,buy,100,50.00,50,\n2025-06-01,1120SR,dividend,,,2000,Q2 2025\n2025-03-20,IBIT,buy,10,45.00,,';
+  document.body.insertAdjacentHTML('beforeend',`<div class="mo" id="portv3-csv-modal" onclick="if(event.target===this)this.remove()" style="z-index:1400">
+    <div class="modal" style="width:740px;max-width:96vw">
+      <div class="mhead"><div class="mhtop"><div class="mtitle">📥 Bulk CSV Import</div><div class="mclose" onclick="this.closest('.mo').remove()">×</div></div></div>
+      <div class="mbody">
+        <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin-bottom:8px;line-height:1.6">
+          Columns: <b>date · asset · type · units · price · fee · note</b><br>
+          <b>asset</b> = ticker (1120SR, IBIT) or asset ID &nbsp;·&nbsp; <b>type</b> = buy | sell | reinvest | dividend<br>
+          Dividend rows: leave units blank, put total SAR in <i>price</i> column.
+        </div>
+        <textarea id="pv3-csv-text" rows="9" placeholder="${example}" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:8.5px;background:var(--bg2);border:1px solid var(--b2);border-radius:4px;color:var(--tx);padding:8px;outline:none;resize:vertical"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button onclick="_portV3ParseCSVImport()" style="font-family:var(--mono);font-size:10px;padding:6px 14px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">🔍 Preview</button>
+          <button onclick="this.closest('.mo').remove()" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">Cancel</button>
+        </div>
+        <div id="pv3-csv-preview" style="margin-top:10px"></div>
+      </div>
+    </div>
+  </div>`);
+}
+
+function _portV3ParseCSVImport() {
+  const text=(document.getElementById('pv3-csv-text')?.value||'').trim(); if(!text) return;
+  const assets=portfolioV3?.assets||{};
+  const lookup={};
+  for (const [id,a] of Object.entries(assets)) {
+    lookup[id.toLowerCase()]=id;
+    if(a.ticker){lookup[a.ticker.toLowerCase()]=id;lookup[a.ticker.replace('.SR','').toLowerCase()]=id;}
+    if(a.name) lookup[a.name.toLowerCase()]=id;
+  }
+  const lines=text.split('\n').filter(l=>l.trim()&&!l.trim().startsWith('#'));
+  const rows=[],errs=[];
+  for (let i=0;i<lines.length;i++) {
+    const p=lines[i].split(',').map(s=>s.trim());
+    if(i===0&&p[0].toLowerCase()==='date') continue;
+    const [date,key,type='buy',units='',price='',fee='',...nParts]=p;
+    const note=nParts.join(',').trim();
+    const aid=lookup[key?.toLowerCase()];
+    if(!aid){errs.push('Row '+(i+1)+': unknown asset "'+key+'"');continue;}
+    if(!date?.match(/^\d{4}-\d{2}-\d{2}$/)){errs.push('Row '+(i+1)+': invalid date "'+date+'"');continue;}
+    const t=(type||'buy').toLowerCase();
+    if(!['buy','sell','reinvest','dividend'].includes(t)){errs.push('Row '+(i+1)+': unknown type "'+t+'"');continue;}
+    const u=parseFloat(units),p2=parseFloat(price),f=parseFloat(fee)||0;
+    if(t==='dividend'&&!(p2>0)){errs.push('Row '+(i+1)+': dividend needs amount in price column');continue;}
+    if(t!=='dividend'&&(!(u>0)||!(p2>0))){errs.push('Row '+(i+1)+': buy/sell/reinvest needs units and price');continue;}
+    rows.push({date,assetId:aid,type:t,units:u,price:p2,fee:f,note});
+  }
+  const nm=id=>((assets[id]?.type==='tasi'?(assets[id]?.ticker||'').replace('.SR','')+' ':'')+( assets[id]?.name||id)).slice(0,24);
+  let html='';
+  if(errs.length) html+=`<div style="background:var(--rdim);border:1px solid var(--red)44;border-radius:4px;padding:8px;margin-bottom:8px;font-family:var(--mono);font-size:8px;color:var(--red)">${errs.map(escapeHTML).join('<br>')}</div>`;
+  if(!rows.length){document.getElementById('pv3-csv-preview').innerHTML=html+'<div style="font-family:var(--mono);font-size:9px;color:var(--tx3)">No valid rows found.</div>';return;}
+  html+=`<div style="overflow-x:auto;max-height:260px;overflow-y:auto;margin-bottom:8px"><table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:8.5px">
+    <thead><tr style="border-bottom:1px solid var(--b2)">${['Date','Asset','Type','Units','Price','Fee','Note'].map(h=>`<th style="text-align:left;padding:2px 5px;color:var(--tx3);font-weight:400">${h}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r=>`<tr style="border-bottom:1px solid var(--b1)">
+      <td style="padding:2px 5px">${r.date}</td><td style="padding:2px 5px">${escapeHTML(nm(r.assetId))}</td>
+      <td style="padding:2px 5px;color:${r.type==='sell'?'var(--red)':r.type==='dividend'?'var(--green)':'var(--acc)'}">${r.type}</td>
+      <td style="padding:2px 5px;text-align:right">${r.type==='dividend'?'—':r.units}</td>
+      <td style="padding:2px 5px;text-align:right">${r.price}</td>
+      <td style="padding:2px 5px;text-align:right">${r.fee||'—'}</td>
+      <td style="padding:2px 5px;color:var(--tx3)">${escapeHTML(r.note||'')}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+  html+=`<button onclick="_portV3CommitCSVImport(${JSON.stringify(rows).replace(/"/g,'&quot;')})" style="font-family:var(--mono);font-size:10px;padding:5px 14px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">✓ Import ${rows.length} row${rows.length!==1?'s':''}</button>`;
+  document.getElementById('pv3-csv-preview').innerHTML=html;
+}
+
+function _portV3CommitCSVImport(rows) {
+  const assets=portfolioV3?.assets; if(!assets) return;
+  let nTxn=0,nDiv=0;
+  for (const r of rows) {
+    const a=assets[r.assetId]; if(!a) continue;
+    if(r.type==='dividend') {
+      a.dividends=a.dividends||[];
+      a.dividends.push({d:r.date,amount:+r.price.toFixed(2),note:r.note||'CSV import'});
+      a.dividends.sort((x,y)=>(x.d||'').localeCompare(y.d||''));
+      nDiv++;
+    } else {
+      a.holding=a.holding||{qty:0,cost:0,avg:0};
+      let qty=a.holding.qty||0,cost=a.holding.cost||0;
+      if(r.type==='sell'){if(r.units>qty+1e-9)continue;const avg=qty>0?cost/qty:0;qty-=r.units;cost-=avg*r.units;}
+      else{qty+=r.units;cost+=r.units*r.price;}
+      a.holding.qty=+qty.toFixed(6);a.holding.cost=+Math.max(0,cost).toFixed(2);
+      a.holding.avg=qty>0?+(a.holding.cost/qty).toFixed(4):0;
+      const _pi=_portV3Price(a),_fx=_pv3Fx(a);
+      const curP=_fx>1?(_pi?.usdPrice||r.price):(_pi?.sarPrice||r.price);
+      a.history=a.history||[];
+      const row={d:r.date,qty:a.holding.qty,price:+r.price.toFixed(4),cost:a.holding.cost,mv:+(a.holding.qty*curP).toFixed(2)};
+      if(r.fee>0)row.fee=+r.fee.toFixed(2);
+      if(r.type==='reinvest'){row.reinvest=true;row.reinvestAmt=+(r.units*r.price).toFixed(2);}
+      a.history.push(row);a.history.sort((x,y)=>(x.d||'').localeCompare(y.d||''));
+      nTxn++;
+    }
+  }
+  _portV3PersistLS();_portV3Render();
+  document.getElementById('portv3-csv-modal')?.remove();
+  showToast('✓ Imported '+nTxn+' transaction'+(nTxn!==1?'s':'')+' + '+nDiv+' dividend'+(nDiv!==1?'s':''));
+}
+
 function _portV3Render() {
   const el = document.getElementById('portfolio-panel');
   if (el) { el.innerHTML = renderPortfolioV3HTML(); _portV3DrawCharts(); }
@@ -1391,24 +1632,20 @@ function _portV3TimeSeries() {
 function _portV3TasiBenchmark(months, costSeries) {
   try {
     if (typeof tasiIndex === 'undefined' || !tasiIndex.closes?.length || !tasiIndex.timestamps?.length || !months.length || !costSeries?.length) return null;
-    const monthClose = {};
+    const map = {};
     for (let i = 0; i < tasiIndex.timestamps.length; i++) {
       let t = tasiIndex.timestamps[i]; if (t < 1e12) t *= 1000;
-      monthClose[new Date(t).toISOString().slice(0,7)] = tasiIndex.closes[i];
+      map[new Date(t).toISOString().slice(0,7)] = tasiIndex.closes[i];
     }
-    const keys = Object.keys(monthClose).sort();
-    if (!keys.length) return null;
-    const closeFor = m => { if (monthClose[m] != null) return monthClose[m]; let c = null; for (const k of keys) { if (k <= m) c = monthClose[k]; else break; } return c != null ? c : monthClose[keys[0]]; };
-    let units = 0; const out = [];
-    for (let i = 0; i < months.length; i++) {
-      const close = closeFor(months[i]);
-      if (!(close > 0)) { out.push(null); continue; }
-      const contribution = i === 0 ? (costSeries[0]||0) : (costSeries[i]||0) - (costSeries[i-1]||0);
-      units += contribution / close;   // buy/sell TASI units with each net contribution
-      out.push(Math.round(units * close));
-    }
-    return out;
+    return _portV3BenchmarkSeries(months, costSeries, map);
   } catch(e) { return null; }
+}
+
+// Returns the currently-selected benchmark series (TASI, SPY, or null for "off")
+function _portV3ActiveBenchmark(months, costSeries) {
+  if (_pv3BenchmarkMode === 'spy' && _pv3SpyMonthly) return _portV3BenchmarkSeries(months, costSeries, _pv3SpyMonthly);
+  if (_pv3BenchmarkMode === 'tasi') return _portV3TasiBenchmark(months, costSeries);
+  return null;
 }
 
 // 15 perceptually distinct colors spread across the full hue wheel
@@ -1462,7 +1699,7 @@ function _portV3ChartTheme() {
 function _portV3DrawCharts() {
   if (!document.getElementById('pv3-perf')) return;
   if (typeof Chart === 'undefined') { setTimeout(_portV3DrawCharts, 200); return; }
-  ['perf','alloc','apr','sector','divyear','cumret'].forEach(k => { if (_portV3Charts[k]) { try { _portV3Charts[k].destroy(); } catch(e){} delete _portV3Charts[k]; } });
+  ['perf','alloc','apr','sector','divyear','cumret','drawdown'].forEach(k => { if (_portV3Charts[k]) { try { _portV3Charts[k].destroy(); } catch(e){} delete _portV3Charts[k]; } });
   const th = _portV3ChartTheme();
   const { rows, totalMV, totalCost } = _portV3ComputeRows();
   const fullName = (a, id) => (a.type === 'tasi' ? (a.ticker||'').replace('.SR','')+' ':'')+((a.name||id||'').replace(/\s+/g,' ').trim());
@@ -1471,8 +1708,8 @@ function _portV3DrawCharts() {
   const ts = _portV3TimeSeries();
   if (ts.months.length) { ts.mv[ts.mv.length-1] = Math.round(totalMV); ts.cost[ts.cost.length-1] = Math.round(totalCost); }
   const perf = document.getElementById('pv3-perf');
-  // Benchmark matches only your external cash (ex-dividend reinvestments) into TASI
-  const tasiSeries = _portV3TasiBenchmark(ts.months, ts.anyDrip ? ts.cashCost : ts.cost);
+  const benchSeries = _portV3ActiveBenchmark(ts.months, ts.anyDrip ? ts.cashCost : ts.cost);
+  const benchLabel = _pv3BenchmarkMode==='spy'?'If same buys in S&P 500':ts.anyDrip?'If same cash in TASI':'If same buys in TASI';
   if (perf && ts.months.length) {
     _portV3Charts.perf = new Chart(perf, {
       type: 'line',
@@ -1480,7 +1717,7 @@ function _portV3DrawCharts() {
         { label: 'Value', data: ts.mv, borderColor: th.blue, backgroundColor: 'rgba(91,155,213,0.14)', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2 },
         { label: ts.anyDrip ? 'Cash invested (ex-dividends)' : 'Cost', data: ts.cashCost, borderColor: th.amber, fill: false, tension: 0.25, pointRadius: 0, borderWidth: 1.5, borderDash: [4,3] },
         ...(ts.anyDrip ? [{ label: 'Cost incl. reinvested div', data: ts.cost, borderColor: th.amber, fill: false, tension: 0.25, pointRadius: 0, borderWidth: 1, borderDash: [1,3], hidden: false }] : []),
-        ...(tasiSeries ? [{ label: ts.anyDrip ? 'If same cash in TASI' : 'If same buys in TASI', data: tasiSeries, borderColor: '#9e9e9e', fill: false, tension: 0.25, pointRadius: 0, borderWidth: 1.2, borderDash: [2,2], spanGaps: true }] : [])
+        ...(benchSeries ? [{ label: benchLabel, data: benchSeries, borderColor: '#9e9e9e', fill: false, tension: 0.25, pointRadius: 0, borderWidth: 1.2, borderDash: [2,2], spanGaps: true }] : [])
       ]},
       options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
         plugins: { legend: { display: true, labels: { color: th.tick, font: { size: 9 }, boxWidth: 10 } },
@@ -1558,6 +1795,20 @@ function _portV3DrawCharts() {
         plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => (c.parsed.y>=0?'+':'') + c.parsed.y + '%' } } },
         scales: { x: { ticks: { color: th.tick, font: { size: 8 }, maxTicksLimit: 8 }, grid: { display: false } },
           y: { ticks: { color: th.tick, font: { size: 8 }, callback: v => v+'%' }, grid: { color: th.grid } } } }
+    });
+  }
+
+  // 7 ── Drawdown over time ──
+  const ddEl = document.getElementById('pv3-drawdown');
+  if (ddEl && ts.months.length > 2) {
+    let peak = 0; const ddData = ts.mv.map(v => { if (v>peak) peak=v; return peak>0 ? +(-(peak-v)/peak*100).toFixed(1) : 0; });
+    _portV3Charts.drawdown = new Chart(ddEl, {
+      type: 'line',
+      data: { labels: ts.months, datasets: [{ label: 'Drawdown', data: ddData, borderColor: th.red, backgroundColor: 'rgba(224,82,96,0.12)', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 1.5, spanGaps: true }] },
+      options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.y.toFixed(1)+'%' } } },
+        scales: { x: { ticks: { color: th.tick, font: { size: 8 }, maxTicksLimit: 8 }, grid: { display: false } },
+          y: { ticks: { color: th.tick, font: { size: 8 }, callback: v => v+'%' }, grid: { color: th.grid }, max: 0 } } }
     });
   }
 }
@@ -1708,6 +1959,44 @@ function _portV3AssetDetail(id) {
           </table>`
           :`<div style="font-family:var(--mono);font-size:9px;color:var(--tx3);padding:4px 0">No dividends recorded. Click "💰 Add Dividend" above.</div>`}
         </div>
+
+        <!-- ── Tax lots (FIFO) ── -->
+        ${(()=>{
+          const lots = _portV3TaxLots(a);
+          if (!lots.open.length && !lots.closed.length) return '';
+          const ccy2 = fx>1?(a.ccy||'USD'):'SAR';
+          const curP = lots.curPU;
+          let s = `<div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin:8px 0 4px;text-transform:uppercase;letter-spacing:.06em">📋 Tax Lots (FIFO) · prices in ${ccy2}</div>`;
+          if (lots.open.length) {
+            const openRows = lots.open.map(l=>{
+              const unrlzd = curP>0?(curP-l.price)*l.qty*fx:null;
+              const uc = unrlzd==null?'var(--tx3)':unrlzd>=0?'var(--green)':'var(--red)';
+              return `<tr style="border-bottom:1px solid var(--b1)">
+                <td style="font-family:var(--mono);font-size:8.5px;padding:2px 5px;color:var(--tx2)">${(l.d||'').slice(0,7)}</td>
+                <td style="font-family:var(--mono);font-size:8.5px;padding:2px 5px;text-align:right">${l.qty.toFixed(l.qty<10?4:2)}</td>
+                <td style="font-family:var(--mono);font-size:8.5px;padding:2px 5px;text-align:right">${l.price.toFixed(4)}</td>
+                <td style="font-family:var(--mono);font-size:8.5px;padding:2px 5px;text-align:right">${curP>0?curP.toFixed(4):'—'}</td>
+                <td style="font-family:var(--mono);font-size:8.5px;padding:2px 5px;text-align:right;color:${uc}">${unrlzd!=null?(unrlzd>=0?'+':'')+Math.round(unrlzd).toLocaleString()+' SAR':'—'}</td>
+              </tr>`;}).join('');
+            s+=`<div style="overflow-x:auto;max-height:160px;overflow-y:auto;margin-bottom:4px"><table style="width:100%;border-collapse:collapse">
+              <thead><tr style="border-bottom:1px solid var(--b2)">${['Opened','Units','Cost/u','Now','Unrealized P&L'].map(h=>`<th style="font-family:var(--mono);font-size:7.5px;color:var(--tx3);text-align:right;padding:2px 5px;font-weight:400;position:sticky;top:0;background:var(--bg3)">${h}</th>`).join('')}</tr></thead>
+              <tbody>${openRows}</tbody></table></div>`;
+          }
+          if (lots.closed.length) {
+            const closedRows = lots.closed.slice().reverse().map(l=>`<tr style="border-bottom:1px solid var(--b1)">
+              <td style="font-family:var(--mono);font-size:8.5px;padding:2px 5px;color:var(--tx2)">${(l.openD||'').slice(0,7)}</td>
+              <td style="font-family:var(--mono);font-size:8.5px;padding:2px 5px;text-align:right">${(l.closeD||'').slice(0,7)}</td>
+              <td style="font-family:var(--mono);font-size:8.5px;padding:2px 5px;text-align:right">${l.qty.toFixed(2)}</td>
+              <td style="font-family:var(--mono);font-size:8.5px;padding:2px 5px;text-align:right">${l.costPU.toFixed(4)} → ${l.salePU.toFixed(4)}</td>
+              <td style="font-family:var(--mono);font-size:8.5px;padding:2px 5px;text-align:right;color:${l.gain>=0?'var(--green)':'var(--red)'}">${l.gain>=0?'+':''}${Math.round(l.gain).toLocaleString()} SAR</td>
+            </tr>`).join('');
+            s+=`<div style="font-family:var(--mono);font-size:7.5px;color:var(--tx3);margin-top:4px;margin-bottom:2px;text-transform:uppercase">Realized lots</div>
+              <div style="overflow-x:auto;max-height:120px;overflow-y:auto"><table style="width:100%;border-collapse:collapse">
+              <thead><tr style="border-bottom:1px solid var(--b2)">${['Opened','Closed','Units','Cost→Sale/u','Realized P&L'].map(h=>`<th style="font-family:var(--mono);font-size:7.5px;color:var(--tx3);text-align:right;padding:2px 5px;font-weight:400;position:sticky;top:0;background:var(--bg3)">${h}</th>`).join('')}</tr></thead>
+              <tbody>${closedRows}</tbody></table></div>`;
+          }
+          return s;
+        })()}
       </div>
     </div>
   </div>`;
@@ -2072,7 +2361,7 @@ function _portV3CalcPeriodReturn(id) {
 
 function _portV3ExpandChart(type, id) {
   document.getElementById('portv3-expand-modal')?.remove();
-  const titles = { detail:(document.getElementById('portv3-asset-title')?.textContent||'Asset'), perf:'Portfolio Performance', alloc:'Allocation', apr:'Annualized Return (CAGR)', sector:'Sector / Class Allocation', divyear:'Dividend Income by Year', cumret:'Return on Cost over Time' };
+  const titles = { detail:(document.getElementById('portv3-asset-title')?.textContent||'Asset'), perf:'Portfolio Performance', alloc:'Allocation', apr:'Annualized Return (CAGR)', sector:'Sector / Class Allocation', divyear:'Dividend Income by Year', cumret:'Return on Cost over Time', drawdown:'Portfolio Drawdown' };
   const title = titles[type] || 'Chart';
   const html = `<div class="mo" id="portv3-expand-modal" onclick="if(event.target===this)this.remove()" style="z-index:1300">
     <div class="modal" style="width:960px;max-width:96vw;max-height:92vh">
@@ -2106,12 +2395,13 @@ function _portV3ExpandChart(type, id) {
   } else if (type === 'perf') {
     const ts = _portV3TimeSeries(); const { totalMV, totalCost } = _portV3ComputeRows();
     if (ts.months.length) { ts.mv[ts.mv.length-1]=Math.round(totalMV); ts.cost[ts.cost.length-1]=Math.round(totalCost); }
-    const tasiSeries = _portV3TasiBenchmark(ts.months, ts.anyDrip ? ts.cashCost : ts.cost);
+    const benchSeries2 = _portV3ActiveBenchmark(ts.months, ts.anyDrip ? ts.cashCost : ts.cost);
+    const benchLabel2 = _pv3BenchmarkMode==='spy'?'If same buys in S&P 500':ts.anyDrip?'If same cash in TASI':'If same buys in TASI';
     new Chart(el, { type:'line', data:{ labels:ts.months,
       datasets:[{ label:'Value', data:ts.mv, borderColor:th.blue, backgroundColor:'rgba(91,155,213,0.14)', fill:true, tension:0.25, pointRadius:0, borderWidth:2 },
                  { label: ts.anyDrip ? 'Cash invested (ex-dividends)' : 'Cost', data:ts.cashCost, borderColor:th.amber, fill:false, tension:0.25, pointRadius:0, borderWidth:1.5, borderDash:[4,3] },
                  ...(ts.anyDrip ? [{ label:'Cost incl. reinvested div', data:ts.cost, borderColor:th.amber, fill:false, tension:0.25, pointRadius:0, borderWidth:1, borderDash:[1,3] }] : []),
-                 ...(tasiSeries ? [{ label: ts.anyDrip ? 'If same cash in TASI' : 'If same buys in TASI', data:tasiSeries, borderColor:'#9e9e9e', fill:false, tension:0.25, pointRadius:0, borderWidth:1.2, borderDash:[2,2], spanGaps:true }] : [])]},
+                 ...(benchSeries2 ? [{ label:benchLabel2, data:benchSeries2, borderColor:'#9e9e9e', fill:false, tension:0.25, pointRadius:0, borderWidth:1.2, borderDash:[2,2], spanGaps:true }] : [])]},
       options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
         plugins:{ legend:{labels:{color:th.tick,font:{size:10}}}, tooltip:{callbacks:{label:c=>c.dataset.label+': '+Math.round(c.parsed.y).toLocaleString()+' SAR'}} },
         scales:{ x:{ticks:{color:th.tick,maxTicksLimit:12},grid:{display:false}}, y:{ticks:{color:th.tick,callback:v=>v>=1e6?(v/1e6).toFixed(1)+'M':(v/1e3).toFixed(0)+'k'},grid:{color:th.grid}} } } });
@@ -2153,6 +2443,14 @@ function _portV3ExpandChart(type, id) {
       options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
         plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>(c.parsed.y>=0?'+':'')+c.parsed.y+'%'}} },
         scales:{ x:{ticks:{color:th.tick,maxTicksLimit:12},grid:{display:false}}, y:{ticks:{color:th.tick,callback:v=>v+'%'},grid:{color:th.grid}} } } });
+  } else if (type === 'drawdown') {
+    const ts = _portV3TimeSeries(); const { totalMV } = _portV3ComputeRows();
+    if (ts.months.length) ts.mv[ts.mv.length-1]=Math.round(totalMV);
+    let peak2=0; const ddData2=ts.mv.map(v=>{if(v>peak2)peak2=v;return peak2>0?+(-(peak2-v)/peak2*100).toFixed(1):0;});
+    new Chart(el, { type:'line', data:{ labels:ts.months, datasets:[{ label:'Drawdown', data:ddData2, borderColor:th.red, backgroundColor:'rgba(224,82,96,0.12)', fill:true, tension:0.25, pointRadius:0, borderWidth:2, spanGaps:true }]},
+      options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+        plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>c.parsed.y.toFixed(1)+'%'}} },
+        scales:{ x:{ticks:{color:th.tick,maxTicksLimit:12},grid:{display:false}}, y:{ticks:{color:th.tick,callback:v=>v+'%'},grid:{color:th.grid},max:0} } } });
   }
 }
 
@@ -4317,9 +4615,14 @@ function renderPortfolioV3HTML() {
   const totalReturnPctAll = totalCost > 0 ? totalReturnAll / totalCost * 100 : 0;
   const yieldOnCost = totalCost > 0 ? totalTtmDivs / totalCost * 100 : 0;
   const portCAGR = _portV3TotalCAGR();
+  const portTWR = _portV3TWR();
+  const risk = _portV3RiskMetrics();
+  const conc = _portV3Concentration(rows, totalMV);
   const pnlC = totalPnL >= 0 ? 'var(--green)' : 'var(--red)';
   const trAllC = totalReturnAll >= 0 ? 'var(--green)' : 'var(--red)';
   const cagrC = portCAGR == null ? 'var(--tx3)' : portCAGR >= 0 ? 'var(--green)' : 'var(--red)';
+  const twrC = portTWR == null ? 'var(--tx3)' : portTWR >= 0 ? 'var(--green)' : 'var(--red)';
+  const sharpeC = !risk?.sharpe ? 'var(--tx3)' : risk.sharpe >= 1 ? 'var(--green)' : risk.sharpe >= 0 ? 'var(--amb)' : 'var(--red)';
   const shortNm = a => (a.type==='tasi'?(a.ticker||'').replace('.SR','')+' ':'') + (a.name||'').split(' ').slice(0,2).join(' ');
   const ranked = rows.filter(r => r.cost > 0).slice().sort((a,b) => b.pnlPct - a.pnlPct);
   const best = ranked[0], worst = ranked[ranked.length-1];
@@ -4331,6 +4634,7 @@ function renderPortfolioV3HTML() {
     <div class="mi"><div class="mil">Total Cost</div><div class="miv">${totalCost>=1e6?(totalCost/1e6).toFixed(2)+'M':totalCost.toFixed(0)} SAR</div></div>
     <div class="mi"><div class="mil">P&amp;L</div><div class="miv" style="color:${pnlC}">${totalPnL>=0?'+':''}${totalPnL.toFixed(0)} SAR<br><span style="font-size:9px">${totalPnL>=0?'+':''}${totalPnLPct.toFixed(1)}%</span></div></div>
     <div class="mi"><div class="mil" data-tip="Money-weighted annualized return (XIRR) across all assets since first purchase. INCLUDES dividends, realized gains and fees. (The per-asset table column shows price-only CAGR, which excludes dividends.)">Portfolio CAGR ⓘ</div><div class="miv" style="color:${cagrC}">${portCAGR!=null?(portCAGR*100).toFixed(1)+'%/yr':'—'}</div></div>
+    ${portTWR!=null?`<div class="mi"><div class="mil" data-tip="Time-Weighted Return (modified Dietz) — removes the effect of when you added money. This is the 'skill' return: how well you picked, independent of contribution timing. Compare it to Portfolio CAGR: if TWR > CAGR you timed contributions poorly; if TWR < CAGR you added money at good times.">TWR (annualized)</div><div class="miv" style="color:${twrC}">${(portTWR*100).toFixed(1)}%/yr</div></div>`:''}
     <div class="mi"><div class="mil" data-tip="Capital gain + dividends received + realized gains, as a share of cost.">Total Return</div><div class="miv" style="color:${trAllC}">${totalReturnAll>=0?'+':''}${fmtSAR(totalReturnAll)} SAR<br><span style="font-size:9px">${totalReturnPctAll>=0?'+':''}${totalReturnPctAll.toFixed(1)}%</span></div></div>
     ${totalDivs>0?`<div class="mi"><div class="mil" data-tip="Total dividends received. Yield = trailing-12-month dividends ÷ total cost.">Dividends</div><div class="miv" style="color:var(--green);font-size:12px">+${fmtSAR(totalDivs)}<br><span style="font-size:9px">${yieldOnCost.toFixed(2)}% yield</span></div></div>`:''}
     ${totalRealized!=0?`<div class="mi"><div class="mil" data-tip="Profit/loss booked on units already sold.">Realized P&amp;L</div><div class="miv" style="color:${totalRealized>=0?'var(--green)':'var(--red)'};font-size:12px">${totalRealized>=0?'+':''}${fmtSAR(totalRealized)}</div></div>`:''}
@@ -4338,16 +4642,59 @@ function renderPortfolioV3HTML() {
     ${dayChangeable>0?`<div class="mi"><div class="mil">Today (Live)</div><div class="miv" style="color:${totalDayChange>=0?'var(--green)':'var(--red)'}">${totalDayChange>=0?'+':''}${totalDayChange.toFixed(0)} SAR<br><span style="font-size:9px">${totalDayPct>=0?'+':''}${totalDayPct.toFixed(2)}%</span></div></div>`:''}
     ${best?`<div class="mi" style="cursor:pointer" onclick="_portV3AssetDetail('${best.id}')"><div class="mil">Best Performer</div><div class="miv" style="font-size:11px;color:var(--green)">${escapeHTML(shortNm(best.a))}<br><span style="font-size:9px">+${best.pnlPct.toFixed(1)}%</span></div></div>`:''}
     ${worst&&worst!==best?`<div class="mi" style="cursor:pointer" onclick="_portV3AssetDetail('${worst.id}')"><div class="mil">Worst Performer</div><div class="miv" style="font-size:11px;color:${worst.pnlPct>=0?'var(--green)':'var(--red)'}">${escapeHTML(shortNm(worst.a))}<br><span style="font-size:9px">${worst.pnlPct>=0?'+':''}${worst.pnlPct.toFixed(1)}%</span></div></div>`:''}
+    ${risk?`<div class="mi"><div class="mil" data-tip="Annualized standard deviation of monthly portfolio returns × √12. Measures how much the portfolio's value fluctuates month-to-month.">Volatility</div><div class="miv" style="color:var(--tx2)">${(risk.vol*100).toFixed(1)}%/yr</div></div>`:''}
+    ${risk?`<div class="mi"><div class="mil" data-tip="Largest peak-to-trough decline in portfolio value (from highest point to lowest point before recovering). Lower is better.">Max Drawdown</div><div class="miv" style="color:${risk.maxDD>0.2?'var(--red)':risk.maxDD>0.1?'var(--amb)':'var(--tx2)'}">${(risk.maxDD*100).toFixed(1)}%</div></div>`:''}
+    ${risk?.sharpe!=null?`<div class="mi"><div class="mil" data-tip="Sharpe Ratio = (Portfolio CAGR − 4% risk-free) ÷ Volatility. Above 1 = good risk-adjusted return; below 0 = not compensated for risk.">Sharpe Ratio</div><div class="miv" style="color:${sharpeC}">${risk.sharpe.toFixed(2)}</div></div>`:''}
   </div>
-  <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin:-8px 0 12px;line-height:1.5">ⓘ <b>Portfolio CAGR</b> is money-weighted (XIRR) and <b>includes dividends</b>, realized gains &amp; fees. The per-asset <b>Price CAGR</b> column below is price-only (excludes dividends). On the performance chart, the dashed line is <b>cash you invested excluding reinvested dividends</b>${totalDivs>0?'':' (no dividends recorded yet)'}.</div>`;
+  <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);margin:-8px 0 10px;line-height:1.5">ⓘ <b>Portfolio CAGR</b> is money-weighted (XIRR) and <b>includes dividends</b>. <b>TWR</b> removes contribution-timing effects. <b>Price CAGR</b> column below is price-only. Chart dashed line = cash invested excluding reinvested dividends.</div>`;
+
+  // ── Concentration & risk panel ──
+  if (conc) {
+    const hhiColor = conc.hhi>25?'var(--red)':conc.hhi>15?'var(--amb)':'var(--green)';
+    const fxFlag = conc.fxPct>20;
+    const concTop3Nm = rows.filter(r=>r.mv>0).slice().sort((a,b)=>b.mv-a.mv).slice(0,3).map(r=>shortNm(r.a)).join(', ');
+    html += `<div class="mi" style="padding:9px 12px;margin-bottom:10px;display:flex;gap:18px;flex-wrap:wrap;align-items:center">
+      <div style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap">🔬 Risk &amp; Concentration</div>
+      <div style="font-family:var(--mono);font-size:9px" title="Herfindahl-Hirschman Index: sum of squared weight fractions × 100. Below 10 = diversified, 10–25 = moderate, above 25 = concentrated.">HHI <span style="color:${hhiColor};font-weight:600">${conc.hhi.toFixed(1)}</span><span style="color:var(--tx3)">/100</span></div>
+      <div style="font-family:var(--mono);font-size:9px" title="Largest single holding as % of total portfolio.">Top holding <span style="color:${conc.top1>40?'var(--amb)':'var(--tx2)'};font-weight:600">${conc.top1.toFixed(1)}%</span></div>
+      <div style="font-family:var(--mono);font-size:9px" title="Combined weight of the three largest holdings.">Top 3 <span style="color:${conc.top3>70?'var(--amb)':'var(--tx2)'};font-weight:600">${conc.top3.toFixed(1)}%</span> <span style="color:var(--tx3)">(${escapeHTML(concTop3Nm)})</span></div>
+      ${fxFlag?`<div style="font-family:var(--mono);font-size:9px;color:var(--amb)" title="USD-denominated assets as % of portfolio. You bear currency risk on this portion.">⚠ FX ${conc.fxPct.toFixed(1)}% USD</div>`:`<div style="font-family:var(--mono);font-size:9px;color:var(--tx3)">FX exposure ${conc.fxPct.toFixed(1)}% USD</div>`}
+    </div>`;
+  }
+
+  // ── Dividend calendar ──
+  const divCal = _portV3DivCalendar();
+  if (divCal.upcoming.length) {
+    const nowStr = new Date().toISOString().slice(0,10);
+    const fmtDate = d => { const dt=new Date(d); return dt.toLocaleString('en-SA',{month:'short',year:'2-digit'}); };
+    const freqLabel = m => m===1?'monthly':m===3?'quarterly':m===6?'semi-ann':'annual';
+    html += `<div class="mi" style="padding:10px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <span class="mil">📅 Dividend Calendar</span>
+        <span style="font-family:var(--mono);font-size:9px;color:var(--green)">Fwd 12m: +${fmtSAR(divCal.totalFwd12m)} SAR est.</span>
+      </div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:8.5px">
+        <thead><tr style="border-bottom:1px solid var(--b2)">${['Asset','Freq','Est. next','Per unit','Est. total'].map(h=>`<th style="text-align:left;padding:2px 6px;color:var(--tx3);font-weight:400">${h}</th>`).join('')}</tr></thead>
+        <tbody>${divCal.upcoming.slice(0,8).map(c=>`<tr style="border-bottom:1px solid var(--b1);cursor:pointer" onclick="_portV3AssetDetail('${c.id}')">
+          <td style="padding:2px 6px">${escapeHTML(shortNm(c.a))}</td>
+          <td style="padding:2px 6px;color:var(--tx3)">${freqLabel(c.freqM)}</td>
+          <td style="padding:2px 6px;color:${c.overdue?'var(--amb)':c.nextStr<=new Date(Date.now()+60*86400000).toISOString().slice(0,10)?'var(--green)':'var(--tx2)'}">${fmtDate(c.nextStr)}${c.overdue?' ⚠':''}</td>
+          <td style="padding:2px 6px;text-align:right">${c.perUnit.toFixed(4)}</td>
+          <td style="padding:2px 6px;text-align:right;color:var(--green)">+${Math.round(c.projSar).toLocaleString()} SAR</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    </div>`;
+  }
 
   // ── Charts: performance over time, allocation, return-by-asset ──
+  const bmBtn = (mode, label) => `<button onclick="_portV3SetBenchmark('${mode}')" style="font-family:var(--mono);font-size:8px;padding:1px 7px;background:${_pv3BenchmarkMode===mode?'var(--acc)':'var(--bg2)'};color:${_pv3BenchmarkMode===mode?'var(--bg)':'var(--tx3)'};border:1px solid ${_pv3BenchmarkMode===mode?'var(--acc)':'var(--b2)'};border-radius:3px;cursor:pointer">${label}</button>`;
   html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:14px">
-    <div class="mi" style="padding:10px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="mil">📈 Portfolio Performance</span><button onclick="_portV3ExpandChart('perf')" style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--bg2);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);cursor:pointer">⛶</button></div><div style="height:200px"><canvas id="pv3-perf"></canvas></div></div>
+    <div class="mi" style="padding:10px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="mil">📈 Portfolio Performance</span><div style="display:flex;gap:3px;align-items:center">${bmBtn('tasi','TASI')}${bmBtn('spy','S&P500')}${bmBtn('none','Off')}<button onclick="_portV3ExpandChart('perf')" style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--bg2);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);cursor:pointer;margin-left:4px">⛶</button></div></div><div style="height:200px"><canvas id="pv3-perf"></canvas></div></div>
     <div class="mi" style="padding:10px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="mil">🥧 Allocation</span><button onclick="_portV3ExpandChart('alloc')" style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--bg2);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);cursor:pointer">⛶</button></div><div style="height:200px"><canvas id="pv3-alloc"></canvas></div></div>
     <div class="mi" style="padding:10px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="mil">🏷️ Sector / Class</span><button onclick="_portV3ExpandChart('sector')" style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--bg2);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);cursor:pointer">⛶</button></div><div style="height:200px"><canvas id="pv3-sector"></canvas></div></div>
     <div class="mi" style="padding:10px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="mil">💰 Dividend Income / Year</span><button onclick="_portV3ExpandChart('divyear')" style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--bg2);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);cursor:pointer">⛶</button></div><div style="height:200px"><canvas id="pv3-divyear"></canvas></div></div>
     <div class="mi" style="padding:10px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="mil">📉 Return on Cost (over time)</span><button onclick="_portV3ExpandChart('cumret')" style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--bg2);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);cursor:pointer">⛶</button></div><div style="height:200px"><canvas id="pv3-cumret"></canvas></div></div>
+    <div class="mi" style="padding:10px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="mil">📉 Drawdown</span><button onclick="_portV3ExpandChart('drawdown')" style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--bg2);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);cursor:pointer">⛶</button></div><div style="height:200px"><canvas id="pv3-drawdown"></canvas></div></div>
     <div class="mi" style="padding:10px;grid-column:1/-1"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="mil">📊 Annualized Return by Asset (CAGR)</span><button onclick="_portV3ExpandChart('apr')" style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--bg2);border:1px solid var(--b2);border-radius:3px;color:var(--tx3);cursor:pointer">⛶</button></div><div style="height:170px"><canvas id="pv3-apr"></canvas></div></div>
   </div>`;
 
@@ -4398,7 +4745,9 @@ function renderPortfolioV3HTML() {
     const { id, a, pi, qty, cost, mv, pnl, pnlPct, cagr } = r;
     const pnlC2 = pnl >= 0 ? 'var(--green)' : 'var(--red)';
     const cagrC2 = cagr == null ? 'var(--tx3)' : cagr >= 0 ? 'var(--green)' : 'var(--red)';
-    const liveDot = pi?.live ? '<span style="color:var(--green);font-size:8px"> ●</span>' : pi?.stale ? '<span style="color:var(--amb);font-size:8px"> ⚠</span>' : '<span style="color:var(--tx3);font-size:8px"> NAV</span>';
+    const _navAge = pi?.navDate ? (Date.now()-new Date(pi.navDate).getTime()) : (a.history?.length ? (Date.now()-new Date(a.history[a.history.length-1].d).getTime()) : Infinity);
+    const _stale = pi?.stale || (!pi?.live && _navAge > 14*86400000);
+    const liveDot = pi?.live ? '<span style="color:var(--green);font-size:8px"> ●</span>' : _stale ? '<span style="color:var(--amb);font-size:8px" title="Price may be stale (>14 days old)"> ⚠</span>' : '<span style="color:var(--tx3);font-size:8px"> NAV</span>';
     const priceStr = pi ? pi.sarPrice.toFixed(2) + (pi.usdPrice ? '<br><span style="font-size:8px;color:var(--tx3)">$'+pi.usdPrice.toFixed(2)+'</span>' : '') + liveDot : '—';
     const avgCostStr = (a.holding?.avg || 0) > 0 ? ((a.holding.avg) * _pv3Fx(a)).toFixed(2) : '—';
     const unitStr = a.unit === 'gram' ? qty + 'g' : qty.toLocaleString();
@@ -4425,6 +4774,7 @@ function renderPortfolioV3HTML() {
   html += `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:8px;border-top:1px solid var(--b1)">
     <button onclick="_portV3AddAssetForm()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--adm);color:var(--acc);border:1px solid var(--acc);border-radius:4px;cursor:pointer">➕ Add Asset</button>
     <button onclick="_portV3ImportFile()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer" title="Replace with a newer portfolio.json file">📂 Import File</button>
+    <button onclick="_portV3ShowCSVImport()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer" title="Bulk import transactions and dividends from CSV">📥 CSV Import</button>
     ${gdConnected
       ? `<button onclick="_portV3GdSave().then(()=>showToast('✓ Saved to Google Drive'))" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--green);border:1px solid var(--green);border-radius:4px;cursor:pointer" title="Save portfolio to Google Drive now">☁ Save to Drive</button>`
       : `<button onclick="showToast('Connect Google Drive in ⚙ Settings first')" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx3);border:1px solid var(--b2);border-radius:4px;cursor:pointer;opacity:.6" title="Connect Google Drive in Settings to enable cloud save">☁ Save to Drive</button>`}
