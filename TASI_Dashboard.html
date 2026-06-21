@@ -1174,11 +1174,17 @@ function _portV3Price(asset) {
   if (asset.ticker) {
     const ext = _snapshotData?.external?.[asset.ticker];
     if (ext?.p > 0) {
+      // Use the snapshot's generated timestamp as the price date so the stale-badge
+      // logic knows how fresh the quote is (snapshot runs 3×/day).
+      const snapGenerated = _snapshotData?.generated;
+      const snapAge = snapGenerated ? Date.now() - snapGenerated : Infinity;
+      const snapLive = snapAge < 24 * 36e5; // treat as "live" when snapshot is < 24h old
+      const navDate = snapGenerated ? new Date(snapGenerated).toISOString().slice(0,10) : undefined;
       if ((ext.ccy || 'USD') === 'USD') {
         const usdsar = portfolioV3?.fx?.USDSAR || 3.75;
-        return { sarPrice: ext.p * usdsar, usdPrice: ext.p, live: false };
+        return { sarPrice: ext.p * usdsar, usdPrice: ext.p, dayChangePct: ext.c ?? null, live: snapLive, navDate };
       }
-      return { sarPrice: ext.p, dayChangePct: ext.c ?? null, live: false };
+      return { sarPrice: ext.p, dayChangePct: ext.c ?? null, live: snapLive, navDate };
     }
     // Client-side fallback fetched this session (funds not yet in the snapshot)
     const cf = _pv3FundCache[asset.ticker];
@@ -2062,11 +2068,15 @@ function _portV3ShowNavForm2(id) {
   const unit = a.unit === 'gram' ? 'SAR/gram' : 'NAV price';
   // Saudi mutual funds carry a 6-digit Tadawul code on Yahoo (e.g. 012060.SR).
   // Linking one lets the fund auto-price from Yahoo, same as a TASI stock.
-  const symRow = a.unit === 'gram' ? '' : `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding:9px;background:var(--bg2);border-radius:5px;border:1px solid var(--b2)">
-    <span style="font-family:var(--mono);font-size:9px;color:var(--tx2)" title="6-digit Tadawul fund code + .SR, e.g. 012060.SR for the Al Rajhi SMID-Cap Fund. Auto-prices the NAV from Yahoo.">🔗 Yahoo symbol:</span>
-    <input type="text" id="pv3-fund-sym" placeholder="e.g. 012060.SR" value="${a.ticker||''}" style="width:130px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
-    <button onclick="_portV3LinkFundSym('${id}',document.getElementById('pv3-fund-sym').value)" style="font-family:var(--mono);font-size:10px;padding:5px 12px;background:var(--bg3);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">Link &amp; fetch NAV</button>
-    <span id="pv3-fund-sym-msg" style="font-family:var(--mono);font-size:9px;color:var(--tx3)"></span>
+  const symRow = a.unit === 'gram' ? '' : `<div style="margin-bottom:8px;padding:9px;background:var(--bg2);border-radius:5px;border:1px solid var(--b2)">
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <span style="font-family:var(--mono);font-size:9px;color:var(--tx2)" title="6-digit Tadawul fund code + .SR, e.g. 012060.SR. Find it in the Stock Events URL when viewing the fund.">🔗 Yahoo symbol:</span>
+      <input type="text" id="pv3-fund-sym" placeholder="e.g. 012060.SR" value="${a.ticker||''}" style="width:130px;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:10px;padding:5px 8px;outline:none">
+      <button onclick="_portV3LinkFundSym('${id}',document.getElementById('pv3-fund-sym').value)" style="font-family:var(--mono);font-size:10px;padding:5px 12px;background:var(--bg3);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">Link &amp; fetch NAV</button>
+      <button onclick="_portV3ProbeFundCodes('${id}')" style="font-family:var(--mono);font-size:10px;padding:5px 12px;background:var(--bg3);color:var(--tx3);border:1px solid var(--b2);border-radius:4px;cursor:pointer" title="Tests a range of 012XXX.SR codes on Yahoo and shows which ones return a valid NAV price — helps identify unknown fund codes">🔍 Find code</button>
+      <span id="pv3-fund-sym-msg" style="font-family:var(--mono);font-size:9px;color:var(--tx3)"></span>
+    </div>
+    <div id="pv3-probe-results" style="margin-top:6px;font-family:var(--mono);font-size:9px;color:var(--tx3)"></div>
   </div>`;
   c.innerHTML = symRow + `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:9px;background:var(--adm);border-radius:5px;border:1px solid var(--acc)">
     <span style="font-family:var(--mono);font-size:9px;color:var(--tx2)">New ${unit}:</span>
@@ -2130,6 +2140,43 @@ async function _portV3RefreshLinkedFunds() {
     if (r?.p > 0) any = true;
   }
   if (any) { try { _portV3Render(); } catch(e){} }
+}
+
+// Probe a range of 012XXX.SR codes to discover which ones have a Yahoo quote.
+// Helps identify the symbol for an unlisted / recently-launched fund.
+// Runs in the background and streams results into the #pv3-probe-results div.
+async function _portV3ProbeFundCodes(id) {
+  const el = document.getElementById('pv3-probe-results');
+  const msg = document.getElementById('pv3-fund-sym-msg');
+  if (!el) return;
+  if (msg) { msg.style.color = 'var(--tx3)'; msg.textContent = ''; }
+  el.textContent = '⏳ Probing 012040–012080.SR on Yahoo…';
+  const hits = [];
+  // Linked asset's current manual NAV to narrow down candidates by proximity
+  const a = portfolioV3?.assets?.[id];
+  const knownNav = a?.navPrice || 0;
+  for (let n = 40; n <= 80; n++) {
+    const sym = `0120${String(n).padStart(2,'0')}.SR`;
+    const r = await _portV3FetchFundNav(sym);
+    if (r?.p > 0) {
+      const delta = knownNav > 0 ? Math.abs(r.p - knownNav) : null;
+      hits.push({ sym, p: r.p, name: r.name, delta });
+    }
+    // throttle slightly — one request per ~300 ms
+    await new Promise(res => setTimeout(res, 300));
+    if (el) el.textContent = `⏳ Probing ${sym}… (${hits.length} found so far)`;
+  }
+  if (!hits.length) {
+    el.innerHTML = '<span style="color:var(--amb)">No quotes found in range 012040–012080.SR. Try entering the code manually.</span>';
+    return;
+  }
+  // Sort: best NAV match first when we have a reference price
+  if (knownNav > 0) hits.sort((a,b) => (a.delta||99) - (b.delta||99));
+  el.innerHTML = hits.map(h => {
+    const match = knownNav > 0 && h.delta < 1 ? ' ← closest match' : '';
+    return `<span style="cursor:pointer;color:${match?'var(--green)':'var(--acc)'}" onclick="document.getElementById('pv3-fund-sym').value='${h.sym}'">${h.sym}</span> <span style="color:var(--tx2)">${h.p.toFixed(2)} SAR</span> <span style="color:var(--tx3)">${escapeHTML(h.name||'')}${match}</span><br>`;
+  }).join('');
+  if (msg) { msg.style.color = 'var(--tx3)'; msg.textContent = `${hits.length} codes found — click one to select`; }
 }
 
 function _portV3TxnForm(id) {
