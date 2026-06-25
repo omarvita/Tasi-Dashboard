@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260625a'; // bump this string on every deploy that matters
+  var V='20260625b'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -440,7 +440,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260625a · Tap/click anywhere outside a chart now dismisses the lingering price tooltip on every chart (fixes the stuck price label on touch devices) · v20260621g · Mutual funds can now auto-price: link a fund holding to its Yahoo symbol (6-digit Tadawul code + .SR, e.g. 012060.SR for the Al Rajhi SMID-Cap Fund) from the fund’s “↻ Update NAV” panel — it fetches the live NAV to confirm the match and refreshes on every open; CAGR chart now truncates long fund names on the axis (full name still shows on hover) · v20260621f · Gold now auto-prices in SAR/gram from Yahoo spot (XAUUSD=X, ÷31.1035 troy-oz × USD/SAR peg) via the 3×/day market snapshot — your manual “Update SAR/gram” still overrides when newer · v20260621e · Portfolio analytics pack: TASI/S&P 500 benchmark toggle, volatility, max-drawdown chart, Sharpe ratio, time-weighted return (TWR), dividend calendar with projected income, concentration/HHI & FX-exposure risk flags, stale-price badge, CSV bulk import, and FIFO realised/unrealised tax lots · v20260621d · “⚡ Fill All Dividends” button (portfolio footer) auto-fills dividends for every TASI/ETF holding at once; performance chart now plots “Cash invested (ex-dividends)” as the dashed contributions line — excluding reinvested dividends — with the full cost basis shown as a faint secondary line when you have DRIP entries; corrected the per-asset CAGR column label to “Price CAGR” (it is price-only) and added a note clarifying the headline Portfolio CAGR includes dividends · v20260621c · Auto-fill Dividends per asset: pulls per-share dividend history from Yahoo (10y) scaled by shares held on each ex-date · v20260621b · DRIP support: “♻ Reinvest (DRIP)” marks dividend reinvestments and shows “Cash In” excluding them</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260625b · 📸 Snapshot button in portfolio footer opens a dated, printable point-in-time record of your portfolio (all metrics, holdings table, dividend calendar, a blank notes box) in a new tab — use browser Print → Save as PDF to journal your decision · v20260625a · Tap/click anywhere outside a chart now dismisses the lingering price tooltip on every chart (fixes the stuck price label on touch devices) · v20260621g · Mutual funds can now auto-price: link a fund holding to its Yahoo symbol (6-digit Tadawul code + .SR, e.g. 012060.SR for the Al Rajhi SMID-Cap Fund) from the fund’s “↻ Update NAV” panel — it fetches the live NAV to confirm the match and refreshes on every open; CAGR chart now truncates long fund names on the axis (full name still shows on hover) · v20260621f · Gold now auto-prices in SAR/gram from Yahoo spot (XAUUSD=X, ÷31.1035 troy-oz × USD/SAR peg) via the 3×/day market snapshot — your manual “Update SAR/gram” still overrides when newer · v20260621e · Portfolio analytics pack: TASI/S&P 500 benchmark toggle, volatility, max-drawdown chart, Sharpe ratio, time-weighted return (TWR), dividend calendar with projected income, concentration/HHI & FX-exposure risk flags, stale-price badge, CSV bulk import, and FIFO realised/unrealised tax lots · v20260621d · “⚡ Fill All Dividends” button (portfolio footer) auto-fills dividends for every TASI/ETF holding at once; performance chart now plots “Cash invested (ex-dividends)” as the dashed contributions line — excluding reinvested dividends — with the full cost basis shown as a faint secondary line when you have DRIP entries; corrected the per-asset CAGR column label to “Price CAGR” (it is price-only) and added a note clarifying the headline Portfolio CAGR includes dividends · v20260621c · Auto-fill Dividends per asset: pulls per-share dividend history from Yahoo (10y) scaled by shares held on each ex-date · v20260621b · DRIP support: “♻ Reinvest (DRIP)” marks dividend reinvestments and shows “Cash In” excluding them</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1593,6 +1593,168 @@ function _portV3ExportCSV() {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url), 1000);
   showToast('✓ Portfolio exported to CSV');
+}
+
+// ── Portfolio v3: dated point-in-time snapshot for journaling / PDF printing ──
+function _portV3PrintSnapshot() {
+  if (!portfolioV3?.assets) return;
+  const ts   = new Date();
+  const dtLbl = ts.toLocaleString('en-SA', { dateStyle:'long', timeStyle:'short' });
+  const dtISO = ts.toISOString().slice(0,16).replace('T',' ');
+
+  const { rows, totalMV, totalCost, totalDivs, totalRealized, totalFees } = _portV3ComputeRows();
+  const totalPnl  = totalMV - totalCost;
+  const totalRet  = totalPnl + totalDivs + totalRealized;
+  const cagr      = _portV3TotalCAGR();
+  const twr       = _portV3TWR();
+  const risk      = _portV3RiskMetrics();
+  const conc      = _portV3Concentration(rows, totalMV);
+  const cal       = _portV3DivCalendar();
+
+  const fmt   = n => n != null ? Math.round(n).toLocaleString() : '—';
+  const fmtP  = n => n != null ? (n >= 0 ? '+' : '') + n.toFixed(2) + '%' : '—';
+  const fmtPc = n => n != null ? (n*100).toFixed(1) + '%' : '—';
+  const clr   = n => n == null ? '' : n >= 0 ? 'color:#22c55e' : 'color:#f87171';
+
+  // Per-asset rows
+  const assetRows = rows.map(r => {
+    const pi    = r.pi;
+    const price = pi?.sarPrice != null ? pi.sarPrice.toFixed(2) : '—';
+    const cg    = r.cagr != null ? (r.cagr*100).toFixed(1)+'%' : '—';
+    const ticker = r.a.ticker || r.a.type;
+    const priceSuffix = pi?.live ? ' ●' : (pi?.stale ? ' ⚠' : ' NAV');
+    return `<tr>
+      <td>${r.a.name}</td>
+      <td style="color:#8a9ab5">${ticker}</td>
+      <td style="text-align:right">${r.qty.toLocaleString()}</td>
+      <td style="text-align:right">${price}${pi ? '<span style="font-size:8px;color:#8a9ab5">'+priceSuffix+'</span>' : ''}</td>
+      <td style="text-align:right">${fmt(r.mv)}</td>
+      <td style="text-align:right">${fmt(r.cost)}</td>
+      <td style="text-align:right;${clr(r.pnl)}">${fmt(r.pnl)}</td>
+      <td style="text-align:right;${clr(r.pnl)}">${r.cost>0 ? fmtP(r.pnlPct) : '—'}</td>
+      <td style="text-align:right;${clr(r.cagr)}">${cg}</td>
+      <td style="text-align:right">${fmt(r.divs)}</td>
+    </tr>`;
+  }).join('');
+
+  // Dividend calendar rows (next 6)
+  const calRows = cal.upcoming.slice(0, 6).map(u => {
+    const freqLabel = u.freqM===1?'Monthly':u.freqM===3?'Quarterly':u.freqM===6?'Semi-ann':'Annual';
+    const overdueCss = u.overdue ? 'color:#f87171' : '';
+    return `<tr>
+      <td>${u.a.name}</td>
+      <td>${freqLabel}</td>
+      <td style="${overdueCss}">${u.nextStr}${u.overdue?' ⚠':''}</td>
+      <td style="text-align:right">${u.perUnit.toFixed(2)}</td>
+      <td style="text-align:right">${fmt(u.projSar)}</td>
+    </tr>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>Portfolio Snapshot — ${dtISO}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,sans-serif;font-size:12px;color:#1a202c;background:#fff;padding:24px 28px}
+  h1{font-size:18px;font-weight:700;color:#0f172a;margin-bottom:2px}
+  .subtitle{font-size:10px;color:#64748b;margin-bottom:20px}
+  h2{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#475569;margin:20px 0 8px;border-bottom:1px solid #e2e8f0;padding-bottom:4px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:4px}
+  .card{border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px}
+  .card-label{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:#94a3b8;margin-bottom:3px}
+  .card-val{font-size:14px;font-weight:700;color:#0f172a}
+  .card-sub{font-size:9px;color:#64748b;margin-top:1px}
+  table{width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:6px}
+  th{background:#f8fafc;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#64748b;padding:5px 7px;border-bottom:1px solid #e2e8f0;text-align:left}
+  td{padding:4px 7px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  .risk-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+  .risk-card{border:1px solid #e2e8f0;border-radius:6px;padding:7px 10px}
+  .risk-label{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:#94a3b8;margin-bottom:2px}
+  .risk-val{font-size:13px;font-weight:700}
+  .notes-box{border:1px dashed #cbd5e1;border-radius:6px;min-height:80px;padding:10px 12px;color:#94a3b8;font-size:11px;margin-top:4px}
+  .warn{font-size:9px;color:#94a3b8;margin-top:14px;border-top:1px solid #f1f5f9;padding-top:8px}
+  @media print{body{padding:12px 16px}.warn{font-size:8px}}
+</style></head><body>
+
+<h1>Portfolio Snapshot</h1>
+<div class="subtitle">Captured ${dtLbl} &nbsp;·&nbsp; ${rows.length} holdings &nbsp;·&nbsp; For journaling &amp; record-keeping only — not financial advice</div>
+
+<h2>Summary</h2>
+<div class="cards">
+  <div class="card"><div class="card-label">Total Value</div><div class="card-val">${fmt(totalMV)} SAR</div></div>
+  <div class="card"><div class="card-label">Total Cost</div><div class="card-val">${fmt(totalCost)} SAR</div></div>
+  <div class="card"><div class="card-label">Unrealised P&amp;L</div><div class="card-val" style="${clr(totalPnl)}">${fmt(totalPnl)} SAR</div><div class="card-sub" style="${clr(totalPnl)}">${totalCost>0 ? fmtP(totalPnl/totalCost*100) : '—'}</div></div>
+  <div class="card"><div class="card-label">Total Return</div><div class="card-val" style="${clr(totalRet)}">${fmt(totalRet)} SAR</div><div class="card-sub" style="${clr(totalRet)}">${totalCost>0 ? fmtP(totalRet/totalCost*100) : '—'}</div></div>
+  <div class="card"><div class="card-label">Dividends received</div><div class="card-val">${fmt(totalDivs)} SAR</div></div>
+  <div class="card"><div class="card-label">Realized P&amp;L</div><div class="card-val" style="${clr(totalRealized)}">${fmt(totalRealized)} SAR</div></div>
+  <div class="card"><div class="card-label">Fees paid</div><div class="card-val">${fmt(totalFees)} SAR</div></div>
+  <div class="card"><div class="card-label">Portfolio CAGR (XIRR)</div><div class="card-val" style="${clr(cagr)}">${fmtPc(cagr)}</div></div>
+  <div class="card"><div class="card-label">TWR (annualized)</div><div class="card-val" style="${clr(twr)}">${fmtPc(twr)}</div></div>
+  ${risk ? `
+  <div class="card"><div class="card-label">Volatility</div><div class="card-val">${fmtPc(risk.vol)}</div></div>
+  <div class="card"><div class="card-label">Max Drawdown</div><div class="card-val" style="color:#f87171">−${fmtPc(risk.maxDD)}</div></div>
+  <div class="card"><div class="card-label">Sharpe Ratio</div><div class="card-val" style="${risk.sharpe!=null?(risk.sharpe>1?'color:#22c55e':risk.sharpe>0?'':'color:#f87171'):''}">${risk.sharpe!=null ? risk.sharpe.toFixed(2) : '—'}</div></div>
+  ` : ''}
+</div>
+
+${conc ? `
+<h2>Risk &amp; Concentration</h2>
+<div class="risk-grid">
+  <div class="risk-card"><div class="risk-label">HHI</div><div class="risk-val">${conc.hhi.toFixed(1)}</div><div class="card-sub">${conc.hhi<10?'Diversified':conc.hhi<25?'Moderate':'Concentrated'}</div></div>
+  <div class="risk-card"><div class="risk-label">Top Holding</div><div class="risk-val">${conc.top1.toFixed(1)}%</div><div class="card-sub">${conc.top1Nm}</div></div>
+  <div class="risk-card"><div class="risk-label">Top 3 Combined</div><div class="risk-val">${conc.top3.toFixed(1)}%</div></div>
+  ${conc.fxPct > 0 ? `<div class="risk-card"><div class="risk-label">FX (USD) Exposure</div><div class="risk-val" style="${conc.fxPct>20?'color:#f59e0b':''}">${conc.fxPct.toFixed(1)}%</div></div>` : ''}
+</div>
+` : ''}
+
+<h2>Holdings</h2>
+<table>
+  <thead><tr>
+    <th>Name</th><th>Ticker / Type</th><th style="text-align:right">Units</th>
+    <th style="text-align:right">Price (SAR)</th><th style="text-align:right">Market Value</th>
+    <th style="text-align:right">Cost</th><th style="text-align:right">P&amp;L (SAR)</th>
+    <th style="text-align:right">P&amp;L %</th><th style="text-align:right">Price CAGR</th>
+    <th style="text-align:right">Dividends</th>
+  </tr></thead>
+  <tbody>${assetRows}</tbody>
+  <tfoot><tr style="font-weight:700;background:#f8fafc">
+    <td colspan="4">Total</td>
+    <td style="text-align:right">${fmt(totalMV)}</td>
+    <td style="text-align:right">${fmt(totalCost)}</td>
+    <td style="text-align:right;${clr(totalPnl)}">${fmt(totalPnl)}</td>
+    <td style="text-align:right;${clr(totalPnl)}">${totalCost>0?fmtP(totalPnl/totalCost*100):'—'}</td>
+    <td></td>
+    <td style="text-align:right">${fmt(totalDivs)}</td>
+  </tr></tfoot>
+</table>
+
+${cal.upcoming.length ? `
+<h2>Dividend Calendar &nbsp;<span style="font-size:9px;font-weight:400;color:#64748b">next 6 projected — fwd 12m: ${fmt(cal.totalFwd12m)} SAR est.</span></h2>
+<table>
+  <thead><tr>
+    <th>Asset</th><th>Frequency</th><th>Est. next ex-date</th>
+    <th style="text-align:right">Per unit (SAR)</th><th style="text-align:right">Est. total (SAR)</th>
+  </tr></thead>
+  <tbody>${calRows}</tbody>
+</table>
+` : ''}
+
+<h2>Decision Notes</h2>
+<div class="notes-box">Why I'm holding / buying / selling — add your rationale here after printing.</div>
+
+<p class="warn">
+  ● Live price &nbsp; NAV Manual price (recent) &nbsp; ⚠ Stale price (&gt;14 days) or overdue dividend<br>
+  Price CAGR = share-price appreciation only, excludes dividends. Portfolio CAGR (XIRR) includes dividends, realized gains, and fees.<br>
+  Sharpe = (Portfolio CAGR − 4% risk-free) ÷ Volatility. Dividends calendar = projected — not guaranteed. All amounts in SAR.<br>
+  TASI Dashboard — educational &amp; research tool only. Not financial advice.
+</p>
+
+</body></html>`;
+
+  const w = window.open('', '_blank');
+  if (!w) { showToast('⚠ Allow pop-ups to open the snapshot'); return; }
+  w.document.write(html);
+  w.document.close();
 }
 
 // ── Portfolio v3: shared row/totals computation (used by table + charts) ──
@@ -4911,6 +5073,7 @@ function renderPortfolioV3HTML() {
     ${Object.values(assets).some(a=>a.ticker&&(a.type==='tasi'||a.type==='yahoo'))?`<button id="pv3-autodiv-all-btn" onclick="_portV3AutoDividendsAll()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--green);border:1px solid var(--green)55;border-radius:4px;cursor:pointer" title="Fetch dividend history from Yahoo for every TASI/ETF holding and fill amounts based on the shares you held on each ex-date">⚡ Fill All Dividends</button>`:''}
     <button onclick="_portV3ExportCSV()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer">⬇ Export CSV</button>
     <button onclick="_portV3ExportJSON()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer" title="Download full portfolio JSON for backup">⬇ Export JSON</button>
+    <button onclick="_portV3PrintSnapshot()" style="font-family:var(--mono);font-size:9px;padding:5px 11px;background:var(--bg2);color:var(--tx2);border:1px solid var(--b2);border-radius:4px;cursor:pointer" title="Open a dated point-in-time snapshot of your portfolio (value, P&amp;L, metrics, calendar) in a new tab — print to PDF to keep a timestamped record">📸 Snapshot</button>
     <div style="margin-left:auto;font-family:var(--mono);font-size:8px;color:var(--tx3)">${Object.keys(assets).length} assets · ${gdConnected?'☁ Drive connected':'💾 Local only'}</div>
   </div>`;
   return html;
