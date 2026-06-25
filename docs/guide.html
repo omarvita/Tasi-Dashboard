@@ -1302,30 +1302,134 @@
     <section id="portfolio">
       <h2>12. Portfolio</h2>
 
-      <p>The Portfolio feature lets you track positions you hold (or hypothetical positions you want to model) directly in the dashboard — without connecting to a brokerage account.</p>
+      <p>The Portfolio (<strong>💼 Portfolio</strong> in the header) is a full multi-asset position tracker. It records buys, sells, dividend reinvestments (DRIP), and cash dividends as a transaction log, prices each holding automatically where possible, and derives a complete set of return and risk analytics — all without connecting to a brokerage account.</p>
 
-      <h3>Adding positions</h3>
-      <p>Navigate to the Portfolio tab and click "Add Position." Enter:</p>
+      <div class="callout warn">
+        <div class="callout-title">&#9888; Your portfolio is private — it never leaves your control</div>
+        Portfolio data is stored only in your browser's local storage and, if you connect it, your own Google Drive. It is <strong>never</strong> committed to the public repository, never uploaded to any dashboard server, and never shared. Only price/market data flows <em>in</em> (from the public market snapshot and Yahoo Finance); your holdings only flow <em>out</em> to your own Drive.
+      </div>
+
+      <h3>Asset types</h3>
+      <p>When you click <strong>➕ Add Asset</strong>, you choose one of four types. Each is priced differently:</p>
+
+      <table class="score-table">
+        <thead>
+          <tr><th>Type</th><th>Form label</th><th>How it's priced</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="metric">TASI stock</td>
+            <td>TASI stock (auto-priced)</td>
+            <td>Live Tadawul price from the dashboard's market data. Updates automatically.</td>
+          </tr>
+          <tr>
+            <td class="metric">Global ETF</td>
+            <td>ETF / Yahoo (USD, auto-priced)</td>
+            <td>Yahoo Finance price in USD (e.g. IBIT), converted to SAR at the USD/SAR peg (3.75). Carried in the 3×/day market snapshot.</td>
+          </tr>
+          <tr>
+            <td class="metric">Manual fund</td>
+            <td>Fund / manual NAV (SAR)</td>
+            <td>You enter the NAV in SAR. Can optionally be linked to a Yahoo symbol to auto-fetch (see below).</td>
+          </tr>
+          <tr>
+            <td class="metric">Gold</td>
+            <td>Gold (SAR per gram)</td>
+            <td>Auto-priced from gold spot — see "Gold auto-pricing" below.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Adding positions &amp; transactions</h3>
+      <p>An asset holds a <strong>transaction log</strong>, not just a single buy line. Use <strong>＋ Buy / Sell / DRIP</strong> on an asset to record each event:</p>
       <ul>
-        <li><strong>Ticker:</strong> The Tadawul ticker symbol (e.g., 2222 for Aramco, 1120 for Al Rajhi).</li>
-        <li><strong>Buy Price:</strong> The average price you paid per share, in SAR.</li>
-        <li><strong>Shares:</strong> Number of shares held.</li>
-        <li><strong>Buy Date:</strong> When you purchased. Used for holding period calculations and annualised return.</li>
+        <li><strong>Side:</strong> Buy, Sell, or ♻ Reinvest (DRIP).</li>
+        <li><strong>Units / Grams:</strong> Quantity for this transaction.</li>
+        <li><strong>Price per unit:</strong> In the asset's native currency (SAR for TASI/funds/gold, USD for ETFs). For auto-priced assets the price is informational — the live price drives current value; the recorded price sets your cost basis.</li>
+        <li><strong>Date:</strong> Used for holding-period, CAGR, and time-weighted return calculations.</li>
+        <li><strong>Fee:</strong> Optional brokerage commission, rolled into your cost.</li>
       </ul>
 
-      <h3>Portfolio view</h3>
-      <p>Once positions are entered, the Portfolio tab shows:</p>
+      <h3>Gold auto-pricing</h3>
+      <p>Gold holdings (entered in grams) are priced automatically in <strong>SAR per gram</strong>, refreshed three times a day by the market snapshot. The conversion is: gold spot <code>XAUUSD=X</code> (USD per troy ounce) ÷ 31.1035 grams/oz × the USD/SAR peg (3.75). If you manually pin a SAR/gram price using <strong>↻ Update SAR/gram</strong> with a date <em>newer</em> than the latest auto-price, your manual value wins.</p>
 
+      <h3>Linking a fund to a Yahoo symbol</h3>
+      <p>Manual funds can be linked to a Yahoo Finance symbol so the NAV fetches automatically. On a fund asset, open <strong>↻ Update NAV</strong> and use:</p>
       <ul>
-        <li><strong>Total portfolio value:</strong> Sum of (current price × shares) across all positions.</li>
-        <li><strong>Gain / Loss:</strong> In SAR and percentage, since your buy price. Unrealised gains only.</li>
-        <li><strong>Sector breakdown:</strong> Pie chart showing your exposure by TASI sector. Helps identify concentration.</li>
-        <li><strong>Concentration warning:</strong> If more than 50% of your portfolio value sits in a single sector, a warning banner appears. Over-concentration in one sector (e.g., all Banks or all Petrochemicals) amplifies sector-specific risks.</li>
-        <li><strong>Dividend income projection:</strong> Estimates your annual dividend income based on current dividend yields for each position. This is a projection, not a guarantee — dividends can be cut or suspended.</li>
+        <li><strong>🔗 Yahoo symbol</strong> + <strong>Link &amp; fetch NAV</strong> — enter a symbol (e.g. <code>012060.SR</code>) and it fetches the live NAV to confirm the match, then refreshes on every portfolio open.</li>
+        <li><strong>🔍 Find code</strong> — probes a range of <code>012XXX.SR</code> codes on Yahoo and lists those returning a valid NAV, so you can identify an unknown fund code.</li>
+      </ul>
+      <div class="callout warn">
+        <div class="callout-title">Most Saudi open-ended funds are not on Yahoo Finance</div>
+        Many Saudi mutual funds (including several Al Rajhi funds) are not carried by Yahoo Finance at all, so linking will return "no quote." For those, keep the fund as a <strong>manual NAV</strong> and update it yourself periodically. Gold and USD ETFs like IBIT <em>do</em> auto-price.
+      </div>
+
+      <h3>Dividends</h3>
+      <ul>
+        <li><strong>💰 Add Dividend</strong> — record a cash dividend manually (date, SAR per unit or total, note).</li>
+        <li><strong>⚡ Auto-fill Dividends</strong> (per asset) — fetches up to 10 years of dividend history from Yahoo and fills each payment scaled by the shares you held on that ex-date. Already-recorded and pre-purchase dividends are skipped.</li>
+        <li><strong>⚡ Fill All Dividends</strong> (portfolio footer) — runs the auto-fill across every TASI/ETF holding at once.</li>
+        <li><strong>♻ Reinvest (DRIP)</strong> — mark a transaction as a dividend reinvestment. The <strong>Cash In</strong> metric then excludes reinvested dividends, so you can see how much of your own cash you actually put in versus growth from reinvestment.</li>
+      </ul>
+      <div class="callout">
+        <div class="callout-title">Ex-date vs payment date</div>
+        Auto-filled dividends are dated by their <em>ex-dividend</em> date (the date Yahoo provides), which can be a few weeks before the cash actually lands. For long-run return tracking this difference is immaterial.
+      </div>
+
+      <h3>Performance metrics</h3>
+      <p>The summary cards at the top of the portfolio report:</p>
+      <ul>
+        <li><strong>Total Value / Total Cost / P&amp;L</strong> — current market value, total invested, and unrealised gain/loss.</li>
+        <li><strong>Portfolio CAGR</strong> — money-weighted annualised return (XIRR) across all assets since first purchase. <em>Includes</em> dividends, realised gains, and fees.</li>
+        <li><strong>TWR (annualized)</strong> — Time-Weighted Return (modified Dietz). Removes the effect of <em>when</em> you added money — the "skill" return. If TWR &gt; CAGR you timed contributions poorly; if TWR &lt; CAGR you added money at good times.</li>
+        <li><strong>Total Return</strong> — capital gain + dividends received + realised gains, as a share of cost.</li>
+        <li><strong>Realized P&amp;L</strong> and <strong>Fees Paid</strong> — booked gains on sold units, and total recorded commissions.</li>
+        <li><strong>Volatility</strong> — annualised standard deviation of monthly portfolio returns (× √12).</li>
+        <li><strong>Max Drawdown</strong> — largest peak-to-trough decline in portfolio value. Lower is better.</li>
+        <li><strong>Sharpe Ratio</strong> — (Portfolio CAGR − 4% risk-free) ÷ Volatility. Above 1 is good risk-adjusted return; below 0 means you weren't compensated for the risk taken.</li>
+        <li><strong>Price CAGR/yr</strong> (per-asset column) — annualised <em>share-price</em> return only, excluding dividends. Distinct from the headline Portfolio CAGR, which includes them.</li>
+      </ul>
+
+      <h3>Risk &amp; concentration</h3>
+      <p>The <strong>🔬 Risk &amp; Concentration</strong> panel flags portfolio-level exposure:</p>
+      <ul>
+        <li><strong>HHI</strong> (Herfindahl-Hirschman Index) — sum of squared holding-weight fractions × 100. Below 10 = diversified, 10–25 = moderate, above 25 = concentrated.</li>
+        <li><strong>Top holding</strong> and <strong>Top 3</strong> — the largest single position and the combined weight of the three largest.</li>
+        <li><strong>FX exposure</strong> — if more than 20% of the portfolio is in USD-denominated assets, a <span class="badge badge-watch">⚠ FX</span> flag shows the percentage you bear currency risk on.</li>
+      </ul>
+
+      <h3>Dividend calendar</h3>
+      <p>The <strong>📅 Dividend Calendar</strong> projects the next 12 months of income. It detects each holding's payment frequency (monthly / quarterly / semi-annual / annual) from its recent dividend history, estimates the next ex-date and per-unit amount, and sums an <strong>Est. total</strong> per holding. This is a projection — dividends can be cut, raised, or suspended.</p>
+
+      <h3>Tax lots (FIFO)</h3>
+      <p>Each asset's detail view includes <strong>📋 Tax Lots (FIFO)</strong>, splitting your position into individual purchase lots on a first-in-first-out basis:</p>
+      <ul>
+        <li><strong>Open lots</strong> — units still held, with cost/unit, current price, and unrealised P&amp;L.</li>
+        <li><strong>Closed lots</strong> — units already sold, with the cost→sale price and realised P&amp;L. When you sell, the oldest lots close first.</li>
+      </ul>
+
+      <h3>Charts</h3>
+      <p>The portfolio renders several charts (each expandable full-screen with ⛶):</p>
+      <ul>
+        <li><strong>📈 Portfolio Performance</strong> — value vs cost over time, with a benchmark toggle (TASI / S&amp;P 500 / Off). The dashed line is "Cash invested (ex-dividends)" — your own contributions, excluding DRIP.</li>
+        <li><strong>🥧 Allocation</strong> and <strong>🏷️ Sector / Class</strong> — current weight by holding and by sector/asset class.</li>
+        <li><strong>💰 Dividend Income / Year</strong> — dividends received per calendar year.</li>
+        <li><strong>📉 Return on Cost</strong> and <strong>📉 Drawdown</strong> — cumulative return and running drawdown from peak.</li>
+        <li><strong>📊 Annualized Return by Asset (CAGR)</strong> — price CAGR per holding (long names are truncated on the axis; full name shows on hover).</li>
+      </ul>
+      <p>Tapping or clicking anywhere outside a chart dismisses its price tooltip — handy on touch devices where a tapped tooltip would otherwise stay on screen.</p>
+
+      <h3>Price freshness indicator</h3>
+      <p>Each holding shows a small status dot: a green <strong>●</strong> for a live price (TASI / Yahoo / fresh snapshot), a gray <strong>NAV</strong> for a recent manual value, and an amber <strong>⚠</strong> when a manual NAV is more than 14 days old — a reminder to refresh it.</p>
+
+      <h3>Import &amp; export</h3>
+      <ul>
+        <li><strong>📥 CSV Import</strong> — bulk-import transactions. Columns: <code>date · asset · type · units · price · fee · note</code>, where <code>asset</code> is a ticker or asset ID and <code>type</code> is <code>buy | sell | reinvest | dividend</code>. For a dividend row, leave units blank and put the total SAR in the price column. A preview table validates each row before import.</li>
+        <li><strong>⬇ Export CSV</strong> / <strong>⬇ Export JSON</strong> — download your holdings (CSV) or a full backup of the portfolio (JSON).</li>
       </ul>
 
       <h3>Sync &amp; persistence</h3>
-      <p>Portfolio data is saved to local storage by default and synced to Google Drive when connected. Drive sync ensures your portfolio is accessible from any device where you log in.</p>
+      <p>Portfolio data saves to your browser's local storage automatically. If you connect Google Drive (Settings), <strong>☁ Save to Drive</strong> keeps a copy in your own Drive so it's available across devices; the dashboard merges by timestamp, with the newer copy winning. See the privacy note at the top of this section — your portfolio is never written to the repository.</p>
 
       <div class="callout warn">
         <div class="callout-title">No brokerage integration</div>
@@ -1730,7 +1834,7 @@
     <div class="footer">
       <p>TASI Dashboard &mdash; <span>User Guide</span></p>
       <p style="margin-top:6px;">Covers 240+ Tadawul-listed stocks &middot; Educational &amp; research use only &middot; Not financial advice</p>
-      <p style="margin-top:6px; color: var(--border);">guide.html &middot; v1.0</p>
+      <p style="margin-top:6px; color: var(--border);">guide.html &middot; v1.1 &middot; updated 2026-06-25</p>
     </div>
 
   </main>
