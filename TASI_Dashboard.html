@@ -11,7 +11,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260625c'; // bump this string on every deploy that matters
+  var V='20260625d'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -1805,7 +1805,16 @@ function _portV3ClosedPositions() {
     const ds = _portV3CashflowsAndStats(a);
     const totalReturn = ds.realized + ds.totalDivs;
     const retPct = invested > 0 ? totalReturn / invested * 100 : null;
-    const firstBuy = hist[0].d, lastSell = hist[hist.length-1].d;
+    const firstBuy = hist[0].d;
+    // lastSell = the entry where qty first dropped to ≈0, NOT the last history entry
+    // (NAV updates on manual funds create later entries that would push the date forward)
+    let lastSell = hist[hist.length-1].d;
+    for (let i = 1; i < hist.length; i++) {
+      if ((hist[i-1].qty || 0) > 1e-9 && (hist[i].qty || 0) <= 1e-9) {
+        lastSell = hist[i].d;
+        break;
+      }
+    }
     const years = (new Date(lastSell).getTime() - new Date(firstBuy).getTime()) / 31557600000;
     const frac = invested > 0 ? totalReturn / invested : null;
     const annual = (years >= 0.25 && frac != null && (1+frac) > 0) ? (Math.pow(1+frac, 1/years) - 1) : null;
