@@ -182,7 +182,7 @@ try { prevSnap = JSON.parse(readFileSync(join(ROOT, 'data', 'market_snapshot.jso
 const auth = await getCrumb();
 console.log(auth ? 'Yahoo crumb OK' : 'No crumb — falling back to spark-derived quotes');
 
-const [quotes, closes, tasi] = [
+let [quotes, closes, tasi] = [
   await fetchQuotes(tickers, auth),
   await fetchCloses(tickers),
   await fetchTasi(),
@@ -235,10 +235,15 @@ async function fetchGold() {
   for (const sym of ['XAUUSD=X', 'GC=F']) {
     try {
       const j = await fetchJSON(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=5d&interval=1d`);
-      const m = j?.chart?.result?.[0]?.meta;
+      const res = j?.chart?.result?.[0];
+      const m = res?.meta;
       const usdOz = m?.regularMarketPrice;
       if (!(usdOz > 0)) continue;
-      const prev = m?.chartPreviousClose ?? m?.previousClose;
+      // Daily change vs the PREVIOUS TRADING DAY. meta.chartPreviousClose is the close
+      // before the RANGE START (~5 sessions ago) — using it labels a 5-day move as daily.
+      const dayCloses = (res?.indicators?.quote?.[0]?.close || []).filter(v => v > 0);
+      const prev = (m?.regularMarketPreviousClose > 0) ? m.regularMarketPreviousClose
+                 : (dayCloses.length >= 2 ? dayCloses[dayCloses.length - 2] : null);
       const change = prev > 0 ? r2((usdOz - prev) / prev * 100) : null;
       return { sarGram: r2(usdOz / G_PER_OZT * USDSAR), usdOz: r2(usdOz), change, sym, ts: Date.now() };
     } catch (e) { console.warn(`gold ${sym}: ${e.message}`); }
@@ -248,14 +253,22 @@ async function fetchGold() {
 const gold = (await fetchGold()) || prevSnap?.gold || null;
 console.log(gold ? `Gold: ${gold.sarGram} SAR/gram (${gold.usdOz} USD/oz via ${gold.sym})` : 'Gold: unavailable this run');
 
-// Fill quote gaps from spark closes (price = last close, change = vs previous)
+// Fill quote gaps from spark closes (price = last close, change = vs previous).
+// Record the LAST ACTUAL TRADE time per derived quote: Yahoo keeps serving old spark
+// history for suspended/delisted stocks, so "spark answered" must not mean "traded today".
 let derived = 0;
+const derivedLastTrade = {};
 for (const t of tickers) {
   if (quotes[t] || !closes[t]) continue;
-  const c = closes[t].c;
+  const c = closes[t].c, tArr = closes[t].t || [];
   if (c.length < 2) continue;
+  let lastMs = tArr.length ? tArr[tArr.length - 1] : 0;
+  if (lastMs && lastMs < 1e12) lastMs *= 1000;
+  const staleDays = lastMs ? (Date.now() - lastMs) / 86400000 : null;
   quotes[t] = { p: c[c.length - 1], c: r2((c[c.length - 1] - c[c.length - 2]) / c[c.length - 2] * 100),
-    pe: null, eps: null, pb: null, mc: null, v: null, av: null, h52: r2(Math.max(...c)), l52: r2(Math.min(...c)), dy: null };
+    pe: null, eps: null, pb: null, mc: null, v: null, av: null, h52: r2(Math.max(...c)), l52: r2(Math.min(...c)), dy: null,
+    ...(staleDays > 7 ? { frozen: Math.round(staleDays) } : {}) };   // frozen = days since last real trade
+  derivedLastTrade[t] = lastMs || 0;
   derived++;
 }
 
@@ -273,6 +286,16 @@ for (const [t, q] of Object.entries(quotes)) {
 }
 if (carried) console.warn(`Carried fundamentals forward from previous snapshot for ${carried} tickers (crumb flow degraded?)`);
 
+// Spark can fail wholesale while v7 succeeds — never commit an empty/sparse closes map
+// or a null TASI over good previous data (fresh sessions would lose all price history
+// and the technical scores would silently vanish until the next successful run).
+if (Object.keys(closes).length < tickers.length * 0.3 && prevSnap?.closes) {
+  let cf = 0;
+  for (const [t, c] of Object.entries(prevSnap.closes)) if (!closes[t]) { closes[t] = c; cf++; }
+  if (cf) console.warn(`Closes sparse this run — carried ${cf} close-series forward from previous snapshot`);
+}
+if (!tasi && prevSnap?.tasi) { tasi = prevSnap.tasi; console.warn('TASI index missing this run — carried forward from previous snapshot'); }
+
 const nq = Object.keys(quotes).length, nc = Object.keys(closes).length;
 console.log(`Quotes: ${nq} (${derived} derived from closes) · Closes: ${nc} · TASI: ${tasi ? 'OK' : 'MISSING'}`);
 if (nq < tickers.length * 0.5) {
@@ -286,7 +309,12 @@ if (nq < tickers.length * 0.5) {
 // `delisted` — the dashboard greys them out and drops them from market stats.
 const seen = { ...(prevSnap?.seen || {}) };
 const now = Date.now();
-for (const t of Object.keys(quotes)) seen[t] = now;
+// A real v7 quote proves the ticker is alive; a spark-DERIVED quote only proves it
+// traded as of its last close — advance the delist clock only to that date, or a
+// suspended stock whose stale spark history Yahoo keeps serving never gets flagged.
+for (const t of Object.keys(quotes)) {
+  seen[t] = derivedLastTrade[t] !== undefined ? Math.max(seen[t] || 0, derivedLastTrade[t]) : now;
+}
 for (const t of tickers) if (seen[t] == null) seen[t] = now; // start the clock at first observation
 for (const t of Object.keys(seen)) if (!tickers.includes(t)) delete seen[t]; // dropped from universe
 const DELIST_MS = 35 * 24 * 36e5;

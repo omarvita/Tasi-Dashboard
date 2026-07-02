@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: market-data
@@ -49,4 +50,20 @@ jobs:
             # the snapshot-only commit always rebases cleanly on top.
             git pull --rebase origin main
             git push
+          fi
+
+      # A dead pipeline means silently aging prices — file an issue so the failure is
+      # visible in the repo, not just a filtered notification email. Dedup by title.
+      - name: Open issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TITLE="Market data workflow failed"
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$TITLE in:title" --json number --jq '.[0].number' || echo "")
+          BODY="Run failed: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} ($(date -u +'%Y-%m-%d %H:%M UTC')). Prices in data/market_snapshot.json stop updating until this is fixed."
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY"
           fi

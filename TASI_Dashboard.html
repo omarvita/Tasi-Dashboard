@@ -6,12 +6,16 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
+<!-- CSP: only these two hosts may supply <script src>; injected external scripts from any
+     other origin are blocked. Inline scripts stay allowed (the whole app is inline), so keep
+     connect/img/style unrestricted to avoid breaking the many data-source fetches. -->
+<meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://accounts.google.com; object-src 'none'; base-uri 'none'">
 <title>TASI Stock Screener — Tadawul Full Market Dashboard</title>
 <script>
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260625g'; // bump this string on every deploy that matters
+  var V='20260702a'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -22,7 +26,10 @@
 })();
 </script>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js" defer></script>
+<!-- Subresource Integrity: hash of the npm chart.js@4.4.1 dist file (jsDelivr serves npm
+     packages byte-identical). A compromised CDN response now fails closed instead of running
+     with full access to localStorage (portfolio) and the Drive token. -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js" integrity="sha384-dug+JxfBvklEQdJ4AYuBBAIScUz0bVN73xpy273gcAwHjb3qI0fXmuYNaNfdyYJG" crossorigin="anonymous" defer></script>
 <script src="https://accounts.google.com/gsi/client" async></script>
 <style>
 :root{--bg:#0a0c0f;--bg2:#111418;--bg3:#181c22;--b1:#232830;--b2:#2d3440;--tx:#e8eaed;--tx2:#8a9ab5;--tx3:#4a5568;--green:#22c55e;--gdim:#14532d;--red:#ef4444;--rdim:#7f1d1d;--amb:#f59e0b;--adim:#78350f;--blue:#60a5fa;--pur:#a855f7;--pdim:#3b0764;--acc:#00d4aa;--adm:#003d30;--mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans Arabic',sans-serif}
@@ -440,7 +447,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260625g · Add Dividend: the Total field now auto-calculates SAR-per-unit (bidirectional with the per-unit field), and when you save a lump-sum dividend the per-unit is derived from the units you held on that date — so lump-sum dividends now also feed the forward Dividend Calendar. New “Div Yield” metric on each asset (trailing-12m dividends ÷ current market value) shown alongside “Yield on Cost” · v20260625f · Fix: per-asset detail chart x-axis now plots one evenly-spaced point per calendar month instead of one per transaction — multiple buys in the same month (e.g. 4 gold purchases in June) no longer create duplicate “2026-06” labels or stretch the timeline · v20260625e · Fix: Closed Positions realized P&amp;L now correct for manual funds sold at avg cost — when a sell's recorded price matches avg cost (a common mistake for funds where NAV wasn't entered at exit), the calculation falls back to the last tracked NAV from history so the actual gain is shown (Yaqeen 30, stc now reflect real performance); sell form also pre-fills current NAV for manual fund sells to prevent this going forward · v20260625d · Fix: Closed Positions held-date now uses actual sale date · v20260625c · 📕 Closed Positions: fully-sold holdings no longer vanish — a collapsible section under the holdings table now lists every position you've exited, with the dates held, cash invested, realized P&L, dividends received, total return %, and annualized return (click any row for the full history &amp; FIFO realized lots) · v20260625b · 📸 Snapshot button in portfolio footer opens a dated, printable point-in-time record of your portfolio (all metrics, holdings table, dividend calendar, a blank notes box) in a new tab — use browser Print → Save as PDF to journal your decision · v20260625a · Tap/click anywhere outside a chart now dismisses the lingering price tooltip on every chart (fixes the stuck price label on touch devices) · v20260621g · Mutual funds can now auto-price: link a fund holding to its Yahoo symbol (6-digit Tadawul code + .SR, e.g. 012060.SR for the Al Rajhi SMID-Cap Fund) from the fund’s “↻ Update NAV” panel — it fetches the live NAV to confirm the match and refreshes on every open; CAGR chart now truncates long fund names on the axis (full name still shows on hover) · v20260621f · Gold now auto-prices in SAR/gram from Yahoo spot (XAUUSD=X, ÷31.1035 troy-oz × USD/SAR peg) via the 3×/day market snapshot — your manual “Update SAR/gram” still overrides when newer · v20260621e · Portfolio analytics pack: TASI/S&P 500 benchmark toggle, volatility, max-drawdown chart, Sharpe ratio, time-weighted return (TWR), dividend calendar with projected income, concentration/HHI & FX-exposure risk flags, stale-price badge, CSV bulk import, and FIFO realised/unrealised tax lots · v20260621d · “⚡ Fill All Dividends” button (portfolio footer) auto-fills dividends for every TASI/ETF holding at once; performance chart now plots “Cash invested (ex-dividends)” as the dashed contributions line — excluding reinvested dividends — with the full cost basis shown as a faint secondary line when you have DRIP entries; corrected the per-asset CAGR column label to “Price CAGR” (it is price-only) and added a note clarifying the headline Portfolio CAGR includes dividends · v20260621c · Auto-fill Dividends per asset: pulls per-share dividend history from Yahoo (10y) scaled by shares held on each ex-date · v20260621b · DRIP support: “♻ Reinvest (DRIP)” marks dividend reinvestments and shows “Cash In” excluding them</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260702a · Accuracy &amp; safety batch from a full audit: TWR now counts sale proceeds and cash dividends correctly (it was understated when you sold winners); Volatility, Sharpe and Max Drawdown are now computed on flow-adjusted returns (adding money no longer inflates “volatility”, a withdrawal no longer shows as a “drawdown”); dividend calendar no longer overstates USD-asset payouts 3.75×; backdated transactions (incl. CSV import) are valued at their own price instead of today’s; BUY/HOLD/WATCH signal now uses the Combined Score alone exactly as documented (it silently double-counted Buffett before — some labels will shift); removed unsourced “70%/65% historically” claims from RSI/SMA tooltips; fair-value range relabelled honestly (±15% shown, true uncertainty larger); semi-annual TTM fixed for standalone December reporters; D/E now includes short-term debt to match the DCF; snapshot-age warning now always shows when data is &gt;3 days old; suspended stocks no longer refresh the delist clock via stale spark data; gold daily-change now vs previous day (was a 5-day move) and stale gold gets the ⚠ badge; Google Drive sync is newer-wins on both portfolio files and pending saves flush on tab close; Chart.js CDN pinned with an integrity hash + CSP added; closed-position exit-NAV fallback is now symmetric, restricted to manual funds, and consistent with the headline Realized P&amp;L · v20260625g · Add Dividend: the Total field now auto-calculates SAR-per-unit (bidirectional with the per-unit field), and when you save a lump-sum dividend the per-unit is derived from the units you held on that date — so lump-sum dividends now also feed the forward Dividend Calendar. New “Div Yield” metric on each asset (trailing-12m dividends ÷ current market value) shown alongside “Yield on Cost” · v20260625f · Fix: per-asset detail chart x-axis now plots one evenly-spaced point per calendar month instead of one per transaction — multiple buys in the same month (e.g. 4 gold purchases in June) no longer create duplicate “2026-06” labels or stretch the timeline · v20260625e · Fix: Closed Positions realized P&amp;L now correct for manual funds sold at avg cost — when a sell's recorded price matches avg cost (a common mistake for funds where NAV wasn't entered at exit), the calculation falls back to the last tracked NAV from history so the actual gain is shown (Yaqeen 30, stc now reflect real performance); sell form also pre-fills current NAV for manual fund sells to prevent this going forward · v20260625d · Fix: Closed Positions held-date now uses actual sale date · v20260625c · 📕 Closed Positions: fully-sold holdings no longer vanish — a collapsible section under the holdings table now lists every position you've exited, with the dates held, cash invested, realized P&L, dividends received, total return %, and annualized return (click any row for the full history &amp; FIFO realized lots) · v20260625b · 📸 Snapshot button in portfolio footer opens a dated, printable point-in-time record of your portfolio (all metrics, holdings table, dividend calendar, a blank notes box) in a new tab — use browser Print → Save as PDF to journal your decision · v20260625a · Tap/click anywhere outside a chart now dismisses the lingering price tooltip on every chart (fixes the stuck price label on touch devices) · v20260621g · Mutual funds can now auto-price: link a fund holding to its Yahoo symbol (6-digit Tadawul code + .SR, e.g. 012060.SR for the Al Rajhi SMID-Cap Fund) from the fund’s “↻ Update NAV” panel — it fetches the live NAV to confirm the match and refreshes on every open; CAGR chart now truncates long fund names on the axis (full name still shows on hover) · v20260621f · Gold now auto-prices in SAR/gram from Yahoo spot (XAUUSD=X, ÷31.1035 troy-oz × USD/SAR peg) via the 3×/day market snapshot — your manual “Update SAR/gram” still overrides when newer · v20260621e · Portfolio analytics pack: TASI/S&P 500 benchmark toggle, volatility, max-drawdown chart, Sharpe ratio, time-weighted return (TWR), dividend calendar with projected income, concentration/HHI & FX-exposure risk flags, stale-price badge, CSV bulk import, and FIFO realised/unrealised tax lots · v20260621d · “⚡ Fill All Dividends” button (portfolio footer) auto-fills dividends for every TASI/ETF holding at once; performance chart now plots “Cash invested (ex-dividends)” as the dashed contributions line — excluding reinvested dividends — with the full cost basis shown as a faint secondary line when you have DRIP entries; corrected the per-asset CAGR column label to “Price CAGR” (it is price-only) and added a note clarifying the headline Portfolio CAGR includes dividends · v20260621c · Auto-fill Dividends per asset: pulls per-share dividend history from Yahoo (10y) scaled by shares held on each ex-date · v20260621b · DRIP support: “♻ Reinvest (DRIP)” marks dividend reinvestments and shows “Cash In” excluding them</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -771,7 +778,7 @@ function toggleWatch(ticker, e) {
   if(e) e.stopPropagation();
   if(watchlist.has(ticker)) watchlist.delete(ticker);
   else watchlist.add(ticker);
-  try { localStorage.setItem('TASI_watchlist', JSON.stringify([...watchlist])); } catch(e){}
+  try { localStorage.setItem('TASI_watchlist', JSON.stringify([...watchlist])); } catch(e){ showToast('⚠ Could not save locally — browser storage may be full'); }
   gdScheduleWatchlistSave(); // sync to Drive so it follows you across devices
   scheduleRender();
   // Update star icon if modal open
@@ -933,7 +940,8 @@ async function gdSavePortfolio() {
     const url = _portfolioFileId
       ? `https://www.googleapis.com/upload/drive/v3/files/${_portfolioFileId}?uploadType=multipart`
       : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-    const res = await fetch(url, { method, headers: { Authorization: `Bearer ${GD_TOKEN}` }, body: form, signal: AbortSignal.timeout(15000) });
+    // keepalive lets the request survive tab close (unload flush); only valid for bodies < 64KB
+    const res = await fetch(url, { method, headers: { Authorization: `Bearer ${GD_TOKEN}` }, body: form, keepalive: body.length < 60000, signal: AbortSignal.timeout(15000) });
     if (res.ok) {
       if (!_portfolioFileId) {
         const meta = await res.json().catch(() => ({}));
@@ -983,10 +991,20 @@ async function gdLoadPortfolio() {
     }
     const data = await fr.json().catch(() => null);
     if (data?.portfolio && typeof data.portfolio === 'object') {
+      // Newer-wins by savedAt: if this device edited the portfolio AFTER the Drive copy
+      // was written (e.g. Drive save failed offline), keep local and push it up instead —
+      // blindly letting Drive win resurrected deletions and clobbered newer edits.
+      const localSavedAt = parseInt(localStorage.getItem('TASI_portfolio_savedAt') || '0');
+      if (localSavedAt > (data.savedAt || 0)) {
+        console.log('[GD] Local portfolio is newer than Drive copy — keeping local, scheduling upload');
+        gdSchedulePortfolioSave();
+        return false;
+      }
       // Merge: Drive wins for tickers present in Drive; keep local-only positions
       const localPortfolio = { ...portfolio };
       portfolio = { ...localPortfolio, ...data.portfolio };
       localStorage.setItem('TASI_portfolio', JSON.stringify(portfolio));
+      localStorage.setItem('TASI_portfolio_savedAt', String(data.savedAt || Date.now()));
       console.log(`[GD] Portfolio loaded from Drive (${Object.keys(portfolio).length} positions)`);
       if (document.getElementById('portfolio-panel')) renderPortfolioPanel();
       return true;
@@ -996,7 +1014,10 @@ async function gdLoadPortfolio() {
 }
 
 function _savePortfolio() {
-  try { localStorage.setItem('TASI_portfolio', JSON.stringify(portfolio)); } catch(e) {}
+  try {
+    localStorage.setItem('TASI_portfolio', JSON.stringify(portfolio));
+    localStorage.setItem('TASI_portfolio_savedAt', String(Date.now()));
+  } catch(e) { showToast('⚠ Could not save locally — browser storage may be full. Export a backup!'); }
   gdSchedulePortfolioSave();
 }
 
@@ -1047,7 +1068,11 @@ function _xirr(cfs) {
     r -= step;
     if (Math.abs(step) < 1e-9) break;
   }
-  return isFinite(r) && r > -0.999 ? r : null;
+  if (!isFinite(r) || r <= -0.999) return null;
+  // Reject unconverged roots: verify the NPV residual is actually ~0 at the returned rate
+  let resid = 0, scale = 0;
+  for (let i = 0; i < cfs.length; i++) { resid += cfs[i].v / Math.pow(1 + r, yrs[i]); scale += Math.abs(cfs[i].v); }
+  return (scale > 0 && Math.abs(resid) < Math.max(1, scale) * 1e-4) ? r : null;
 }
 
 // ── Portfolio v3 (schema 3) state + persistence ──
@@ -1064,7 +1089,9 @@ function _portV3LoadLS() {
 
 function _portV3PersistLS() {
   if (!portfolioV3) return;
-  try { localStorage.setItem('TASI_portfolio_v3', JSON.stringify(portfolioV3)); } catch(e) {}
+  portfolioV3.savedAt = Date.now();   // lets the Drive merge know which copy is newer
+  try { localStorage.setItem('TASI_portfolio_v3', JSON.stringify(portfolioV3)); }
+  catch(e) { showToast('⚠ Could not save locally — browser storage may be full. Export a JSON backup!'); }
   clearTimeout(_portV3SaveTimer);
   _portV3SaveTimer = setTimeout(_portV3GdSave, 4000);
 }
@@ -1081,7 +1108,8 @@ async function _portV3GdSave() {
     const url = _portV3FileId
       ? `https://www.googleapis.com/upload/drive/v3/files/${_portV3FileId}?uploadType=multipart`
       : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-    const res = await fetch(url, { method, headers: { Authorization: `Bearer ${GD_TOKEN}` }, body: form, signal: AbortSignal.timeout(15000) });
+    // keepalive lets the request survive tab close (unload flush); only valid for bodies < 64KB
+    const res = await fetch(url, { method, headers: { Authorization: `Bearer ${GD_TOKEN}` }, body: form, keepalive: body.length < 60000, signal: AbortSignal.timeout(15000) });
     if (res.ok) {
       if (!_portV3FileId) { const m = await res.json().catch(()=>({})); if (m?.id) { _portV3FileId = m.id; localStorage.setItem('TASI_portv3_gd_id', m.id); } }
       console.log('[GD] Portfolio v3 saved');
@@ -1094,11 +1122,16 @@ async function _portV3GdSave() {
   } catch(e) { console.warn('_portV3GdSave:', e); }
 }
 
-// Deep merge two portfolio v3 objects — history merged by date, navDate takes the newer value
+// Deep merge two portfolio v3 objects — history merged by date, navDate takes the newer
+// value, and SCALAR fields (name, ticker, target, sector…) come from whichever copy was
+// saved more recently (savedAt) instead of remote-always-wins, so a stale device that
+// syncs later can't silently revert edits made elsewhere.
 function _portV3MergeData(local, remote) {
   if (!remote?.schema || !remote?.assets) return local || remote;
   if (!local?.schema || !local?.assets) return remote;
-  const merged = { schema: remote.schema, fx: { ...(local.fx||{}), ...(remote.fx||{}) }, assets: {} };
+  const localNewer = (local.savedAt || 0) > (remote.savedAt || 0);
+  const merged = { schema: remote.schema, fx: { ...(local.fx||{}), ...(remote.fx||{}) },
+                   savedAt: Math.max(local.savedAt || 0, remote.savedAt || 0) || undefined, assets: {} };
   const allIds = new Set([...Object.keys(local.assets), ...Object.keys(remote.assets)]);
   for (const id of allIds) {
     const l = local.assets[id], r = remote.assets[id];
@@ -1118,7 +1151,7 @@ function _portV3MergeData(local, remote) {
     const useRemoteNav = (r.navDate||'') >= (l.navDate||'');
     const lastH = history[history.length-1];
     merged.assets[id] = {
-      ...l, ...r,
+      ...(localNewer ? { ...r, ...l } : { ...l, ...r }),
       navPrice: useRemoteNav ? (r.navPrice||l.navPrice) : l.navPrice,
       navDate:  useRemoteNav ? (r.navDate ||l.navDate)  : l.navDate,
       history,
@@ -1191,14 +1224,19 @@ function _portV3Price(asset) {
     if (cf?.p > 0) return { sarPrice: cf.p, dayChangePct: cf.c ?? null, live: true };
   }
   // Gold: auto-priced in SAR/gram from the snapshot (Yahoo spot ÷ 31.1035 × USDSAR),
-  // unless the user pinned a manual price newer than the snapshot. Manual still wins
-  // when offline / snapshot stale (handled by the navPrice fallback below).
+  // unless the user pinned a manual price dated the same day or later (date-level compare:
+  // a manual price entered today must beat this morning's snapshot). Gold carried forward
+  // from an old snapshot is NOT "live" — mark it stale past 48h so the ⚠ badge can fire.
   if (asset.unit === 'gram' && asset.autoGold !== false) {
     const g = _snapshotData?.gold;
     if (g?.sarGram > 0) {
-      const navTs = asset.navDate ? new Date(asset.navDate).getTime() : 0;
-      if (!(navTs > (g.ts || 0)))
-        return { sarPrice: g.sarGram, dayChangePct: g.change ?? null, live: true };
+      const goldDay = g.ts ? new Date(g.ts).toISOString().slice(0,10) : '';
+      if (!(asset.navDate && goldDay && asset.navDate >= goldDay)) {
+        const goldAge = g.ts ? Date.now() - g.ts : Infinity;
+        const fresh = goldAge < 48 * 36e5;
+        return { sarPrice: g.sarGram, dayChangePct: g.change ?? null, live: fresh, stale: !fresh,
+                 navDate: goldDay || undefined };
+      }
     }
   }
   if ((asset.navPrice || 0) > 0) return { sarPrice: asset.navPrice, live: false, navDate: asset.navDate };
@@ -1215,6 +1253,19 @@ function _pv3Fx(asset) {
   return (asset && asset.ccy === 'USD') ? (portfolioV3?.fx?.USDSAR || 3.75) : 1;
 }
 
+// Effective exit price for a sell row. Manual funds were often recorded at avg cost because
+// the old form didn't capture NAV at sale. When the recorded price ≈ avg cost (±0.5%) and the
+// prior row carries a tracked NAV that meaningfully differs, use that NAV as the exit price —
+// SYMMETRICALLY (it can lower the gain as well as raise it). Auto-priced assets are left alone.
+function _pv3EffSellPrice(asset, prev, h, avgBefore) {
+  const p = h.price || 0;
+  if (asset.type !== 'manual') return p;
+  if (p > 0 && !(avgBefore > 0 && Math.abs(p - avgBefore) / avgBefore < 0.005)) return p;
+  const mvNav = (prev?.qty||0) > 1e-9 ? (prev.mv||0) / prev.qty : 0;
+  if (mvNav > 0 && (!(p > 0) || !(avgBefore > 0) || Math.abs(mvNav - avgBefore) / avgBefore > 0.005)) return mvNav;
+  return p;
+}
+
 // Per-asset XIRR CAGR from monthly cost history
 // Build dated cash flows for XIRR + derive realized P&L, dividends, fees from history
 function _portV3CashflowsAndStats(asset) {
@@ -1228,11 +1279,14 @@ function _portV3CashflowsAndStats(asset) {
     if (Math.abs(dcost) > 0.5) cfs.push({ t, v: -dcost });            // buys = cash out; cost reductions = cash in
     if (prev) {
       const dq = (h.qty||0) - (prev.qty||0);
-      if (dq < -1e-9 && h.price > 0) {                               // a sell — book gain above cost basis as proceeds
+      if (dq < -1e-9) {                                              // a sell — book gain above cost basis as proceeds
         const avgBefore = (prev.qty||0) > 0 ? (prev.cost||0)/prev.qty : 0;
-        const gain = (h.price - avgBefore) * (-dq) * fx;
-        realized += gain;
-        if (Math.abs(gain) > 0.5) cfs.push({ t, v: gain });
+        const effP = _pv3EffSellPrice(asset, prev, h, avgBefore);
+        if (effP > 0) {
+          const gain = (effP - avgBefore) * (-dq) * fx;
+          realized += gain;
+          if (Math.abs(gain) > 0.5) cfs.push({ t, v: gain });
+        }
       }
     }
     if (h.fee > 0) { fees += h.fee * fx; cfs.push({ t, v: -h.fee * fx }); }   // brokerage fees are a cash drag
@@ -1292,7 +1346,24 @@ function _portV3TotalCAGR() {
   allCfs.push({ t: Date.now(), v: totalMV });
   allCfs.sort((a,b)=>a.t-b.t);
   if (!allCfs.some(c=>c.v<0)) return null;
+  // Annualizing a track record shorter than ~3 months produces absurd rates (4% in 3 weeks → "+90%/yr")
+  const firstOut = allCfs.find(c=>c.v<0);
+  if (firstOut && (Date.now() - firstOut.t) < 90 * 86400000) return null;
   return _xirr(allCfs);
+}
+
+// Chain-linked monthly total returns, flow-adjusted:
+// r[i] = (mv[i] + dividends received in month i − external cash in during month i) / mv[i−1] − 1
+// Contributions/withdrawals use ACTUAL cash amounts (buys at price, sells at proceeds), so
+// adding money doesn't look like a gain and selling a winner doesn't look like a crash.
+function _portV3MonthlyReturns(ts) {
+  const rets = [];
+  for (let i = 1; i < ts.mv.length; i++) {
+    const mv0 = ts.mv[i-1]; if (!(mv0 > 0)) { rets.push(null); continue; }
+    const hpr = (ts.mv[i] + (ts.divs?.[i]||0) - (ts.flows?.[i]||0)) / mv0 - 1;
+    rets.push(Math.abs(hpr) > 2 ? null : hpr);   // skip months with data gaps (>200%)
+  }
+  return rets;
 }
 
 // ── Risk metrics: annualized volatility, max drawdown, Sharpe (4% risk-free) ──
@@ -1300,33 +1371,29 @@ function _portV3RiskMetrics() {
   const ts = _portV3TimeSeries();
   const n = ts.mv.length;
   if (n < 4) return null;
-  const rets = [];
-  for (let i = 1; i < n; i++) { if (ts.mv[i-1] > 0) rets.push((ts.mv[i]-ts.mv[i-1])/ts.mv[i-1]); }
+  const rets = _portV3MonthlyReturns(ts).filter(r => r != null);
   if (rets.length < 3) return null;
   const mean = rets.reduce((s,r)=>s+r,0)/rets.length;
   const vol = Math.sqrt(rets.reduce((s,r)=>s+(r-mean)**2,0)/(rets.length-1)*12);
-  let peak=0, maxDD=0;
-  for (const v of ts.mv) { if (v>peak) peak=v; if (peak>0) maxDD=Math.max(maxDD,(peak-v)/peak); }
+  // Drawdown on the chain-linked RETURN index, not raw value — a withdrawal is not a loss
+  let idx=1, peak=1, maxDD=0;
+  for (const r of rets) { idx *= (1+r); if (idx>peak) peak=idx; maxDD=Math.max(maxDD,(peak-idx)/peak); }
   const cagr = _portV3TotalCAGR();
   const sharpe = vol>0&&cagr!=null ? (cagr-0.04)/vol : null;
   return { vol, maxDD, sharpe };
 }
 
-// ── Time-weighted return (modified Dietz, chain-linked monthly) ──
+// ── Time-weighted return (chain-linked monthly, flow- and dividend-adjusted) ──
 function _portV3TWR() {
   const ts = _portV3TimeSeries();
-  const n = ts.mv.length;
-  if (n < 2) return null;
+  if (ts.mv.length < 2) return null;
   let prod = 1, cnt = 0;
-  for (let i = 1; i < n; i++) {
-    const mv0 = ts.mv[i-1]; if (!(mv0>0)) continue;
-    const flow = (ts.cost[i]||0)-(ts.cost[i-1]||0);   // net external cash in
-    const hpr = (ts.mv[i]-flow)/mv0 - 1;
-    if (Math.abs(hpr)>2) continue;   // skip months with data gaps (>200%)
-    prod *= (1+hpr); cnt++;
+  for (const r of _portV3MonthlyReturns(ts)) {
+    if (r == null) continue;
+    prod *= (1+r); cnt++;
   }
   if (cnt < 2) return null;
-  return Math.pow(prod, 12/cnt) - 1;   // annualize
+  return Math.pow(prod, 12/cnt) - 1;   // months are continuous calendar months, so ×12/cnt is exact
 }
 
 // ── Portfolio concentration: HHI, top-1 / top-3, USD FX exposure ──
@@ -1347,7 +1414,6 @@ function _portV3DivCalendar() {
   const upcoming = []; let totalFwd12m = 0;
   for (const [id, a] of Object.entries(portfolioV3?.assets||{})) {
     const qty = a.holding?.qty||0; if (!(qty>0)) continue;
-    const fx = _pv3Fx(a);
     const divs = (a.dividends||[]).filter(d=>d.d&&(d.perUnit||0)>0).sort((x,y)=>x.d.localeCompare(y.d));
     if (!divs.length) continue;
     let freqM = 12;
@@ -1361,7 +1427,8 @@ function _portV3DivCalendar() {
     const nd=new Date(last.d); nd.setMonth(nd.getMonth()+freqM);
     const nextStr=nd.toISOString().slice(0,10);
     const recentPU=divs.slice(-2).reduce((s,d)=>s+d.perUnit,0)/Math.min(2,divs.length);
-    const projSar=recentPU*qty*fx;
+    // perUnit is stored ALREADY in SAR (both manual entry and auto-fill convert at write time) — no ×fx here
+    const projSar=recentPU*qty;
     upcoming.push({ id, a, nextStr, freqM, perUnit:recentPU, projSar, overdue:nextStr<nowStr });
     totalFwd12m += projSar*(12/freqM);
   }
@@ -1380,13 +1447,16 @@ function _portV3TaxLots(asset) {
     const h=hist[i], prev=hist[i-1];
     const dq = h.qty - (prev?.qty||0);
     if (dq>1e-9) {
-      const pu = h.price || (h.cost||0)/dq;
+      // Fallback per-unit price is the COST DELTA over this row, not the cumulative running cost
+      const pu = h.price || ((h.cost||0)-(prev?.cost||0))/dq;
       open.push({ d:h.d, qty:dq, price:pu });
     } else if (dq<-1e-9) {
+      const avgBefore = (prev?.qty||0) > 0 ? (prev.cost||0)/prev.qty : 0;
+      const salePU = _pv3EffSellPrice(asset, prev, h, avgBefore) || 0;   // same exit price as realized P&L
       let rem=-dq;
       while (rem>1e-9&&open.length) {
         const lot=open[0]; const sellQ=Math.min(rem,lot.qty);
-        closed.push({ openD:lot.d, closeD:h.d, qty:sellQ, costPU:lot.price, salePU:h.price, gain:(h.price-lot.price)*sellQ*fx });
+        closed.push({ openD:lot.d, closeD:h.d, qty:sellQ, costPU:lot.price, salePU, gain:(salePU-lot.price)*sellQ*fx });
         lot.qty-=sellQ; if(lot.qty<1e-9) open.shift(); rem-=sellQ;
       }
     }
@@ -1439,7 +1509,7 @@ async function _portV3SetBenchmark(mode) {
 // ── CSV bulk import ──
 function _portV3ShowCSVImport() {
   document.getElementById('portv3-csv-modal')?.remove();
-  const example='date,asset,type,units,price,fee,note\n2025-01-15,1120SR,buy,100,50.00,50,\n2025-06-01,1120SR,dividend,,,2000,Q2 2025\n2025-03-20,IBIT,buy,10,45.00,,';
+  const example='date,asset,type,units,price,fee,note\n2025-01-15,1120SR,buy,100,50.00,50,\n2025-06-01,1120SR,dividend,,2000,,Q2 2025\n2025-03-20,IBIT,buy,10,45.00,,';
   document.body.insertAdjacentHTML('beforeend',`<div class="mo" id="portv3-csv-modal" onclick="if(event.target===this)this.remove()" style="z-index:1400">
     <div class="modal" style="width:740px;max-width:96vw">
       <div class="mhead"><div class="mhtop"><div class="mtitle">📥 Bulk CSV Import</div><div class="mclose" onclick="this.closest('.mo').remove()">×</div></div></div>
@@ -1511,7 +1581,12 @@ function _portV3CommitCSVImport(rows) {
     const a=assets[r.assetId]; if(!a) continue;
     if(r.type==='dividend') {
       a.dividends=a.dividends||[];
-      a.dividends.push({d:r.date,amount:+r.price.toFixed(2),note:r.note||'CSV import'});
+      // Derive perUnit from units held on the dividend date so imported dividends
+      // feed the forward calendar (amount is in SAR; shares-at-date, not current qty)
+      const _dsh=_portV3SharesAt(a,r.date)||a.holding?.qty||0;
+      const _dent={d:r.date,amount:+r.price.toFixed(2),note:r.note||'CSV import'};
+      if(_dsh>0)_dent.perUnit=+(r.price/_dsh).toFixed(4);
+      a.dividends.push(_dent);
       a.dividends.sort((x,y)=>(x.d||'').localeCompare(y.d||''));
       nDiv++;
     } else {
@@ -1521,7 +1596,10 @@ function _portV3CommitCSVImport(rows) {
       else{qty+=r.units;cost+=r.units*r.price;}
       a.holding.qty=+qty.toFixed(6);a.holding.cost=+Math.max(0,cost).toFixed(2);
       a.holding.avg=qty>0?+(a.holding.cost/qty).toFixed(4):0;
-      const _pi=_portV3Price(a),_fx=_pv3Fx(a);
+      // Backdated rows must be valued at THEIR OWN price — stamping a 2024 row with today's
+      // live price corrupts the performance/drawdown history and every metric built on mv.
+      const _isRecent=r.date>=new Date(Date.now()-7*86400000).toISOString().slice(0,10);
+      const _pi=_isRecent?_portV3Price(a):null,_fx=_pv3Fx(a);
       const curP=_fx>1?(_pi?.usdPrice||r.price):(_pi?.sarPrice||r.price);
       a.history=a.history||[];
       const row={d:r.date,qty:a.holding.qty,price:+r.price.toFixed(4),cost:a.holding.cost,mv:+(a.holding.qty*curP).toFixed(2)};
@@ -1624,8 +1702,8 @@ function _portV3PrintSnapshot() {
     const ticker = r.a.ticker || r.a.type;
     const priceSuffix = pi?.live ? ' ●' : (pi?.stale ? ' ⚠' : ' NAV');
     return `<tr>
-      <td>${r.a.name}</td>
-      <td style="color:#8a9ab5">${ticker}</td>
+      <td>${escapeHTML(r.a.name||'')}</td>
+      <td style="color:#8a9ab5">${escapeHTML(String(ticker||''))}</td>
       <td style="text-align:right">${r.qty.toLocaleString()}</td>
       <td style="text-align:right">${price}${pi ? '<span style="font-size:8px;color:#8a9ab5">'+priceSuffix+'</span>' : ''}</td>
       <td style="text-align:right">${fmt(r.mv)}</td>
@@ -1642,7 +1720,7 @@ function _portV3PrintSnapshot() {
     const freqLabel = u.freqM===1?'Monthly':u.freqM===3?'Quarterly':u.freqM===6?'Semi-ann':'Annual';
     const overdueCss = u.overdue ? 'color:#f87171' : '';
     return `<tr>
-      <td>${u.a.name}</td>
+      <td>${escapeHTML(u.a.name||'')}</td>
       <td>${freqLabel}</td>
       <td style="${overdueCss}">${u.nextStr}${u.overdue?' ⚠':''}</td>
       <td style="text-align:right">${u.perUnit.toFixed(2)}</td>
@@ -1701,7 +1779,7 @@ ${conc ? `
 <h2>Risk &amp; Concentration</h2>
 <div class="risk-grid">
   <div class="risk-card"><div class="risk-label">HHI</div><div class="risk-val">${conc.hhi.toFixed(1)}</div><div class="card-sub">${conc.hhi<10?'Diversified':conc.hhi<25?'Moderate':'Concentrated'}</div></div>
-  <div class="risk-card"><div class="risk-label">Top Holding</div><div class="risk-val">${conc.top1.toFixed(1)}%</div><div class="card-sub">${conc.top1Nm}</div></div>
+  <div class="risk-card"><div class="risk-label">Top Holding</div><div class="risk-val">${conc.top1.toFixed(1)}%</div><div class="card-sub">${escapeHTML(conc.top1Nm)}</div></div>
   <div class="risk-card"><div class="risk-label">Top 3 Combined</div><div class="risk-val">${conc.top3.toFixed(1)}%</div></div>
   ${conc.fxPct > 0 ? `<div class="risk-card"><div class="risk-label">FX (USD) Exposure</div><div class="risk-val" style="${conc.fxPct>20?'color:#f59e0b':''}">${conc.fxPct.toFixed(1)}%</div></div>` : ''}
 </div>
@@ -1802,37 +1880,19 @@ function _portV3ClosedPositions() {
       prevCost = c;
     }
     if (!(invested > 0) || !everSold) continue;                // never really a closed trade
+    // Realized comes from the SAME calculation as the summary cards (incl. the manual-fund
+    // NAV-at-sale fallback in _pv3EffSellPrice) so the two views can never disagree.
     const ds = _portV3CashflowsAndStats(a);
-    // Recompute realized using mv-based fallback for sells where price was entered at
-    // avg cost (a common mistake for manual funds — user enters cost instead of NAV).
-    // For each sell, if price ≈ avgBefore (within 0.5%) and prev.mv suggests a higher
-    // value, use prev.mv / prev.qty as the actual exit NAV instead.
-    let realized = 0;
-    for (let i = 1; i < hist.length; i++) {
-      const h = hist[i], prev = hist[i-1];
-      const dq = (h.qty||0) - (prev.qty||0);
-      if (dq >= -1e-9) continue;                               // not a sell
-      const sellQty = -dq;
-      const avgBefore = (prev.qty||0) > 1e-9 ? (prev.cost||0)/prev.qty : 0;
-      let salePrice = h.price || 0;
-      // If price is 0 or suspiciously equal to avg cost, fall back to last tracked NAV
-      if (!(salePrice > 0) || (avgBefore > 0 && Math.abs(salePrice - avgBefore) / avgBefore < 0.005)) {
-        const mvNav = (prev.qty||0) > 1e-9 ? (prev.mv||0)/(prev.qty) : 0;
-        if (mvNav > salePrice) salePrice = mvNav;
-      }
-      realized += (salePrice - avgBefore) * sellQty * fx;
-    }
+    const realized = ds.realized;
     const totalReturn = realized + ds.totalDivs;
     const retPct = invested > 0 ? totalReturn / invested * 100 : null;
     const firstBuy = hist[0].d;
-    // lastSell = the entry where qty first dropped to ≈0, NOT the last history entry
-    // (NAV updates on manual funds create later entries that would push the date forward)
+    // lastSell = the LAST entry where qty dropped to ≈0 (a position can close, reopen, and
+    // close again — the final close bounds the true holding period). NAV updates on manual
+    // funds create later entries with unchanged qty, which must not push the date forward.
     let lastSell = hist[hist.length-1].d;
     for (let i = 1; i < hist.length; i++) {
-      if ((hist[i-1].qty || 0) > 1e-9 && (hist[i].qty || 0) <= 1e-9) {
-        lastSell = hist[i].d;
-        break;
-      }
+      if ((hist[i-1].qty || 0) > 1e-9 && (hist[i].qty || 0) <= 1e-9) lastSell = hist[i].d;
     }
     const years = (new Date(lastSell).getTime() - new Date(firstBuy).getTime()) / 31557600000;
     const frac = invested > 0 ? totalReturn / invested : null;
@@ -1850,20 +1910,46 @@ function _portV3TimeSeries() {
   const assets = Object.values(portfolioV3?.assets || {});
   const monthsSet = new Set();
   assets.forEach(a => (a.history||[]).forEach(h => h.d && monthsSet.add(h.d.slice(0,7))));
-  const months = [...monthsSet].sort();
+  const present = [...monthsSet].sort();
+  // Continuous calendar months from first transaction to now (carry-forward in gaps).
+  // Sparse months would make ×12 annualization and "monthly" volatility wrong.
+  const months = [];
+  if (present.length) {
+    const nowM = new Date().toISOString().slice(0,7);
+    const endM = present[present.length-1] > nowM ? present[present.length-1] : nowM;
+    let [y,m] = present[0].split('-').map(Number);
+    const [ey,em] = endM.split('-').map(Number);
+    while ((y < ey || (y === ey && m <= em)) && months.length < 600) {
+      months.push(y + '-' + String(m).padStart(2,'0'));
+      if (++m > 12) { m = 1; y++; }
+    }
+  }
   let anyDrip = false;
   // cashCost = cost basis EXCLUDING dividend reinvestments (DRIP) — i.e. only your own external cash.
   // On a sell we shrink the accumulated reinvested amount proportionally so it tracks remaining basis.
-  const perAsset = assets.map(a => { const fx = _pv3Fx(a); let cumReinv = 0, prevCost = 0; return (a.history||[]).slice()
+  // flow = ACTUAL external cash that month: buys at cost paid + fees, minus sale PROCEEDS (price×units,
+  // not the avg-cost basis reduction — otherwise realized gains vanish from TWR). DRIP is internal: no flow.
+  const flowByM = {}, divByM = {};
+  const perAsset = assets.map(a => { const fx = _pv3Fx(a); let cumReinv = 0, prevCost = 0, prevQty = 0;
+    for (const dv of (a.dividends||[])) { const m = (dv.d||'').slice(0,7); if (m) divByM[m] = (divByM[m]||0) + (dv.amount||0); }
+    return (a.history||[]).slice()
     .sort((x,y) => (x.d||'').localeCompare(y.d||''))
     .map(h => {
-      const c = (h.cost||0);
-      if (c < prevCost - 1e-9 && prevCost > 0) cumReinv *= c / prevCost;   // sell: reduce reinvested basis pro-rata
-      else if (h.reinvest) { cumReinv += (h.reinvestAmt||0); anyDrip = true; }
-      prevCost = c;
-      return { m: (h.d||'').slice(0,7), cost: c*fx, cashCost: Math.max(0, c - cumReinv)*fx, mv: (h.mv||0)*fx };
+      const c = (h.cost||0), q = (h.qty||0), m = (h.d||'').slice(0,7);
+      const dc = c - prevCost, dq = q - prevQty;
+      if (h.reinvest) { cumReinv += (h.reinvestAmt||0); anyDrip = true; }
+      else if (dq < -1e-9) {
+        if (prevCost > 0) cumReinv *= Math.max(0, c / prevCost);           // sell: reduce reinvested basis pro-rata
+        const proceeds = (h.price > 0 ? h.price * (-dq) : -dc) * fx;       // real cash out at sale price
+        flowByM[m] = (flowByM[m]||0) - proceeds;
+      } else if (dc > 1e-9) {
+        flowByM[m] = (flowByM[m]||0) + dc * fx;                            // buy: cash in at cost paid
+      }
+      if (h.fee > 0) flowByM[m] = (flowByM[m]||0) + h.fee * fx;            // fees are external cash too
+      prevCost = c; prevQty = q;
+      return { m, cost: c*fx, cashCost: Math.max(0, c - cumReinv)*fx, mv: (h.mv||0)*fx };
     }); });
-  const cost = [], cashCost = [], mv = [];
+  const cost = [], cashCost = [], mv = [], flows = [], divs = [];
   for (const m of months) {
     let c = 0, cc = 0, v = 0;
     for (const hs of perAsset) {
@@ -1872,8 +1958,9 @@ function _portV3TimeSeries() {
       if (last) { c += last.cost; cc += last.cashCost; v += last.mv; }
     }
     cost.push(Math.round(c)); cashCost.push(Math.round(cc)); mv.push(Math.round(v));
+    flows.push(Math.round(flowByM[m]||0)); divs.push(Math.round(divByM[m]||0));
   }
-  return { months, cost, cashCost, mv, anyDrip };
+  return { months, cost, cashCost, mv, flows, divs, anyDrip };
 }
 
 // Fair benchmark: if every net contribution had instead been invested in the TASI
@@ -1950,7 +2037,9 @@ function _portV3ChartTheme() {
 
 function _portV3DrawCharts() {
   if (!document.getElementById('pv3-perf')) return;
-  if (typeof Chart === 'undefined') { setTimeout(_portV3DrawCharts, 200); return; }
+  // Cap CDN-wait retries (~10s) — an endless 200ms poll drains mobile battery if the CDN is down
+  if (typeof Chart === 'undefined') { if ((_portV3DrawCharts._n=(_portV3DrawCharts._n||0)+1) <= 50) setTimeout(_portV3DrawCharts, 200); return; }
+  _portV3DrawCharts._n = 0;
   ['perf','alloc','apr','sector','divyear','cumret','drawdown'].forEach(k => { if (_portV3Charts[k]) { try { _portV3Charts[k].destroy(); } catch(e){} delete _portV3Charts[k]; } });
   const th = _portV3ChartTheme();
   const { rows, totalMV, totalCost } = _portV3ComputeRows();
@@ -2050,10 +2139,12 @@ function _portV3DrawCharts() {
     });
   }
 
-  // 7 ── Drawdown over time ──
+  // 7 ── Drawdown over time (on the flow-adjusted return index — a withdrawal is not a loss) ──
   const ddEl = document.getElementById('pv3-drawdown');
   if (ddEl && ts.months.length > 2) {
-    let peak = 0; const ddData = ts.mv.map(v => { if (v>peak) peak=v; return peak>0 ? +(-(peak-v)/peak*100).toFixed(1) : 0; });
+    const _rets = _portV3MonthlyReturns(ts);
+    let _idx = 1, peak = 1; const ddData = [0];
+    for (const r of _rets) { _idx *= (1 + (r ?? 0)); if (_idx > peak) peak = _idx; ddData.push(peak > 0 ? +(-(peak-_idx)/peak*100).toFixed(1) : 0); }
     _portV3Charts.drawdown = new Chart(ddEl, {
       type: 'line',
       data: { labels: ts.months, datasets: [{ label: 'Drawdown', data: ddData, borderColor: th.red, backgroundColor: 'rgba(224,82,96,0.12)', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 1.5, spanGaps: true }] },
@@ -2290,7 +2381,8 @@ function _portV3DrawDetailChart(id) {
   const a = portfolioV3?.assets?.[id];
   const el = document.getElementById('pv3-detail-chart');
   if (!a || !el) return;
-  if (typeof Chart === 'undefined') { setTimeout(()=>_portV3DrawDetailChart(id), 200); return; }
+  if (typeof Chart === 'undefined') { if ((_portV3DrawDetailChart._n=(_portV3DrawDetailChart._n||0)+1) <= 50) setTimeout(()=>_portV3DrawDetailChart(id), 200); return; }
+  _portV3DrawDetailChart._n = 0;
   if (_portV3Charts.detail) { try { _portV3Charts.detail.destroy(); } catch(e){} }
   const th = _portV3ChartTheme();
   const { labels, mvArr, costArr } = _portV3AssetMonthlySeries(a);
@@ -2480,7 +2572,9 @@ function _portV3SaveTxn(id) {
   } else { qty += units; cost += units * price; }
   a.holding.qty = +qty.toFixed(6); a.holding.cost = +Math.max(0,cost).toFixed(2);
   a.holding.avg = qty > 0 ? +(a.holding.cost / qty).toFixed(4) : 0;
-  const _pi = _portV3Price(a);
+  // Backdated rows are valued at their own price — today's live price would corrupt the mv history
+  const _isRecent = date >= new Date(Date.now()-7*86400000).toISOString().slice(0,10);
+  const _pi = _isRecent ? _portV3Price(a) : null;
   const _fx = _pv3Fx(a);
   // Store mv in native currency (USD for USD assets, SAR otherwise)
   const curPrice = _fx > 1 ? (_pi?.usdPrice || price) : (_pi?.sarPrice || price);
@@ -2845,7 +2939,9 @@ function _portV3ExpandChart(type, id) {
   } else if (type === 'drawdown') {
     const ts = _portV3TimeSeries(); const { totalMV } = _portV3ComputeRows();
     if (ts.months.length) ts.mv[ts.mv.length-1]=Math.round(totalMV);
-    let peak2=0; const ddData2=ts.mv.map(v=>{if(v>peak2)peak2=v;return peak2>0?+(-(peak2-v)/peak2*100).toFixed(1):0;});
+    const _rets2=_portV3MonthlyReturns(ts);
+    let _idx2=1, peak2=1; const ddData2=[0];
+    for (const r of _rets2){ _idx2*=(1+(r??0)); if(_idx2>peak2)peak2=_idx2; ddData2.push(peak2>0?+(-(peak2-_idx2)/peak2*100).toFixed(1):0); }
     new Chart(el, { type:'line', data:{ labels:ts.months, datasets:[{ label:'Drawdown', data:ddData2, borderColor:th.red, backgroundColor:'rgba(224,82,96,0.12)', fill:true, tension:0.25, pointRadius:0, borderWidth:2, spanGaps:true }]},
       options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
         plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>c.parsed.y.toFixed(1)+'%'}} },
@@ -6094,7 +6190,7 @@ const TIPS = {
   stoch_card:     'Stochastic momentum: best signals occur when %K crosses %D in the oversold zone (bullish) or overbought zone (bearish). Avoid using in strongly trending markets where stochastic can stay extreme.',
   vol_card:       'Volume signal: rising price on high volume confirms institutional buying. Rising price on low volume is suspect. High volume on a down day is a warning sign of heavy distribution.',
   bb_card:        'Bollinger Band signal: price touching the upper band in an uptrend is not a sell — it confirms momentum. Price closing outside the band is unusual and often reverts to the mean within 1–5 days.',
-  sma_card:       'SMA trend signal: Golden Cross (SMA-20 above SMA-50) historically precedes 6-month positive returns in 60–65% of cases on TASI. Death Cross has similar predictive value for downtrends.',
+  sma_card:       'SMA trend signal: a Golden Cross (SMA-20 above SMA-50) means shorter-term momentum is stronger than the medium-term trend — often associated with the start of bullish phases. A Death Cross is the reverse. These are trend descriptions, not predictions: no backtested hit-rate on TASI is claimed.',
   w52_card:       'Price range context: being near the 52-week high in a strong uptrend is bullish (momentum). Being near the 52-week low in a downtrend is bearish. Contrarian investors look for quality stocks near 52-week lows.',
 };
 // Helper: returns a data-tip attribute string for inline use in template literals
@@ -6613,12 +6709,12 @@ function scoreTechnicalWithSteps(closes){
   for(let i=_seedEnd+1;i<n;i++){const dv=c[i]-c[i-1];_ag=(_ag*(_rsiPer-1)+Math.max(dv,0))/_rsiPer;_al=(_al*(_rsiPer-1)+Math.max(-dv,0))/_rsiPer;}
   const rsiV=(_ag===0&&_al===0)?50:(_al===0?100:100-(100/(1+_ag/_al)));
 
-  if(rsiV<30)add("RSI (14-day)",rsiV.toFixed(1),+22,"Oversold (RSI < 30) — potential reversal","RSI below 30 means the stock has been sold heavily in recent weeks and is statistically oversold. Historically 70% of oversold readings (RSI < 30) lead to a price recovery within 4–6 weeks. However in a strong downtrend RSI can stay below 30 for months. Best used as a buy signal when combined with strong fundamentals.");
+  if(rsiV<30)add("RSI (14-day)",rsiV.toFixed(1),+22,"Oversold (RSI < 30) — potential reversal","RSI below 30 means the stock has been sold heavily in recent weeks and is statistically oversold. Oversold readings often precede a mean-reversion bounce, but there is no reliable hit-rate — in a strong downtrend RSI can stay below 30 for months. Best used as a buy signal only when combined with strong fundamentals.");
   else if(rsiV<40)add("RSI (14-day)",rsiV.toFixed(1),+12,"Near oversold zone (RSI 30–40)","Approaching oversold territory. Selling pressure is elevated but not extreme. Often a good entry zone for quality stocks — the market is pricing in more bad news than may actually materialize. Watch for RSI turning upward from this zone as a buy signal.");
   else if(rsiV<50)add("RSI (14-day)",rsiV.toFixed(1),+5,"Neutral momentum (RSI 40–50)","RSI in neutral territory. Neither oversold nor overbought. The stock is moving sideways or in a gradual downtrend. No strong technical signal either way — focus on fundamentals for your decision. Watch whether RSI breaks above 50 (bullish) or falls below 40 (bearish).");
   else if(rsiV<60)add("RSI (14-day)",rsiV.toFixed(1),-2,"Neutral bullish momentum (RSI 50–60)","RSI in the upper neutral zone. Moderate buying pressure but not yet overbought. The stock may have already moved up. Late buyers entering here accept more downside risk than those who bought at lower RSI levels. Still fine for long-term investors with strong fundamentals conviction.");
   else if(rsiV<70)add("RSI (14-day)",rsiV.toFixed(1),-8,"Near overbought (RSI 60–70)","Approaching overbought territory. The stock has rallied strongly and short-term buyers are at risk of a pullback. For new positions consider waiting for RSI to pull back to 50–55 range. For existing positions this is a good level to review your position size.");
-  else add("RSI (14-day)",rsiV.toFixed(1),-18,"Overbought (RSI > 70) — pullback risk","RSI above 70 means the stock has been bought aggressively and is statistically overbought. Historically 65% of overbought readings lead to a 5–15% pullback within 4–8 weeks. Avoid new positions. If you own it, consider taking partial profits. In a strong bull trend RSI can stay overbought for weeks — never sell purely because of RSI without fundamentals support.");
+  else add("RSI (14-day)",rsiV.toFixed(1),-18,"Overbought (RSI > 70) — pullback risk","RSI above 70 means the stock has been bought aggressively and is statistically overbought. Overbought readings often precede a pullback, but there is no reliable hit-rate — in a strong bull trend RSI can stay overbought for weeks. Never sell purely because of RSI without fundamentals support.");
 
   if(cur>sma20)add("Price vs SMA-20",`${cur.toFixed(2)} > ${sma20.toFixed(2)}`,+10,"Price above SMA-20 — short-term uptrend","The current price is above the 20-day moving average, meaning the stock is in a short-term uptrend. Institutional investors often use the 20-day MA as a support level — they buy when price dips to this line. A bullish sign for momentum traders and short-term oriented investors.");
   else add("Price vs SMA-20",`${cur.toFixed(2)} < ${sma20.toFixed(2)}`,-10,"Price below SMA-20 — short-term downtrend","The stock is trading below its 20-day moving average, indicating short-term selling pressure. The 20-day MA often acts as resistance in a downtrend — the price may struggle to break above it. For long-term investors this can be a buying opportunity if fundamentals are strong; for traders it is a sell signal.");
@@ -6711,14 +6807,17 @@ function deriveMetricsFromStatements(annual, quarterly){
       //     Jun row = H1 (6 months), Dec row = FY (12 months) → Dec ≈ 2× Jun
       //   Period / standalone:
       //     Jun row = H1 (6 months), Dec row = H2 (6 months) → Dec ≈ Jun
-      // Threshold 1.4× catches the cumulative case robustly for stable companies.
-      if (saSrcMonth === 6 && qIS.length >= 2) {
+      // The test must run for BOTH orderings — a standalone reporter whose LATEST row is
+      // December would otherwise have its H2-only row treated as a full year (TTM halved).
+      if ((saSrcMonth === 6 || saSrcMonth === 12) && qIS.length >= 2) {
         const r0 = _num(qIS[0].revenue), r1 = _num(qIS[1].revenue);
         if (r0 > 0 && r1 > 0) {
-          const ratio = r1 / r0;
+          const ratio = saSrcMonth === 6 ? r1 / r0 : r0 / r1;   // always Dec ÷ Jun
           if (ratio > 1.65) isCumulStyle = true;       // Dec clearly covers 12 months (FY)
           else if (ratio < 1.30) isCumulStyle = false;  // Dec is standalone H2 — sum H1+H2
           else semiAnnual = false;                       // ambiguous — fall back to annual FY
+        } else if (saSrcMonth === 12) {
+          isCumulStyle = true;   // no revenue to test — keep the IFRS-standard assumption (Dec = FY)
         }
       }
     }
@@ -6734,8 +6833,11 @@ function deriveMetricsFromStatements(annual, quarterly){
     if (!semiAnnual || !Array.isArray(rows) || !rows.length) return null;
     const v0 = _num(rows[0]?.[field]);
     if (v0 == null) return null;
-    if (saSrcMonth === 12) return v0;                        // Dec = FY (12 months)
     const v1 = (rows.length >= 2) ? _num(rows[1]?.[field]) : null;
+    if (saSrcMonth === 12) {
+      if (isCumulStyle) return v0;                           // Dec = FY (12 months)
+      return v1 != null ? v0 + v1 : v0 * 2;                  // standalone: H2 + prior H1 (or annualise)
+    }
     if (saSrcMonth === 6 && v1 != null) return isCumulStyle ? v1 : v0 + v1;
     return v0 * 2;                                           // H1 only → annualise
   }
@@ -6752,7 +6854,7 @@ function deriveMetricsFromStatements(annual, quarterly){
     const r = saVal(qIS,'revenue'), n = saVal(qIS,'net_income');
     if (r != null && r > 0) {
       ttmRev=r;
-      ttmSource = saSrcMonth===12 ? '2H FY'
+      ttmSource = saSrcMonth===12 ? (isCumulStyle ? '2H FY' : '2H Sum')
                 : isCumulStyle   ? '2H FY'
                 : qIS.length>=2  ? '2H Sum'
                 :                  'H1 ×2';
@@ -6765,11 +6867,13 @@ function deriveMetricsFromStatements(annual, quarterly){
   if (ttmRev>0 && ttmNI!=null) out.npm = ttmNI/ttmRev;
 
   // ── Balance sheet (latest period) ─────────────────────────────────────────
-  const eq=_num(aBS?.[0]?.total_equity), ta=_num(aBS?.[0]?.total_assets), ltd=_num(aBS?.[0]?.long_term_debt);
+  const eq=_num(aBS?.[0]?.total_equity), ta=_num(aBS?.[0]?.total_assets), ltd=_num(aBS?.[0]?.long_term_debt), std=_num(aBS?.[0]?.short_term_debt);
   if (ta>0) out.assets = ta/1e9;
   if (ttmNI!=null && eq>0) out.roe = ttmNI/eq;
-  // D/E (%) from long-term debt only (avoids overstating for banks via total liabilities)
-  if (eq>0 && ltd!=null) out.de = (ltd/eq)*100;
+  // D/E (%) from FINANCIAL debt: LT + ST when the data carries it — matches the DCF's
+  // netDebt definition so the screener and fair-value model agree on leverage.
+  // (Still avoids total-liabilities, which overstates for banks via deposits.)
+  if (eq>0 && (ltd!=null || std!=null)) out.de = (((ltd||0)+(std||0))/eq)*100;
 
   // ── FCF TTM ───────────────────────────────────────────────────────────────
   let ttmFCF=null;
@@ -7155,9 +7259,11 @@ async function _enrichPriceHistory() {
 }
 
 function getSig(combined,buffett){
-  const avg=(combined+buffett)/2;
-  if(avg>=65)return{label:"Buy",cls:"b-buy"};
-  if(avg>=45)return{label:"Hold",cls:"b-hold"};
+  // Signal thresholds apply to the Combined Score ALONE, exactly as the tooltip and the
+  // user guide document. (Previously this averaged in the Buffett score a second time —
+  // Buffett is already 35% of Combined, so it silently carried ~67% of the signal.)
+  if(combined>=65)return{label:"Buy",cls:"b-buy"};
+  if(combined>=45)return{label:"Hold",cls:"b-hold"};
   return{label:"Watch",cls:"b-watch"};
 }
 function sc(s){return s>=65?"#22c55e":s>=45?"#f59e0b":"#ef4444";}
@@ -10194,7 +10300,7 @@ async function buildDCF(d, _opts={}) {
       <div ${T('intrinsic')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:5px;cursor:help">Fair Value</div>
       <div style="font-size:24px;font-weight:700;color:${uColor};font-family:var(--mono)">${primaryPS.toFixed(2)}</div>
       <div style="font-family:var(--mono);font-size:9px;color:var(--tx3)">SAR</div>
-      <div title="±15% sensitivity band — a 1% change in cost-of-equity moves fair value 15–30%. Treat this as a range, not a precise target." style="font-family:var(--mono);font-size:8.5px;color:var(--tx3);margin-top:4px;border-top:1px dashed var(--b1);padding-top:4px;cursor:help">≈ ${(primaryPS*0.85).toFixed(2)} – ${(primaryPS*1.15).toFixed(2)}<div style="font-size:7px;color:var(--tx3)">EST. RANGE ±15%</div></div>
+      <div title="Illustrative ±15% band only — TRUE model uncertainty is larger: a 1% change in cost-of-equity alone moves fair value 15–30% (see the WACC×growth sensitivity table below for the real spread). Treat the point estimate as the middle of a wide range, never a target." style="font-family:var(--mono);font-size:8.5px;color:var(--tx3);margin-top:4px;border-top:1px dashed var(--b1);padding-top:4px;cursor:help">≈ ${(primaryPS*0.85).toFixed(2)} – ${(primaryPS*1.15).toFixed(2)}<div style="font-size:7px;color:var(--tx3)">±15% SHOWN — TRUE UNCERTAINTY LARGER ⓘ</div></div>
     </div>
     <div style="flex:1;min-width:90px;text-align:center;background:var(--bg3);border-radius:7px;padding:10px 8px;border:1px solid ${uColor}55">
       <div ${T('upside')} style="font-family:var(--mono);font-size:8px;color:var(--tx3);text-transform:uppercase;margin-bottom:5px;cursor:help">Upside / Downside</div>
@@ -10383,7 +10489,7 @@ async function buildDCF(d, _opts={}) {
     <div class="mi"><div class="mil" ${T('tax_zakat')}>Tax/Zakat Rate</div><div class="miv" style="color:var(--acc)">${(taxRate*100).toFixed(0)}%<span style="font-size:8px;color:var(--tx3)"> (${taxRate===0?'Zakat':taxRate===0.07?'Zakat+shield':'CIT'})</span></div></div>
     <div class="mi"><div class="mil" ${T('de_ratio')}>D/E Ratio (fin.)</div><div class="miv">${(deRatio*100).toFixed(0)}%${isBanking?'<span style="font-size:8px;color:var(--amb)"> (incl. deposits)</span>':''}<span style="font-size:8px;color:var(--tx3)"> ${d._deOverride!=null?'(override)':'(est.)'}</span></div></div>
     <div class="mi"><div class="mil" ${T('wacc')}>WACC</div><div class="miv" style="color:var(--acc);font-weight:600">${(wacc*100).toFixed(1)}%${_scPremNote?`<span style="font-size:8px;color:var(--amb);font-weight:400;margin-left:3px">${_scPremNote}</span>`:''}</div></div>
-    <div class="mi"><div class="mil" ${T('term_growth')}>Terminal Growth</div><div class="miv">${(termGrowth*100).toFixed(1)}%</div></div>
+    <div class="mi"><div class="mil" ${T('term_growth')}>Terminal Growth</div><div class="miv">${(termGrowth*100).toFixed(1)}%${(wacc-termGrowth)<0.02?'<span title="WACC − terminal growth is below 2%, so the terminal value uses a floored 2% spread instead of the displayed figures — the model is deliberately more conservative than these inputs imply." style="font-size:8px;color:var(--amb);cursor:help;margin-left:3px">⚠ 2% spread floor</span>':''}</div></div>
     <div class="mi"><div class="mil" ${T('fcf_growth')}>FCF Growth (5Y)</div><div class="miv ${growthRate>=0?'pos':'neg'}">${growthRate>=0?'+':''}${(growthRate*100).toFixed(1)}%<span style="font-size:8px;color:var(--tx3);font-weight:400;margin-left:4px">${growthSource}</span></div></div>
     <div class="mi"><div class="mil" ${T('fcf')}>FCF Source</div><div class="miv" style="font-size:9px;color:${fcfSource==='financial statements'?'var(--green)':'var(--amb)'}">${fcfSource}${fcfSource!=='financial statements'?'<span title="FCF estimated from net income using a sector-average conversion factor. Retrieve financial statements for a more precise result." style="cursor:help;margin-left:3px">⚠</span>':''}</div></div>
   </div></div>`;
@@ -11316,7 +11422,9 @@ async function loadRepoSnapshot() {
     const snap = _snapshotData;
     if (!snap?.quotes || !snap.generated) return 0;
     window._snapGenerated = snap.generated; // staleness indicator reads this
-    if (Date.now() - snap.generated > 7*24*36e5) return 0; // ignore week-old snapshots
+    // No hard age cutoff: an old snapshot is still applied when it's NEWER than whatever
+    // cached price a stock currently has (the per-ticker timestamp comparison below decides).
+    // Discarding week-old snapshots outright silently fell back to even older Drive caches.
     const snapDate = new Date(snap.generated).toISOString().slice(0, 10);
     // Saudi GDP from the World Bank (written by the Action) — merge over the hardcoded
     // seed table so the Buffett indicator/breakdown track official figures automatically.
@@ -12149,11 +12257,12 @@ async function refreshAll(forceRefresh=false){
   // Provenance summary in the header — "239 prices" hid that none of them were live.
   const _liveN = allData.filter(d=>d._livePrice).length;
   const _snapN = allData.filter(d=>d.priceLoaded && !d._livePrice && d.dataSource==='gh-snapshot').length;
-  // Surface a stale snapshot: with no live quotes and a snapshot >3 days old (covers the
-  // Fri/Sat Saudi weekend), the GitHub Action has likely been failing — say so in red.
+  // Surface a stale snapshot UNCONDITIONALLY (>3 days covers the Fri/Sat Saudi weekend).
+  // Not gated on live-quote count: a broken Action + a few flaky proxy quotes previously
+  // produced a quietly degraded dashboard with mixed-age prices and no warning at all.
   const _snapAgeD = window._snapGenerated ? (Date.now()-window._snapGenerated)/864e5 : null;
-  const _staleWarn = (_liveN===0 && _snapAgeD!=null && _snapAgeD>3)
-    ? ` · <span style="color:var(--red)">⚠ snapshot ${Math.floor(_snapAgeD)}d old</span>` : '';
+  const _staleWarn = (_snapAgeD!=null && _snapAgeD>3)
+    ? ` · <span style="color:${_liveN===0?'var(--red)':'var(--amb)'}" title="The 3×/day market-data snapshot hasn't updated in ${Math.floor(_snapAgeD)} days — the GitHub Action may be failing. ${_liveN>0?'Live proxy quotes are still arriving, but':''} fundamentals and non-live prices are aging.">⚠ snapshot ${Math.floor(_snapAgeD)}d old</span>` : '';
   document.getElementById("lu").innerHTML =
     `${loaded}/${allData.length}: ${_liveN} live${_snapN?` · ${_snapN} snapshot`:''}${loaded-_liveN-_snapN?` · ${loaded-_liveN-_snapN} cached`:''} · ${new Date().toLocaleTimeString("en-SA",{hour:"2-digit",minute:"2-digit"})}${_staleWarn}`;
   // ── Change 7: Compute sector-relative P/E medians after all prices loaded ──
@@ -14142,8 +14251,17 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
 
 // Safety net: when the tab is hidden or about to close, flush any pending
 // statements save so freshly-fetched data isn't lost to the 12s debounce.
-document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==='hidden'){ try{ gdFlushStatementsSave(); }catch(e){} } });
-window.addEventListener("pagehide",()=>{ try{ gdFlushStatementsSave(); }catch(e){} });
+// Flush ALL pending debounced Drive saves when the tab is hidden/closed — the portfolio
+// (3–4s debounce) and watchlist (3s) previously lost their Drive write if the user closed
+// the tab inside the debounce window, leaving the Drive copy stale for other devices.
+function _gdFlushAllPending() {
+  try { gdFlushStatementsSave(); } catch(e){}
+  try { if (_portfolioSaveTimer) { clearTimeout(_portfolioSaveTimer); _portfolioSaveTimer = null; gdSavePortfolio(); } } catch(e){}
+  try { if (_portV3SaveTimer)    { clearTimeout(_portV3SaveTimer);    _portV3SaveTimer = null;    _portV3GdSave(); } } catch(e){}
+  try { if (_prefsSaveTimer)     { clearTimeout(_prefsSaveTimer);     _prefsSaveTimer = null;     gdSaveWatchlist(); } } catch(e){}
+}
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==='hidden'){ _gdFlushAllPending(); } });
+window.addEventListener("pagehide",()=>{ _gdFlushAllPending(); });
 
 // ═══════════════════════════════════════
 // EXPORT / IMPORT CACHE AS JSON FILE
