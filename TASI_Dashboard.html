@@ -15,7 +15,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260702c'; // bump this string on every deploy that matters
+  var V='20260702d'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -447,7 +447,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260702b · Manual NAV updates now leave a visible, fixable trail: every “Save manual” records a dated ≈ valuation row in the asset’s history table (edit ✎ or delete 🗑 it there to correct a mistaken price — deleting the latest one also rolls the current price back), the chart &amp; TWR now track your NAV updates between transactions instead of staying flat, backdated valuations use the units you actually held on that date, and the NAV panel shows the current saved price/date with a hint · v20260702a · Accuracy &amp; safety batch from a full audit: TWR now counts sale proceeds and cash dividends correctly (it was understated when you sold winners); Volatility, Sharpe and Max Drawdown are now computed on flow-adjusted returns (adding money no longer inflates “volatility”, a withdrawal no longer shows as a “drawdown”); dividend calendar no longer overstates USD-asset payouts 3.75×; backdated transactions (incl. CSV import) are valued at their own price instead of today’s; BUY/HOLD/WATCH signal now uses the Combined Score alone exactly as documented (it silently double-counted Buffett before — some labels will shift); removed unsourced “70%/65% historically” claims from RSI/SMA tooltips; fair-value range relabelled honestly (±15% shown, true uncertainty larger); semi-annual TTM fixed for standalone December reporters; D/E now includes short-term debt to match the DCF; snapshot-age warning now always shows when data is &gt;3 days old; suspended stocks no longer refresh the delist clock via stale spark data; gold daily-change now vs previous day (was a 5-day move) and stale gold gets the ⚠ badge; Google Drive sync is newer-wins on both portfolio files and pending saves flush on tab close; Chart.js CDN pinned with an integrity hash + CSP added; closed-position exit-NAV fallback is now symmetric, restricted to manual funds, and consistent with the headline Realized P&amp;L · v20260625g · Add Dividend: the Total field now auto-calculates SAR-per-unit (bidirectional with the per-unit field), and when you save a lump-sum dividend the per-unit is derived from the units you held on that date — so lump-sum dividends now also feed the forward Dividend Calendar. New “Div Yield” metric on each asset (trailing-12m dividends ÷ current market value) shown alongside “Yield on Cost”</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260702d · New “⚠ above FV” chip next to a BUY signal: when a stock scores BUY on quality/momentum but its price is already at or above the model’s fair value (no upside), an amber chip now flags it in the table, the mobile card, and the stock header. The signal stays score-based (fair value is the least reliable number, so it doesn’t veto BUY) — the chip just surfaces the disagreement so a wall of green separates “cheap AND good” from “good but fully priced”. Not shown when the only fair value is the weak P/E-estimate · v20260702b · Manual NAV updates now leave a visible, fixable trail: every “Save manual” records a dated ≈ valuation row in the asset’s history table (edit ✎ or delete 🗑 it there to correct a mistaken price — deleting the latest one also rolls the current price back), the chart &amp; TWR now track your NAV updates between transactions instead of staying flat, backdated valuations use the units you actually held on that date, and the NAV panel shows the current saved price/date with a hint · v20260702a · Accuracy &amp; safety batch from a full audit: TWR now counts sale proceeds and cash dividends correctly (it was understated when you sold winners); Volatility, Sharpe and Max Drawdown are now computed on flow-adjusted returns (adding money no longer inflates “volatility”, a withdrawal no longer shows as a “drawdown”); dividend calendar no longer overstates USD-asset payouts 3.75×; backdated transactions (incl. CSV import) are valued at their own price instead of today’s; BUY/HOLD/WATCH signal now uses the Combined Score alone exactly as documented (it silently double-counted Buffett before — some labels will shift); removed unsourced “70%/65% historically” claims from RSI/SMA tooltips; fair-value range relabelled honestly (±15% shown, true uncertainty larger); semi-annual TTM fixed for standalone December reporters; D/E now includes short-term debt to match the DCF; snapshot-age warning now always shows when data is &gt;3 days old; suspended stocks no longer refresh the delist clock via stale spark data; gold daily-change now vs previous day (was a 5-day move) and stale gold gets the ⚠ badge; Google Drive sync is newer-wins on both portfolio files and pending saves flush on tab close; Chart.js CDN pinned with an integrity hash + CSP added; closed-position exit-NAV fallback is now symmetric, restricted to manual funds, and consistent with the headline Realized P&amp;L</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -7299,6 +7299,22 @@ function getSig(combined,buffett){
   if(combined>=45)return{label:"Hold",cls:"b-hold"};
   return{label:"Watch",cls:"b-watch"};
 }
+// Amber "above fair value" chip shown next to a BUY when the valuation model says the
+// stock is NOT cheap (price at/above composite fair value). The signal is score-based and
+// deliberately independent of fair value (which is the least reliable number on the page),
+// so instead of letting FV veto the signal we just SURFACE the disagreement. `sz` tunes it
+// for the dense table (default) vs the roomier modal header ('lg').
+function _fvConflictChip(d, sz){
+  if(!d || d.dcfUpside == null || d.dcfUpside > 0) return '';
+  if(d.dcfMethod === 'P/E Est.') return '';   // weakest estimate — don't raise a warning on it
+  const pct = (d.dcfUpside*100).toFixed(1);
+  const big = sz === 'lg';
+  const st = big
+    ? 'font-size:8px;padding:1px 6px;margin-left:6px'
+    : 'font-size:7px;padding:0 3px;margin-left:3px';
+  const label = big ? '⚠ above FV' : '⚠ FV';
+  return `<span title="Scores BUY on quality/momentum, but the price is at or above the model's fair value (${pct}% upside). The BUY reflects business quality, not cheapness — you'd be paying roughly full price. Fair value is the least reliable number here, so this is a caution, not a veto." style="display:inline-block;font-family:var(--mono);${st};background:#3a2a00;color:#f5a623;border:1px solid #7a5a10;border-radius:3px;vertical-align:middle;cursor:help;white-space:nowrap">${label}</span>`;
+}
 function sc(s){return s>=65?"#22c55e":s>=45?"#f59e0b":"#ef4444";}
 function bar(s){return`<div class="bw"><div class="bt"><div class="bfill" style="width:${s}%;background:${sc(s)}"></div></div><span class="bn" style="color:${sc(s)}">${s}</span></div>`;}
 
@@ -8186,7 +8202,7 @@ function renderTable(){
       : '';
     return`<tr class="data-row" onclick="openModal(${start+i})" onmouseenter="gdPrefetch(${start+i})"${d._delisted?` style="opacity:.45" title="Possibly delisted/suspended — no quote from Yahoo Finance for 35+ days"`:''}>
       <td class="rk">${start+i+1}</td>
-      <td class="tk" style="white-space:normal;min-width:54px">${escapeHTML(d.ticker.replace(".SR",""))}<span class="mob-sig badge ${sig.cls}" style="display:none">${unscored?'—':sig.label}</span><span class="mob-company" style="display:none">${escapeHTML(getStockName(d))}</span></td>
+      <td class="tk" style="white-space:normal;min-width:54px">${escapeHTML(d.ticker.replace(".SR",""))}<span class="mob-sig badge ${sig.cls}" style="display:none">${unscored?'—':sig.label}</span>${(!unscored&&sig.label==='Buy')?`<span class="mob-sig" style="display:none">${_fvConflictChip(d)}</span>`:''}<span class="mob-company" style="display:none">${escapeHTML(getStockName(d))}</span></td>
       <td class="col-co" title="${escapeHTML(d.name)}" style="color:var(--tx)">${escapeHTML(getStockName(d))}${earningsBadge}</td>
       <td style="min-width:52px"><span class="pv">${hasPx?d.price.toFixed(2):'—'}</span>${lv}</td>
       <td class="${cc}" style="min-width:44px">${cs}</td>
@@ -8197,7 +8213,7 @@ function renderTable(){
       <td class="col-te">${bar(d.technical)}</td>
       <td class="col-bu">${unscored?'<span class="nav">—</span>':bar(d.buffett??50)}</td>
       <td style="min-width:60px">${unscored?'<span class="nav" style="font-size:11px">Unscored</span>':bar(d.combined??50)}</td>
-      <td class="col-sig" style="min-width:40px"><span class="badge ${sig.cls}">${unscored?'—':sig.label}</span></td>
+      <td class="col-sig" style="min-width:40px"><span class="badge ${sig.cls}">${unscored?'—':sig.label}</span>${(!unscored&&sig.label==='Buy')?_fvConflictChip(d):''}</td>
       <td class="col-tr">${(()=>{
         const hasAt = d.analystTarget > 0 && d.price > 0;
         const atUp  = hasAt ? (d.analystTarget - d.price) / d.price : null;
@@ -8467,7 +8483,7 @@ function _renderModalShell(d) {
     <div class="mhtop">
       <div>
         <div class="mtitle">${escapeHTML(d.name)} ${moat}${reit}${_capTier?` <span style="color:${_capTier.color};font-size:8px;font-family:var(--mono)">${_capTier.label}</span>`:''}</div>
-        <div class="msub">${escapeHTML(d.ticker)} · ${escapeHTML(d.sector)} · Signal: <span class="badge ${sig.cls}">${sig.label}</span> &nbsp;<span onclick="toggleRiskBreakdown()" style="font-family:var(--mono);font-size:9px;font-weight:600;padding:2px 7px;border-radius:3px;background:${_risk.color}22;color:${_risk.color};border:1px solid ${_risk.color}55;cursor:pointer;user-select:none" title="Tap for risk breakdown">Risk: ${_risk.level} <span id="risk-arrow" style="font-size:7px">▾</span></span> ·${(()=>{ // honest provenance: only call it Live when the quote came from this session
+        <div class="msub">${escapeHTML(d.ticker)} · ${escapeHTML(d.sector)} · Signal: <span class="badge ${sig.cls}">${sig.label}</span>${sig.label==='Buy'?_fvConflictChip(d,'lg'):''} &nbsp;<span onclick="toggleRiskBreakdown()" style="font-family:var(--mono);font-size:9px;font-weight:600;padding:2px 7px;border-radius:3px;background:${_risk.color}22;color:${_risk.color};border:1px solid ${_risk.color}55;cursor:pointer;user-select:none" title="Tap for risk breakdown">Risk: ${_risk.level} <span id="risk-arrow" style="font-size:7px">▾</span></span> ·${(()=>{ // honest provenance: only call it Live when the quote came from this session
           if (d._livePrice) return '<span style="color:var(--acc);white-space:nowrap">● Live data</span>';
           if (d.dataSource === 'gh-snapshot') return `<span style="color:var(--blue);white-space:nowrap" title="Server snapshot fetched by GitHub Action${d._priceTs?' · '+new Date(d._priceTs).toLocaleString('en-SA',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):''}">● Snapshot${d._priceTs?' '+new Date(d._priceTs).toLocaleTimeString('en-SA',{hour:'2-digit',minute:'2-digit'}):''}</span>`;
           if (d.priceLoaded) return '<span style="color:var(--tx2);white-space:nowrap">● Cached price</span>';

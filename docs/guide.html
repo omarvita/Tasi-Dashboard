@@ -749,6 +749,11 @@
 
       <p>These thresholds are starting points, not absolute rules. A score of 64 is functionally the same as 66 — do not treat the boundaries as hard triggers. Context matters: a "Sell" score for a cyclical company at a sector trough is very different from one for a consistently poor-quality business.</p>
 
+      <div class="callout">
+        <div class="callout-title">The "⚠ above FV" chip</div>
+        The signal is based on the Combined Score alone, deliberately independent of the fair-value models — because the fair-value point estimate is the least reliable number on the page (which is why DCF defaults to 0% weight). So a stock can score <span class="badge badge-buy">BUY</span> on quality and momentum while already trading at or above what the valuation models think it is worth. When that happens, an amber <strong>⚠ above FV</strong> chip appears next to the BUY. It does not override the signal — it flags that the BUY reflects business quality, not cheapness: you would be paying roughly full price. Use it to separate "cheap <em>and</em> good" from "good but fully priced" when deciding where to put new money. The chip is suppressed when the only available fair value comes from the weak P/E-estimate fallback.
+      </div>
+
       <h3>Adjusting weights</h3>
       <p>You can change all five weights in Settings → Score Weights. The dashboard enforces that all active weights sum to 100%. If you set DCF to 20%, the other four weights are automatically re-proportioned. Weights are saved to your browser's local storage and, if Google Drive is connected, synced to your Drive.</p>
     </section>
