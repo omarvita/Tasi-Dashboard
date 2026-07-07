@@ -15,7 +15,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260702d'; // bump this string on every deploy that matters
+  var V='20260707a'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -447,7 +447,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260702d · New “⚠ above FV” chip next to a BUY signal: when a stock scores BUY on quality/momentum but its price is already at or above the model’s fair value (no upside), an amber chip now flags it in the table, the mobile card, and the stock header. The signal stays score-based (fair value is the least reliable number, so it doesn’t veto BUY) — the chip just surfaces the disagreement so a wall of green separates “cheap AND good” from “good but fully priced”. Not shown when the only fair value is the weak P/E-estimate · v20260702b · Manual NAV updates now leave a visible, fixable trail: every “Save manual” records a dated ≈ valuation row in the asset’s history table (edit ✎ or delete 🗑 it there to correct a mistaken price — deleting the latest one also rolls the current price back), the chart &amp; TWR now track your NAV updates between transactions instead of staying flat, backdated valuations use the units you actually held on that date, and the NAV panel shows the current saved price/date with a hint · v20260702a · Accuracy &amp; safety batch from a full audit: TWR now counts sale proceeds and cash dividends correctly (it was understated when you sold winners); Volatility, Sharpe and Max Drawdown are now computed on flow-adjusted returns (adding money no longer inflates “volatility”, a withdrawal no longer shows as a “drawdown”); dividend calendar no longer overstates USD-asset payouts 3.75×; backdated transactions (incl. CSV import) are valued at their own price instead of today’s; BUY/HOLD/WATCH signal now uses the Combined Score alone exactly as documented (it silently double-counted Buffett before — some labels will shift); removed unsourced “70%/65% historically” claims from RSI/SMA tooltips; fair-value range relabelled honestly (±15% shown, true uncertainty larger); semi-annual TTM fixed for standalone December reporters; D/E now includes short-term debt to match the DCF; snapshot-age warning now always shows when data is &gt;3 days old; suspended stocks no longer refresh the delist clock via stale spark data; gold daily-change now vs previous day (was a 5-day move) and stale gold gets the ⚠ badge; Google Drive sync is newer-wins on both portfolio files and pending saves flush on tab close; Chart.js CDN pinned with an integrity hash + CSP added; closed-position exit-NAV fallback is now symmetric, restricted to manual funds, and consistent with the headline Realized P&amp;L</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260707a · CAPE rebuilt on real history: the Shiller CAPE (tile + chart) is now computed from the same statement-based daily earnings-yield reconstruction as the P/E history chart (rolling ≤10-year inflation-adjusted window, minimum 1 year of lookback) instead of the app’s own 33-day usage log — so the CAPE chart now spans years like the P/E chart, the tile shows the real averaging span, a note appears when the plotted span is far shorter than the selected range button, chart y-axes get 10% headroom so near-flat short series no longer look like cliffs, and the Overall Score tooltip now correctly states that CAPE &amp; ERP are excluded from the blend (they double-weight the earnings-yield signal) · v20260702d · New “⚠ above FV” chip next to a BUY signal: when a stock scores BUY on quality/momentum but its price is already at or above the model’s fair value (no upside), an amber chip now flags it in the table, the mobile card, and the stock header. The signal stays score-based — the chip just surfaces the disagreement · v20260702b · Manual NAV updates now leave a visible, fixable trail: every “Save manual” records a dated ≈ valuation row in the asset’s history table, the chart &amp; TWR now track NAV updates between transactions, and the NAV panel shows the current saved price/date</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -13120,15 +13120,25 @@ function _marketConditions() {
   const mktPS = psTotalMC>0 && psTotalRev>0 ? psTotalMC/psTotalRev : null;
 
   // Shiller CAPE — 10-year inflation-adjusted average earnings yield, then invert.
-  // Uses the _mpeHistCache daily P/E series (grows as the app runs over time).
-  // Saudi CPI ≈ 1.8%/yr (SAMA 2024-2025 actual; updated from prior 2.5% estimate).
+  // PRIMARY: the statement-based reconstruction (same E/P series as the P/E history
+  // chart, ~4-5y deep). FALLBACK: the app's own accumulated daily log — which only
+  // grows one entry per day of use, so it was a "33-day CAPE" for the first month.
   const SAUDI_CPI = 0.018;
-  let cape = null, capeDataDays = 0;
-  if (typeof _mpeHistCache !== 'undefined' && _mpeHistCache && _mpeHistCache.length >= 30) {
+  let cape = null, capeDataDays = 0, capeObs = 0, capeSrc = null;
+  try {
+    const cs = _capeSeriesFromRecon();
+    const last = cs.length ? cs[cs.length - 1] : null;
+    if (last && Date.now() - last.t < 45 * 864e5) {   // recon ends at the last trading day
+      cape = last.v; capeObs = last.obs;
+      capeDataDays = Math.round(last.spanMs / 864e5);
+      capeSrc = 'recon';
+    }
+  } catch(e) {}
+  if (cape == null && typeof _mpeHistCache !== 'undefined' && _mpeHistCache && _mpeHistCache.length >= 30) {
     const tenYrMs = 10*365.25*24*3600*1000;
     const nowMs   = Date.now();
     const hist = _mpeHistCache.filter(e => e.pe>0 && nowMs - new Date(e.d).getTime() < tenYrMs);
-    capeDataDays = hist.length;
+    capeDataDays = hist.length; capeObs = hist.length; capeSrc = 'daily-log';
     if (hist.length >= 30) {
       const eyAdj = hist.map(e=>{
         const yrsAgo = (nowMs - new Date(e.d).getTime()) / (365.25*24*3600*1000);
@@ -13144,7 +13154,7 @@ function _marketConditions() {
            breadth200, breadth200N: br200Stocks.length,
            near52High, near52Low, hl52Ratio,
            mktPS, psN: psStocks.length,
-           cape, capeDataDays, count: r.count };
+           cape, capeDataDays, capeObs, capeSrc, count: r.count };
 }
 
 function _computeOverallScore(m) {
@@ -13156,10 +13166,10 @@ function _computeOverallScore(m) {
   // P/S: aggregate ex-Aramco basis (~2.3–3.6 on TASI) → cheap@2.3, rich@3.5. The old
   //      cheap@1/rich@2.5 anchor predated the ex-Aramco fix and pinned every reading to
   //      "expensive", so P/S carried no signal in the blend.
-  // CAPE deliberately EXCLUDED: can't be reconstructed for historical dates.
-  // ERP deliberately EXCLUDED: ERP = 1/P/E − RF, so it is collinear with the P/E
-  // component. Including both would double-weight the earnings-yield signal.
-  // ERP is still shown as its own tile for context.
+  // CAPE deliberately EXCLUDED: it is a rolling average of the SAME reconstructed E/P
+  // series as the P/E component — including both would double-weight earnings yield.
+  // ERP deliberately EXCLUDED for the same reason: ERP = 1/P/E − RF, collinear with P/E.
+  // Both are still shown as their own tiles for context.
   // Null guard: historical reconstruction can pass wtdAvg=null on thin-data days —
   // null−14 coerced to −14 → sP=0 ("maximally cheap") silently biased those dates.
   const sP    = m.wtdAvg > 0 ? _clamp01((m.wtdAvg - 14) / 12) : null;
@@ -13190,7 +13200,7 @@ const _MKT_IND_DESC = {
   pb:      'Price-to-Book — aggregate market value ÷ aggregate book (net-asset) value of the market (ex-Aramco). This index-level ratio of totals is less distorted by earnings cycles than P/E and less skewed than averaging individual P/Bs. Below 1.8x is historically cheap for TASI, above 2.5x rich.',
   br50:    'Breadth >SMA-50 — the share of stocks trading above their own 50-day moving average. Measures how broadly the market is participating in the trend. >60% is a healthy broad uptrend, <40% is weak.',
   br200:   'Breadth >SMA-200 — the share of stocks above their 200-day moving average. The structural bull/bear regime filter. >60% signals a healthy bull market, <40% a bear regime. Slower and more reliable than SMA-50 breadth.',
-  cape:    'Shiller CAPE — cyclically-adjusted P/E: the market P/E smoothed over years of inflation-adjusted earnings. Strips out short-term earnings swings. A market-wide CAPE <16 is historically cheap for TASI, >27 expensive. Note: a true Shiller CAPE needs 10 years of earnings history; this figure uses whatever history is available (shown as "Xyr avg" on the tile) and grows more reliable as the app accumulates data over time.',
+  cape:    'Shiller CAPE — cyclically-adjusted P/E: the market P/E smoothed over years of inflation-adjusted earnings. Strips out short-term earnings swings. A market-wide CAPE <16 is historically cheap for TASI, >27 expensive. Computed from the same statement-based daily earnings-yield reconstruction as the P/E history chart (rolling ≤10-year window, minimum 1 year of lookback — so the chart starts ~1yr after the P/E chart does). A classic Shiller CAPE uses a full 10 years of earnings; with ~4–5yr of statement history this is a partial CAPE and the tile shows the actual span.',
   ps:      'Price-to-Sales — aggregate market value ÷ aggregate annual revenue. Revenue is far steadier than earnings, so P/S stays meaningful even when many companies are loss-making. TASI <1x is historically cheap, >2.5x expensive.',
   hl52:    '52-Week High/Low — of the stocks near a 52-week extreme, the percentage near their HIGH (vs near their low). A momentum/sentiment gauge: a high reading means broad strength and a rising market; a low reading signals distribution and selling pressure.',
 };
@@ -13379,6 +13389,36 @@ function _buildMktValHistory() {
     // P/S breakdown's Market Cap ÷ Revenue equals the P/S line exactly.
     const mcapPS = covOK && A.psMC > 0 ? A.psMC : null;
     out.set(d, { t: A.t, pe: wtdPE, buffett, ey, erp, dy, pb, ps, br50, br200, hl52, overall, mcap, earn, rev, mcapPS });
+  }
+  return out;
+}
+
+// ── Shiller CAPE from the statement-based reconstruction ────────────────────
+// The same daily wtd-P/E series that draws the P/E history chart IS the earnings-yield
+// history CAPE needs: cape(t) = 1 ÷ avg( inflation-adjusted E/P over ≤10y before t ).
+// The inflation factor (1+cpi)^((t−u)/yr) is separable — (1+cpi)^(t/yr) × (1+cpi)^(−u/yr) —
+// so one prefix-sum array gives every anchor date in O(n) total. Requires ≥250 trading
+// days (≈1yr) of lookback before emitting a point, so the series starts ~1yr after the
+// reconstruction does. Classic Shiller uses 10y of earnings; with ~4–5y of statement
+// history this is a partial CAPE — the tile labels the actual span.
+function _capeSeriesFromRecon() {
+  if (!_mktValHistCache) _mktValHistCache = { data: _buildMktValHistory() };
+  const CPI = 0.018, YR = 365.25 * 864e5;                 // Saudi CPI ≈1.8%/yr (SAMA 2024-25)
+  const pts = [];
+  for (const [d, v] of _mktValHistCache.data) if (v.pe > 0) pts.push({ d, t: v.t, ey: 1 / v.pe });
+  pts.sort((a, b) => a.t - b.t);
+  const n = pts.length;
+  if (n < 250) return [];
+  const prefH = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) prefH[i + 1] = prefH[i] + pts[i].ey * Math.pow(1 + CPI, -pts[i].t / YR);
+  const out = []; let lo = 0;
+  for (let i = 0; i < n; i++) {
+    const A = pts[i].t;
+    while (pts[lo].t < A - 10 * YR) lo++;
+    const cnt = i - lo + 1;
+    if (cnt < 250) continue;
+    const avgEY = (prefH[i + 1] - prefH[lo]) / cnt * Math.pow(1 + CPI, A / YR);
+    if (avgEY > 0) out.push({ d: pts[i].d, t: A, v: +(1 / avgEY).toFixed(2), obs: cnt, spanMs: A - pts[lo].t });
   }
   return out;
 }
@@ -13577,11 +13617,15 @@ function _renderMarketConditions() {
     const c = m.cape;
     const col = c < 16 ? '#2ed573' : c < 27 ? '#f5a623' : '#e74c3c';
     const verdict = c < 16 ? 'Cheap' : c < 27 ? 'Modestly rich' : 'Expensive';
-    const coverage = m.capeDataDays >= 365 ? `${(m.capeDataDays/365).toFixed(1)}yr avg` : `${m.capeDataDays}d avg`;
-    const capeShortNote = m.capeDataDays < 1825 ? ` ⚠ Only ${(m.capeDataDays/365).toFixed(1)}yr of data — true Shiller CAPE needs 10yr; treat with caution.` : '';
+    const yrs = (m.capeDataDays/365).toFixed(1);
+    const coverage = m.capeDataDays >= 365 ? `${yrs}yr avg` : `${m.capeDataDays}d avg`;
+    const srcNote = m.capeSrc === 'recon'
+      ? `Averaged over ${yrs} years of reconstructed daily earnings yield (${m.capeObs} trading days from real reported statements — the same series as the P/E history chart).`
+      : `Averaged over ${m.capeDataDays} days of the app's own recorded P/E history (statement reconstruction not available yet).`;
+    const capeShortNote = m.capeDataDays < 1825 ? ` ⚠ Only ${yrs}yr of data — a classic Shiller CAPE uses 10yr; this is a partial CAPE and reads closer to the plain P/E until more history exists.` : '';
     tiles.push(tile('cape', 'CAPE', c.toFixed(1)+'x',
       `${verdict} · ${coverage}`, col,
-      `Cyclically-Adjusted P/E: market P/E normalised using ${m.capeDataDays} days of earnings history, inflation-adjusted at 1.8%/yr Saudi CPI. Smooths out earnings cycles — CAPE <16 is historically cheap for TASI, >27 expensive. Classic Shiller CAPE uses 10 years; this figure has ${(m.capeDataDays/365).toFixed(1)}yr and becomes more reliable as the app accumulates more data.${capeShortNote}`));
+      `Cyclically-Adjusted P/E, inflation-adjusted at 1.8%/yr Saudi CPI. ${srcNote} Smooths out earnings cycles — CAPE <16 is historically cheap for TASI, >27 expensive.${capeShortNote}`));
   }
 
   // 9. Market P/S — price-to-sales (less earnings-cycle distortion)
@@ -13609,7 +13653,7 @@ function _renderMarketConditions() {
     const label = temp < 25 ? 'Cheap' : temp < 45 ? 'Mod. Cheap' : temp < 60 ? 'Fair' : temp < 75 ? 'Mod. Rich' : 'Expensive';
     const col = temp < 25 ? '#2ed573' : temp < 45 ? '#7bed9f' : temp < 60 ? '#f5a623' : temp < 75 ? '#ff7f50' : '#e74c3c';
     tiles.push(tile('overall', 'Overall Score', temp+'/100', label, col,
-      'Composite market valuation score (0 = cheap/fear, 100 = expensive/greed). Equally-weighted blend of all available indicators: P/E, ERP, Breadth×2, Div Yield, P/B, CAPE, P/S.'));
+      'Composite market valuation score (0 = cheap/fear, 100 = expensive/greed). Equally-weighted blend of P/E, Breadth >SMA-50 & >SMA-200, Dividend Yield, P/B and P/S. CAPE and ERP are shown as their own tiles but EXCLUDED from the blend — both are derived from the same earnings-yield signal as P/E, so including them would double-weight it.'));
   }
 
   tilesEl.innerHTML = tiles.join('');
@@ -14214,19 +14258,32 @@ function _renderIndicatorHistChart(ctx) {
     if (val != null && isFinite(val)) merged.set(d, { t: v.t, v: val });
   }
   // The reconstruction is the single authoritative source for every indicator it can
-  // compute (one consistent method/basket across all dates). Stored daily snapshots are
-  // used ONLY for CAPE, which needs a long running earnings history that can't be rebuilt
-  // from closes. Previously the stored values (written by the live tiles) overrode the
-  // reconstruction, but the live P/B used an average-of-ratios and the live P/S included
-  // Aramco — methods that differed from the reconstruction and produced a visible jump
-  // where the recent stored days met the older reconstructed line.
+  // compute (one consistent method/basket across all dates). CAPE is derived from the
+  // SAME reconstructed E/P series (rolling ≤10y inflation-adjusted average, ≥250 trading
+  // days) — the stored daily log is only a fallback for the brief window before statement
+  // coverage exists. Mixing live-tile methods over the reconstruction is avoided: past
+  // method mismatches (avg-of-ratios P/B, Aramco-inclusive P/S) drew visible jumps where
+  // the stored days met the reconstructed line.
   if (_mktValIndicator === 'cape') {
-    for (const e of rawHist) {
-      const val = e.cape;
-      if (val == null || !isFinite(val)) continue;
-      const t = new Date(e.d).getTime();
-      if (t < cutoffMs) continue;
-      merged.set(e.d, { t, v: val });
+    const cs = _capeSeriesFromRecon();
+    if (cs.length) {
+      for (const p of cs) { if (p.t >= cutoffMs) merged.set(p.d, { t: p.t, v: p.v }); }
+    } else {
+      for (const e of rawHist) {
+        const val = e.cape;
+        if (val == null || !isFinite(val)) continue;
+        const t = new Date(e.d).getTime();
+        if (t < cutoffMs) continue;
+        merged.set(e.d, { t, v: val });
+      }
+    }
+    // The CAPE series starts ~1yr after the reconstruction (needs a lookback window).
+    // When the plotted span is much shorter than the selected range, say so instead of
+    // letting a "5Y" button silently show a few points.
+    if (lblEl && merged.size) {
+      const ts = [...merged.values()].map(o => o.t);
+      const spanYr = (Math.max(...ts) - Math.min(...ts)) / (365.25 * 864e5);
+      lblEl.textContent = spanYr < (rangeDays / 365) * 0.6 ? `⚠ only ${spanYr < 0.1 ? Math.round(spanYr*365)+'d' : spanYr.toFixed(1)+'yr'} of CAPE history available` : '';
     }
   }
 
@@ -14290,6 +14347,7 @@ function _renderIndicatorHistChart(ctx) {
             grid:{display:false}, border:{color:'#232830'} },
         y:{ title:{display:true, text:meta.yLabel, color:'#4a5568', font:fontOpts},
             ticks:{font:fontOpts, color:'#4a5568', callback: v => meta.fmt(v)},
+            grace:'10%',   // headroom so a near-flat short series isn't auto-zoomed into a fake cliff
             grid:{color:'rgba(255,255,255,0.03)'}, border:{color:'#232830'} }
       }
     }
