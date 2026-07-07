@@ -15,7 +15,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260707a'; // bump this string on every deploy that matters
+  var V='20260707b'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -447,7 +447,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260707a · CAPE rebuilt on real history: the Shiller CAPE (tile + chart) is now computed from the same statement-based daily earnings-yield reconstruction as the P/E history chart (rolling ≤10-year inflation-adjusted window, minimum 1 year of lookback) instead of the app’s own 33-day usage log — so the CAPE chart now spans years like the P/E chart, the tile shows the real averaging span, a note appears when the plotted span is far shorter than the selected range button, chart y-axes get 10% headroom so near-flat short series no longer look like cliffs, and the Overall Score tooltip now correctly states that CAPE &amp; ERP are excluded from the blend (they double-weight the earnings-yield signal) · v20260702d · New “⚠ above FV” chip next to a BUY signal: when a stock scores BUY on quality/momentum but its price is already at or above the model’s fair value (no upside), an amber chip now flags it in the table, the mobile card, and the stock header. The signal stays score-based — the chip just surfaces the disagreement · v20260702b · Manual NAV updates now leave a visible, fixable trail: every “Save manual” records a dated ≈ valuation row in the asset’s history table, the chart &amp; TWR now track NAV updates between transactions, and the NAV panel shows the current saved price/date</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260707b · CAPE chart now explains its spans: a caption under the big number reads e.g. “line 2.5yr · data 3.5yr — each point averages ≥1yr of prior earnings history, so the line starts ~1yr after the data does”, resolving the apparent mismatch between the tile’s averaging window and the shorter plotted line · v20260707a · CAPE rebuilt on real history: the Shiller CAPE (tile + chart) is now computed from the same statement-based daily earnings-yield reconstruction as the P/E history chart (rolling ≤10-year inflation-adjusted window, minimum 1 year of lookback) instead of the app’s own 33-day usage log — so the CAPE chart now spans years like the P/E chart, the tile shows the real averaging span, a note appears when the plotted span is far shorter than the selected range button, chart y-axes get 10% headroom so near-flat short series no longer look like cliffs, and the Overall Score tooltip now correctly states that CAPE &amp; ERP are excluded from the blend (they double-weight the earnings-yield signal) · v20260702d · New “⚠ above FV” chip next to a BUY signal: when a stock scores BUY on quality/momentum but its price is already at or above the model’s fair value (no upside), an amber chip now flags it in the table, the mobile card, and the stock header. The signal stays score-based — the chip just surfaces the disagreement</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -14277,13 +14277,19 @@ function _renderIndicatorHistChart(ctx) {
         merged.set(e.d, { t, v: val });
       }
     }
-    // The CAPE series starts ~1yr after the reconstruction (needs a lookback window).
-    // When the plotted span is much shorter than the selected range, say so instead of
-    // letting a "5Y" button silently show a few points.
-    if (lblEl && merged.size) {
+    // The CAPE line starts ~1yr after the earnings data does (each point needs ≥250
+    // trading days of lookback), so the plotted span is ~1yr shorter than the tile's
+    // averaging window. State both spans explicitly — "3.5yr avg" on the tile next to a
+    // 2.5yr line otherwise reads as a bug.
+    if (lblEl && cs.length) {
+      const first = cs[0], last = cs[cs.length - 1];
+      const plotYr = (last.t - first.t) / (365.25 * 864e5);
+      const dataYr = last.spanMs / (365.25 * 864e5);
+      lblEl.textContent = `line ${plotYr.toFixed(1)}yr · data ${dataYr.toFixed(1)}yr — each point averages ≥1yr of prior earnings history, so the line starts ~1yr after the data does`;
+    } else if (lblEl && merged.size) {
       const ts = [...merged.values()].map(o => o.t);
       const spanYr = (Math.max(...ts) - Math.min(...ts)) / (365.25 * 864e5);
-      lblEl.textContent = spanYr < (rangeDays / 365) * 0.6 ? `⚠ only ${spanYr < 0.1 ? Math.round(spanYr*365)+'d' : spanYr.toFixed(1)+'yr'} of CAPE history available` : '';
+      lblEl.textContent = `⚠ only ${spanYr < 0.1 ? Math.round(spanYr*365)+'d' : spanYr.toFixed(1)+'yr'} of CAPE history available`;
     }
   }
 
