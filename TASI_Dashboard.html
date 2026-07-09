@@ -15,7 +15,7 @@
 // Auto-version check: forces a fresh load when a new version is deployed,
 // bypassing aggressive mobile browser caching.
 (function(){
-  var V='20260707b'; // bump this string on every deploy that matters
+  var V='20260707c'; // bump this string on every deploy that matters
   try{
     var u=new URL(location.href);
     if(u.searchParams.get('_v')!==V){
@@ -447,7 +447,7 @@ body.light .b-est { background:var(--bg3); color:var(--tx2); }
 <header class="topbar">
   <div class="logo">
     <div class="logo-icon">TA</div>
-    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260707b · CAPE chart now explains its spans: a caption under the big number reads e.g. “line 2.5yr · data 3.5yr — each point averages ≥1yr of prior earnings history, so the line starts ~1yr after the data does”, resolving the apparent mismatch between the tile’s averaging window and the shorter plotted line · v20260707a · CAPE rebuilt on real history: the Shiller CAPE (tile + chart) is now computed from the same statement-based daily earnings-yield reconstruction as the P/E history chart (rolling ≤10-year inflation-adjusted window, minimum 1 year of lookback) instead of the app’s own 33-day usage log — so the CAPE chart now spans years like the P/E chart, the tile shows the real averaging span, a note appears when the plotted span is far shorter than the selected range button, chart y-axes get 10% headroom so near-flat short series no longer look like cliffs, and the Overall Score tooltip now correctly states that CAPE &amp; ERP are excluded from the blend (they double-weight the earnings-yield signal) · v20260702d · New “⚠ above FV” chip next to a BUY signal: when a stock scores BUY on quality/momentum but its price is already at or above the model’s fair value (no upside), an amber chip now flags it in the table, the mobile card, and the stock header. The signal stays score-based — the chip just surfaces the disagreement</div></div>
+    <div><div class="logo-text">TASI STOCK SCREENER</div><div class="logo-sub" id="logo-sub">130+ Stocks · Watchlist · Portfolio · Compare · Vision 2030 · Arabic</div><div style="font-size:10px;color:var(--tx2);margin-top:2px;font-family:var(--mono)" id="ver-label" onclick="this.classList.toggle('expanded')" title="Tap to expand changelog">v20260707c · Fix: TWR no longer double-counts a DRIP’d dividend when you record both the dividend and the ♻ Reinvest transaction (the correct way) — the reinvested amount is netted out of that month’s dividend income since its value already appears as new units. All four recording styles (cash dividend; dividend + plain buy; DRIP only; dividend + DRIP) now produce the same correct monthly return · v20260707b · CAPE chart now explains its spans: a caption under the big number reads e.g. “line 2.5yr · data 3.5yr — each point averages ≥1yr of prior earnings history, so the line starts ~1yr after the data does” · v20260707a · CAPE rebuilt on real history: the Shiller CAPE (tile + chart) is now computed from the same statement-based daily earnings-yield reconstruction as the P/E history chart (rolling ≤10-year inflation-adjusted window, minimum 1 year of lookback) instead of the app’s own 33-day usage log — so the CAPE chart now spans years like the P/E chart, the tile shows the real averaging span, a note appears when the plotted span is far shorter than the selected range button, chart y-axes get 10% headroom so near-flat short series no longer look like cliffs, and the Overall Score tooltip now correctly states that CAPE &amp; ERP are excluded from the blend (they double-weight the earnings-yield signal)</div></div>
   </div>
   <div class="tr" style="flex-wrap:wrap;gap:5px">
     <span class="lu" id="lu">Not loaded</span>
@@ -1946,7 +1946,7 @@ function _portV3TimeSeries() {
   // On a sell we shrink the accumulated reinvested amount proportionally so it tracks remaining basis.
   // flow = ACTUAL external cash that month: buys at cost paid + fees, minus sale PROCEEDS (price×units,
   // not the avg-cost basis reduction — otherwise realized gains vanish from TWR). DRIP is internal: no flow.
-  const flowByM = {}, divByM = {};
+  const flowByM = {}, divByM = {}, reinvByM = {};
   const perAsset = assets.map(a => { const fx = _pv3Fx(a); let cumReinv = 0, prevCost = 0, prevQty = 0;
     for (const dv of (a.dividends||[])) { const m = (dv.d||'').slice(0,7); if (m) divByM[m] = (divByM[m]||0) + (dv.amount||0); }
     return (a.history||[]).slice()
@@ -1954,7 +1954,7 @@ function _portV3TimeSeries() {
     .map(h => {
       const c = (h.cost||0), q = (h.qty||0), m = (h.d||'').slice(0,7);
       const dc = c - prevCost, dq = q - prevQty;
-      if (h.reinvest) { cumReinv += (h.reinvestAmt||0); anyDrip = true; }
+      if (h.reinvest) { cumReinv += (h.reinvestAmt||0); anyDrip = true; reinvByM[m] = (reinvByM[m]||0) + (h.reinvestAmt||0) * fx; }
       else if (dq < -1e-9) {
         if (prevCost > 0) cumReinv *= Math.max(0, c / prevCost);           // sell: reduce reinvested basis pro-rata
         const proceeds = (h.price > 0 ? h.price * (-dq) : -dc) * fx;       // real cash out at sale price
@@ -1975,7 +1975,12 @@ function _portV3TimeSeries() {
       if (last) { c += last.cost; cc += last.cashCost; v += last.mv; }
     }
     cost.push(Math.round(c)); cashCost.push(Math.round(cc)); mv.push(Math.round(v));
-    flows.push(Math.round(flowByM[m]||0)); divs.push(Math.round(divByM[m]||0));
+    flows.push(Math.round(flowByM[m]||0));
+    // Net REINVESTED dividends out of the month's dividend income: a DRIP'd dividend's
+    // value already shows up as market-value growth (new units, zero flow), so counting
+    // the recorded dividend too would double it in the monthly return. Clamped at 0 for
+    // users who mark the DRIP without recording the dividend (mv growth alone is right).
+    divs.push(Math.round(Math.max(0, (divByM[m]||0) - (reinvByM[m]||0))));
   }
   return { months, cost, cashCost, mv, flows, divs, anyDrip };
 }
